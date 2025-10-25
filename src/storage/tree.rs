@@ -116,6 +116,52 @@ impl Tree {
     pub fn next_index(&self, kind: &str) -> usize {
         self.next_indices.get(kind).copied().unwrap_or(1)
     }
+
+    /// Returns an iterator over all requirements in the tree.
+    pub fn requirements(&self) -> impl Iterator<Item = &Requirement> {
+        self.requirements.iter()
+    }
+
+    /// Returns the number of requirements in the tree.
+    pub fn len(&self) -> usize {
+        self.requirements.len()
+    }
+
+    /// Returns true if the tree contains no requirements.
+    pub fn is_empty(&self) -> bool {
+        self.requirements.is_empty()
+    }
+
+    /// Removes a requirement from the tree by UUID.
+    /// Returns the removed requirement if it existed.
+    pub fn remove(&mut self, uuid: Uuid) -> Option<Requirement> {
+        let idx = self.index.remove(&uuid)?;
+
+        // Update all indices that come after the removed requirement
+        for entry_uuid in self.index.values_mut() {
+            if *entry_uuid > idx {
+                *entry_uuid -= 1;
+            }
+        }
+
+        let requirement = self.requirements.remove(idx);
+
+        // Update the next_index for this kind if this was the highest
+        let kind = requirement.hrid().kind();
+        let id = requirement.hrid().id();
+        if let Some(next_idx) = self.next_indices.get_mut(kind) {
+            // Check if any remaining requirements of this kind have a higher ID
+            let max_id = self.requirements
+                .iter()
+                .filter(|r| r.hrid().kind() == kind)
+                .map(|r| r.hrid().id())
+                .max();
+
+            *next_idx = max_id.map_or(1, |max| max + 1);
+        }
+
+        Some(requirement)
+    }
 }
 
 #[cfg(test)]

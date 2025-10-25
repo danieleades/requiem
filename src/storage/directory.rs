@@ -199,6 +199,134 @@ impl Directory<Loaded> {
         Ok(requirement)
     }
 
+    /// Returns an iterator over all requirements in the directory.
+    pub fn requirements(&self) -> impl Iterator<Item = &Requirement> {
+        self.state.0.requirements()
+    }
+
+    /// Returns the number of requirements in the directory.
+    pub fn len(&self) -> usize {
+        self.state.0.len()
+    }
+
+    /// Returns true if the directory contains no requirements.
+    pub fn is_empty(&self) -> bool {
+        self.state.0.is_empty()
+    }
+
+    /// Removes a requirement from the directory by HRID.
+    ///
+    /// # Errors
+    ///
+    /// This method can fail if:
+    ///
+    /// - the requirement file cannot be found
+    /// - the requirement file cannot be loaded
+    /// - the requirement file cannot be deleted
+    pub fn remove_requirement(&mut self, hrid: Hrid) -> Result<Requirement, RemoveRequirementError> {
+        let requirement = self.load_requirement(hrid)?;
+        let uuid = requirement.uuid();
+
+        // Remove from tree
+        self.state.0.remove(uuid)
+            .ok_or(RemoveRequirementError::NotFound)?;
+
+        // Delete the file
+        let path = self.root.join(requirement.hrid().to_string()).with_extension("md");
+        std::fs::remove_file(path)?;
+
+        tracing::info!("Removed requirement: {}", requirement.hrid());
+
+        Ok(requirement)
+    }
+
+    /// Removes a parent link from a child requirement.
+    ///
+    /// # Errors
+    ///
+    /// This method can fail if:
+    ///
+    /// - the child requirement cannot be found or loaded
+    /// - the parent requirement cannot be found or loaded
+    /// - the child requirement file cannot be written to
+    pub fn unlink_requirement(&self, child: Hrid, parent: Hrid) -> Result<Requirement, LoadError> {
+        let child_req = self.load_requirement(child)?;
+        let parent_req = self.load_requirement(parent)?;
+
+        // Remove the parent by filtering it out
+        let parent_uuid = parent_req.uuid();
+        let had_parent = child_req.parents().any(|(uuid, _)| uuid == parent_uuid);
+
+        if !had_parent {
+            tracing::warn!("Parent {} not found in child {}", parent_req.hrid(), child_req.hrid());
+            return Ok(child_req);
+        }
+
+        // Reconstruct the requirement with the parent removed
+        let parents: Vec<_> = child_req.parents()
+            .filter(|(uuid, _)| *uuid != parent_uuid)
+            .map(|(uuid, parent)| (uuid, parent.clone()))
+            .collect();
+
+        // Create a new requirement with updated parents
+        let mut new_req = Requirement::new_with_metadata(
+            child_req.hrid().clone(),
+            child_req.content().to_string(),
+            child_req.uuid(),
+            child_req.created(),
+        );
+
+        // Re-add all tags
+        new_req.set_tags(child_req.tags().clone());
+
+        // Re-add remaining parents
+        for (uuid, parent) in parents {
+            new_req.add_parent(uuid, parent);
+        }
+
+        new_req.save(&self.root)?;
+
+        tracing::info!("Unlinked {} from {}", child_req.hrid(), parent_req.hrid());
+
+        Ok(new_req)
+    }
+
+    /// Updates the content of a requirement.
+    ///
+    /// # Errors
+    ///
+    /// This method can fail if:
+    ///
+    /// - the requirement cannot be found or loaded
+    /// - the requirement file cannot be written to
+    pub fn edit_requirement(&mut self, hrid: Hrid, new_content: String) -> Result<Requirement, LoadError> {
+        let requirement = self.load_requirement(hrid.clone())?;
+
+        // Create a new requirement with updated content
+        let mut updated = Requirement::new_with_metadata(
+            requirement.hrid().clone(),
+            new_content,
+            requirement.uuid(),
+            requirement.created(),
+        );
+
+        // Preserve tags and parents
+        updated.set_tags(requirement.tags().clone());
+        for (uuid, parent) in requirement.parents() {
+            updated.add_parent(uuid, parent.clone());
+        }
+
+        updated.save(&self.root)?;
+
+        // Update in tree
+        self.state.0.remove(requirement.uuid());
+        self.state.0.insert(updated.clone());
+
+        tracing::info!("Updated requirement: {}", updated.hrid());
+
+        Ok(updated)
+    }
+
     /// Update the human-readable IDs (HRIDs) of all 'parents' references in the
     /// requirements.
     ///
@@ -238,6 +366,16 @@ impl Directory<Loaded> {
 #[error("failed to add requirement: {0}")]
 pub enum AddRequirementError {
     Kind(#[from] EmptyStringError),
+    Io(#[from] io::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RemoveRequirementError {
+    #[error("requirement not found")]
+    NotFound,
+    #[error("failed to load requirement: {0}")]
+    Load(#[from] LoadError),
+    #[error("failed to delete requirement file: {0}")]
     Io(#[from] io::Error),
 }
 

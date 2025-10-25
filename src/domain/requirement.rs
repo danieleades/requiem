@@ -81,6 +81,15 @@ impl Requirement {
     }
 
     pub(crate) fn new_with_uuid(hrid: Hrid, content: String, uuid: Uuid) -> Self {
+        Self::new_with_metadata(hrid, content, uuid, Utc::now())
+    }
+
+    pub(crate) fn new_with_metadata(
+        hrid: Hrid,
+        content: String,
+        uuid: Uuid,
+        created: DateTime<Utc>,
+    ) -> Self {
         let content = Content {
             content,
             tags: BTreeSet::default(),
@@ -89,7 +98,7 @@ impl Requirement {
         let metadata = Metadata {
             uuid,
             hrid,
-            created: Utc::now(),
+            created,
             parents: HashMap::new(),
         };
 
