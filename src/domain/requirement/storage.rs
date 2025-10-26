@@ -78,7 +78,7 @@ impl MarkdownRequirement {
     ///
     /// Parent directories are created automatically if they don't exist.
     pub fn save(&self, root: &Path, config: &crate::domain::Config) -> io::Result<()> {
-        use crate::storage::path_parser::construct_path_from_hrid;
+        use crate::storage::construct_path_from_hrid;
 
         let file_path = construct_path_from_hrid(
             root,
@@ -107,7 +107,7 @@ impl MarkdownRequirement {
         hrid: Hrid,
         config: &crate::domain::Config,
     ) -> Result<Self, LoadError> {
-        use crate::storage::path_parser::construct_path_from_hrid;
+        use crate::storage::construct_path_from_hrid;
 
         let file_path = construct_path_from_hrid(
             root,

@@ -12,7 +12,7 @@ use uuid::Uuid;
 pub use crate::domain::requirement::storage::LoadError;
 use crate::domain::{requirement::storage::MarkdownRequirement, Hrid};
 
-mod storage;
+pub mod storage;
 
 /// A requirement is a document used to describe a system.
 ///

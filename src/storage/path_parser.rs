@@ -18,7 +18,7 @@ use std::{
 
 use non_empty_string::NonEmptyString;
 
-use crate::domain::{hrid::Error as HridError, Hrid};
+use crate::domain::{Hrid, HridError};
 
 /// Parse HRID from a file path.
 ///
@@ -42,12 +42,12 @@ pub fn parse_hrid_from_path(
         .and_then(|s| s.to_str())
         .ok_or(ParseError::InvalidPath)?;
 
-    if !subfolders_are_namespaces {
-        // Current behavior: parse HRID from filename only
-        Hrid::from_str(filename_stem).map_err(ParseError::Hrid)
-    } else {
+    if subfolders_are_namespaces {
         // Path-based: extract namespace from subfolders
         parse_with_namespace_from_path(path, root, filename_stem)
+    } else {
+        // Current behavior: parse HRID from filename only
+        Hrid::from_str(filename_stem).map_err(ParseError::Hrid)
     }
 }
 
@@ -70,10 +70,7 @@ pub fn construct_path_from_hrid(
     subfolders_are_namespaces: bool,
     digits: usize,
 ) -> PathBuf {
-    if !subfolders_are_namespaces {
-        // Filename-based: root/FULL-HRID.md
-        root.join(hrid.to_string()).with_extension("md")
-    } else {
+    if subfolders_are_namespaces {
         // Path-based: root/namespace/folders/KIND-ID.md
         let mut path = root.to_path_buf();
 
@@ -86,6 +83,9 @@ pub fn construct_path_from_hrid(
         let filename = format!("{}-{:0width$}", hrid.kind(), hrid.id(), width = digits);
         path.push(filename);
         path.with_extension("md")
+    } else {
+        // Filename-based: root/FULL-HRID.md
+        root.join(hrid.to_string()).with_extension("md")
     }
 }
 
@@ -191,24 +191,31 @@ fn parse_kind_in_filename(components: &[String], filename_stem: &str) -> Result<
 /// Errors that can occur during path parsing
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
+    /// The file path is invalid or cannot be parsed.
     #[error("Invalid file path")]
     InvalidPath,
 
+    /// The HRID format in the filename is invalid.
     #[error("Invalid HRID format: {0}")]
     InvalidFormat(String),
 
+    /// The KIND component is missing from the path.
     #[error("Missing KIND in path")]
     MissingKind,
 
+    /// The KIND component is invalid.
     #[error("Invalid KIND")]
     InvalidKind,
 
+    /// A namespace segment is invalid.
     #[error("Invalid namespace segment")]
     InvalidNamespace,
 
+    /// The ID component is invalid.
     #[error("Invalid ID: {0}")]
     InvalidId(String),
 
+    /// An error occurred while parsing the HRID.
     #[error("HRID parsing error: {0}")]
     Hrid(#[from] HridError),
 }
