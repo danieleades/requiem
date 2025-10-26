@@ -1133,3 +1133,505 @@ impl fmt::Display for OutputFormat {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Duration, TimeZone, Utc};
+    use regex::Regex;
+    use requiem::Directory;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+    use uuid::Uuid;
+
+    fn sample_entries() -> (Vec<Entry>, HashMap<Uuid, usize>) {
+        let base_time = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+
+        let root_uuid = Uuid::new_v4();
+        let child_uuid = Uuid::new_v4();
+        let leaf_uuid = Uuid::new_v4();
+
+        let root_hrid = Hrid::try_from("SYS-001").unwrap();
+        let child_hrid = Hrid::try_from("SYS-002").unwrap();
+        let leaf_hrid = Hrid::new_with_namespace(
+            vec!["System".to_string(), "Auth".to_string()],
+            "USR".to_string(),
+            7,
+        )
+        .unwrap();
+
+        let mut root = Entry {
+            uuid: root_uuid,
+            hrid: root_hrid.clone(),
+            title: Some("Root".to_string()),
+            tags: vec!["core".to_string()],
+            created: base_time,
+            content: "# Root requirement\nPrimary".to_string(),
+            parents: Vec::new(),
+            children: Vec::new(),
+            path: PathBuf::from("SYS-001.md"),
+        };
+
+        let mut child = Entry {
+            uuid: child_uuid,
+            hrid: child_hrid.clone(),
+            title: Some("Child".to_string()),
+            tags: Vec::new(),
+            created: base_time + Duration::days(1),
+            content: "## Child details\nImplements root".to_string(),
+            parents: vec![LinkRef::new(root_uuid, root_hrid.clone())],
+            children: Vec::new(),
+            path: PathBuf::from("SYS-002.md"),
+        };
+
+        let leaf = Entry {
+            uuid: leaf_uuid,
+            hrid: leaf_hrid.clone(),
+            title: Some("Login".to_string()),
+            tags: vec!["Security".to_string(), "UI".to_string()],
+            created: base_time + Duration::days(2),
+            content: "Implements login".to_string(),
+            parents: vec![LinkRef::new(child_uuid, child_hrid.clone())],
+            children: Vec::new(),
+            path: PathBuf::from("system/auth/USR-007.md"),
+        };
+
+        root.children
+            .push(LinkRef::new(child_uuid, child_hrid.clone()));
+        child
+            .children
+            .push(LinkRef::new(leaf_uuid, leaf_hrid.clone()));
+
+        let entries = vec![root, child, leaf];
+        let mut index = HashMap::new();
+        for (idx, entry) in entries.iter().enumerate() {
+            index.insert(entry.uuid, idx);
+        }
+
+        (entries, index)
+    }
+
+    fn empty_filters() -> Filters {
+        Filters {
+            kinds: Vec::new(),
+            namespaces: Vec::new(),
+            tags: Vec::new(),
+            orphans: false,
+            leaves: false,
+            contains: None,
+            regex: None,
+        }
+    }
+
+    #[test]
+    fn extract_title_prefers_headings_and_fallbacks() {
+        assert_eq!(
+            extract_title("# Heading\nBody"),
+            Some("Heading".to_string())
+        );
+        assert_eq!(
+            extract_title("  Plain content\nMore"),
+            Some("Plain content".to_string())
+        );
+        assert_eq!(extract_title(""), None);
+    }
+
+    #[test]
+    fn filters_match_combined_conditions() {
+        let (entries, _) = sample_entries();
+        let leaf = &entries[2];
+
+        let build_filters = || Filters {
+            kinds: vec!["usr".to_string()],
+            namespaces: vec!["auth".to_string()],
+            tags: vec!["security".to_string()],
+            orphans: false,
+            leaves: false,
+            contains: Some("login".to_string()),
+            regex: Some(Regex::new("Login").unwrap()),
+        };
+
+        let filters = build_filters();
+        assert!(filters.matches(leaf));
+
+        let mut filters_with_orphans = build_filters();
+        filters_with_orphans.orphans = true;
+        assert!(!filters_with_orphans.matches(leaf));
+
+        let mut filters_with_leaves = build_filters();
+        filters_with_leaves.leaves = true;
+        assert!(filters_with_leaves.matches(leaf));
+
+        let mut filters_with_tags = build_filters();
+        filters_with_tags.tags = vec!["missing".to_string()];
+        assert!(!filters_with_tags.matches(leaf));
+    }
+
+    #[test]
+    fn produce_direction_rows_walks_graph() {
+        let (entries, index) = sample_entries();
+        let filters = empty_filters();
+        let target = vec![2];
+
+        let parents = produce_direction_rows(
+            View::Ancestors,
+            &entries,
+            &index,
+            &filters,
+            &target,
+            Some(2),
+        );
+        assert_eq!(parents.len(), 2);
+        assert!(parents
+            .iter()
+            .any(|row| entries[row.index].hrid.to_string() == "SYS-001"));
+
+        let children = produce_direction_rows(
+            View::Descendants,
+            &entries,
+            &index,
+            &filters,
+            &vec![0],
+            Some(3),
+        );
+        assert_eq!(children.len(), 2);
+        assert!(children
+            .iter()
+            .any(|row| entries[row.index].hrid.to_string().contains("USR-007")));
+    }
+
+    #[test]
+    fn produce_tree_rows_and_context() {
+        let (entries, index) = sample_entries();
+        let filters = empty_filters();
+
+        let mut rows = produce_tree_rows(&entries, &index, &filters, &[0], Some(5));
+        assert!(rows.iter().any(|row| row.depth == 2));
+
+        rows = augment_with_context(
+            &entries,
+            &index,
+            vec![Row {
+                index: 1,
+                direction: Direction::None,
+                depth: 0,
+            }],
+            2,
+        );
+
+        assert!(rows
+            .iter()
+            .any(|row| entries[row.index].hrid.to_string() == "SYS-001"));
+        assert!(rows
+            .iter()
+            .any(|row| entries[row.index].hrid.to_string().contains("USR-007")));
+    }
+
+    #[test]
+    fn append_unique_rows_avoids_duplicates() {
+        let mut rows = vec![Row {
+            index: 0,
+            direction: Direction::None,
+            depth: 0,
+        }];
+
+        append_unique_rows(
+            &mut rows,
+            vec![
+                Row {
+                    index: 0,
+                    direction: Direction::None,
+                    depth: 1,
+                },
+                Row {
+                    index: 1,
+                    direction: Direction::Down,
+                    depth: 1,
+                },
+            ],
+        );
+
+        assert_eq!(rows.len(), 2);
+    }
+
+    #[test]
+    fn apply_sort_orders_by_fields() {
+        let (entries, _) = sample_entries();
+        let rows = vec![
+            Row {
+                index: 1,
+                direction: Direction::None,
+                depth: 1,
+            },
+            Row {
+                index: 0,
+                direction: Direction::None,
+                depth: 0,
+            },
+            Row {
+                index: 2,
+                direction: Direction::None,
+                depth: 2,
+            },
+        ];
+
+        let ordered = apply_sort(rows.clone(), &entries, SortField::Hrid);
+        assert_eq!(entries[ordered[0].index].hrid.to_string(), "SYS-001");
+
+        let ordered_kind = apply_sort(rows.clone(), &entries, SortField::Kind);
+        assert_eq!(entries[ordered_kind[0].index].hrid.kind(), "SYS");
+
+        let ordered_title = apply_sort(rows.clone(), &entries, SortField::Title);
+        assert_eq!(
+            entries[ordered_title[0].index].title.as_deref(),
+            Some("Child")
+        );
+
+        let ordered_created = apply_sort(rows, &entries, SortField::Created);
+        assert_eq!(
+            entries[ordered_created[0].index].hrid.to_string(),
+            "SYS-001"
+        );
+    }
+
+    #[test]
+    fn apply_offset_limit_slices_rows() {
+        let rows = vec![
+            Row {
+                index: 0,
+                direction: Direction::None,
+                depth: 0,
+            },
+            Row {
+                index: 1,
+                direction: Direction::None,
+                depth: 0,
+            },
+            Row {
+                index: 2,
+                direction: Direction::None,
+                depth: 0,
+            },
+        ];
+
+        let truncated = apply_offset_limit(rows.clone(), Some(1), Some(1));
+        assert_eq!(truncated.len(), 1);
+        assert_eq!(truncated[0].index, 1);
+
+        let cleared = apply_offset_limit(rows, Some(5), None);
+        assert!(cleared.is_empty());
+    }
+
+    #[test]
+    fn render_rows_supports_all_formats() {
+        let (entries, _) = sample_entries();
+        let rows = vec![
+            Row {
+                index: 0,
+                direction: Direction::None,
+                depth: 0,
+            },
+            Row {
+                index: 1,
+                direction: Direction::Down,
+                depth: 1,
+            },
+        ];
+
+        render_rows(
+            rows.clone(),
+            &entries,
+            &[ListColumn::Hrid, ListColumn::Title, ListColumn::Tags],
+            OutputFormat::Table,
+            false,
+            false,
+        )
+        .unwrap();
+
+        render_rows(
+            rows.clone(),
+            &entries,
+            &[ListColumn::Hrid],
+            OutputFormat::Table,
+            true,
+            false,
+        )
+        .unwrap();
+
+        render_rows(
+            rows.clone(),
+            &entries,
+            &[
+                ListColumn::Hrid,
+                ListColumn::Title,
+                ListColumn::Path,
+                ListColumn::Created,
+            ],
+            OutputFormat::Json,
+            false,
+            false,
+        )
+        .unwrap();
+
+        render_rows(
+            rows.clone(),
+            &entries,
+            &[ListColumn::Hrid, ListColumn::Title, ListColumn::Tags],
+            OutputFormat::Csv,
+            false,
+            false,
+        )
+        .unwrap();
+
+        render_rows(
+            rows,
+            &entries,
+            &[ListColumn::Hrid],
+            OutputFormat::Table,
+            false,
+            true,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn prefix_value_adds_direction_markers() {
+        assert_eq!(
+            prefix_value("value".to_string(), Direction::None, 0),
+            "value"
+        );
+        assert_eq!(
+            prefix_value("value".to_string(), Direction::Up, 1),
+            "↑ value"
+        );
+        assert_eq!(
+            prefix_value("value".to_string(), Direction::Down, 3),
+            "↓↓↓ value"
+        );
+    }
+
+    #[test]
+    fn build_serializable_row_populates_fields() {
+        let (entries, _) = sample_entries();
+        let entry = &entries[2];
+        let row = build_serializable_row(
+            entry,
+            &[
+                ListColumn::Hrid,
+                ListColumn::Title,
+                ListColumn::Kind,
+                ListColumn::Namespace,
+                ListColumn::Parents,
+                ListColumn::Children,
+                ListColumn::Tags,
+                ListColumn::Path,
+                ListColumn::Created,
+            ],
+        );
+
+        assert_eq!(row.hrid, entry.hrid.to_string());
+        assert_eq!(row.title, entry.title.as_deref());
+        assert_eq!(row.kind, Some(entry.hrid.kind()));
+        assert_eq!(row.namespace.as_deref(), Some("System-Auth"));
+        assert!(row.parents.as_ref().unwrap().contains("SYS-002"));
+        assert!(row.children.is_none());
+        assert!(row.tags.as_ref().unwrap().contains("Security"));
+        assert_eq!(row.path.as_deref(), Some("system/auth/USR-007.md"));
+        assert!(row.created.is_some());
+    }
+
+    #[test]
+    fn csv_escape_quotes_and_commas() {
+        assert_eq!(csv_escape("simple"), "simple");
+        assert_eq!(csv_escape("needs,comma"), "\"needs,comma\"");
+        assert_eq!(csv_escape("quote\"here"), "\"quote\"\"here\"");
+    }
+
+    #[test]
+    fn parse_hrid_accepts_valid_values() {
+        let hrid = parse_hrid("SYS-001").unwrap();
+        assert_eq!(hrid.to_string(), "SYS-001");
+    }
+
+    #[test]
+    fn output_format_display_matches_expected_strings() {
+        assert_eq!(OutputFormat::Table.to_string(), "table");
+        assert_eq!(OutputFormat::Json.to_string(), "json");
+        assert_eq!(OutputFormat::Csv.to_string(), "csv");
+    }
+
+    #[test]
+    fn resolve_depth_zero_becomes_unbounded() {
+        assert_eq!(resolve_depth(Some(0), 2), usize::MAX);
+        assert_eq!(resolve_depth(None, 3), 3);
+    }
+
+    #[test]
+    fn list_run_covers_views_and_formats() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+
+        let mut directory = Directory::new(root.clone()).load_all().unwrap();
+        let parent = directory
+            .add_requirement("SYS".to_string(), "# Parent".to_string())
+            .unwrap();
+        let child = directory
+            .add_requirement("USR".to_string(), "# Child\nImplements parent".to_string())
+            .unwrap();
+
+        Directory::new(root.clone())
+            .link_requirement(child.hrid().clone(), parent.hrid().clone())
+            .unwrap();
+
+        fn base_list() -> List {
+            List {
+                targets: Vec::new(),
+                columns: vec![
+                    ListColumn::Hrid,
+                    ListColumn::Title,
+                    ListColumn::Parents,
+                    ListColumn::Children,
+                    ListColumn::Tags,
+                ],
+                sort: SortField::Hrid,
+                output: OutputFormat::Table,
+                quiet: false,
+                kind: Vec::new(),
+                namespace: Vec::new(),
+                tag: Vec::new(),
+                orphans: false,
+                leaves: false,
+                contains: None,
+                regex: None,
+                view: View::Summary,
+                depth: None,
+                limit: Some(10),
+                offset: Some(0),
+            }
+        }
+
+        let mut table = base_list();
+        table.sort = SortField::Title;
+        table.run(root.clone()).unwrap();
+
+        let mut json = base_list();
+        json.output = OutputFormat::Json;
+        json.view = View::Context;
+        json.depth = Some(1);
+        json.targets = vec![child.hrid().clone()];
+        json.run(root.clone()).unwrap();
+
+        let mut csv = base_list();
+        csv.output = OutputFormat::Csv;
+        csv.quiet = true;
+        csv.offset = Some(1);
+        csv.limit = Some(1);
+        csv.run(root.clone()).unwrap();
+
+        let mut tree = base_list();
+        tree.view = View::Tree;
+        tree.depth = Some(2);
+        tree.run(root).unwrap();
+    }
+}
