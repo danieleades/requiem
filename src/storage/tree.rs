@@ -25,6 +25,7 @@ pub struct Tree {
 }
 
 impl Tree {
+    /// Creates a new tree with pre-allocated capacity for the given number of requirements.
     #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
@@ -53,7 +54,8 @@ impl Tree {
         let kind = hrid.kind();
         let suffix = hrid.id();
 
-        self.next_indices
+        let _ = self
+            .next_indices
             .entry(kind.to_string())
             .and_modify(|i| *i = (*i).max(suffix + 1))
             .or_insert(suffix + 1);
@@ -231,11 +233,17 @@ impl Tree {
 /// Information about a suspect link
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SuspectLink {
+    /// The UUID of the child requirement.
     pub child_uuid: Uuid,
+    /// The HRID of the child requirement.
     pub child_hrid: Hrid,
+    /// The UUID of the parent requirement.
     pub parent_uuid: Uuid,
+    /// The HRID of the parent requirement.
     pub parent_hrid: Hrid,
+    /// The fingerprint stored in the child's parent reference.
     pub stored_fingerprint: String,
+    /// The current fingerprint of the parent requirement.
     pub current_fingerprint: String,
 }
 

@@ -26,6 +26,10 @@ this is a work in progress, and will be updated as features are implemented
 - [ ] Generate coverage reports
 - [ ] Import and export requirements in standard formats
 
+## Documentation
+
+For comprehensive documentation, visit the [Requiem documentation site](https://danieleades.github.io/requirements/).
+
 ## Installation
 
 ```sh

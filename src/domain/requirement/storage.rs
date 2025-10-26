@@ -30,7 +30,7 @@ impl MarkdownRequirement {
         writer.write_all(result.as_bytes())
     }
 
-    fn read<R: BufRead>(reader: &mut R, hrid: Hrid) -> Result<Self, LoadError> {
+    pub(crate) fn read<R: BufRead>(reader: &mut R, hrid: Hrid) -> Result<Self, LoadError> {
         let mut lines = reader.lines();
 
         // Ensure frontmatter starts correctly
@@ -70,30 +70,57 @@ impl MarkdownRequirement {
         })
     }
 
-    /// Writes the requirement to the given file path.
-    /// Creates the file if it doesn't exist, or overwrites it if it does.
+    /// Writes the requirement to a file path constructed using the given config.
     ///
-    /// Note the path here is the path to the directory. The filename is
-    /// determined by the HRID
-    pub fn save(&self, path: &Path) -> io::Result<()> {
-        let file = File::create(path.join(self.hrid.to_string()).with_extension("md"))?;
+    /// The path construction respects the `subfolders_are_namespaces` setting:
+    /// - If `false`: file is saved as `root/FULL-HRID.md`
+    /// - If `true`: file is saved as `root/namespace/folders/KIND-ID.md`
+    ///
+    /// Parent directories are created automatically if they don't exist.
+    pub fn save(&self, root: &Path, config: &crate::domain::Config) -> io::Result<()> {
+        use crate::storage::construct_path_from_hrid;
+
+        let file_path = construct_path_from_hrid(
+            root,
+            &self.hrid,
+            config.subfolders_are_namespaces,
+            config.digits(),
+        );
+
+        // Create parent directories if needed
+        if let Some(parent) = file_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let file = File::create(file_path)?;
         let mut writer = BufWriter::new(file);
         self.write(&mut writer)
     }
 
-    /// Reads a requirement from the given file path.
+    /// Reads a requirement using the given configuration.
     ///
-    ///
-    /// Note the path here is the path to the directory. The filename is
-    /// determined by the HRID
-    pub fn load(path: &Path, hrid: Hrid) -> Result<Self, LoadError> {
-        let file =
-            File::open(path.join(hrid.to_string()).with_extension("md")).map_err(|io_error| {
-                match io_error.kind() {
-                    io::ErrorKind::NotFound => LoadError::NotFound,
-                    _ => LoadError::Io(io_error),
-                }
-            })?;
+    /// The path construction respects the `subfolders_are_namespaces` setting:
+    /// - If `false`: loads from `root/FULL-HRID.md`
+    /// - If `true`: loads from `root/namespace/folders/KIND-ID.md`
+    pub fn load(
+        root: &Path,
+        hrid: Hrid,
+        config: &crate::domain::Config,
+    ) -> Result<Self, LoadError> {
+        use crate::storage::construct_path_from_hrid;
+
+        let file_path = construct_path_from_hrid(
+            root,
+            &hrid,
+            config.subfolders_are_namespaces,
+            config.digits(),
+        );
+
+        let file = File::open(&file_path).map_err(|io_error| match io_error.kind() {
+            io::ErrorKind::NotFound => LoadError::NotFound,
+            _ => LoadError::Io(io_error),
+        })?;
+
         let mut reader = BufReader::new(file);
         Self::read(&mut reader, hrid)
     }
@@ -470,11 +497,13 @@ Content";
         };
 
         // Test save
-        let save_result = requirement.save(temp_dir.path());
+        let config = crate::domain::Config::default();
+        let save_result = requirement.save(temp_dir.path(), &config);
         assert!(save_result.is_ok());
 
         // Test load
-        let loaded_requirement = MarkdownRequirement::load(temp_dir.path(), hrid.clone()).unwrap();
+        let loaded_requirement =
+            MarkdownRequirement::load(temp_dir.path(), hrid.clone(), &config).unwrap();
         assert_eq!(loaded_requirement.hrid, hrid);
         assert_eq!(loaded_requirement.content, content);
         assert_eq!(loaded_requirement.frontmatter, frontmatter);
@@ -483,8 +512,12 @@ Content";
     #[test]
     fn load_nonexistent_file() {
         let temp_dir = TempDir::new().unwrap();
-        let result =
-            MarkdownRequirement::load(temp_dir.path(), Hrid::new("REQ".to_string(), 1).unwrap());
+        let config = crate::domain::Config::default();
+        let result = MarkdownRequirement::load(
+            temp_dir.path(),
+            Hrid::new("REQ".to_string(), 1).unwrap(),
+            &config,
+        );
         assert!(matches!(result, Err(LoadError::NotFound)));
     }
 

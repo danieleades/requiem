@@ -12,7 +12,7 @@ use uuid::Uuid;
 pub use crate::domain::requirement::storage::LoadError;
 use crate::domain::{requirement::storage::MarkdownRequirement, Hrid};
 
-mod storage;
+pub mod storage;
 
 /// A requirement is a document used to describe a system.
 ///
@@ -177,30 +177,37 @@ impl Requirement {
             .map(|(&id, parent)| (id, parent))
     }
 
-    /// Reads a requirement from the given file path.
+    /// Reads a requirement using the given configuration.
     ///
-    /// Note the path here is the path to the directory. The filename is
-    /// determined by the HRID
+    /// The path construction respects the `subfolders_are_namespaces` setting:
+    /// - If `false`: loads from `root/FULL-HRID.md`
+    /// - If `true`: loads from `root/namespace/folders/KIND-ID.md`
     ///
     /// # Errors
     ///
     /// Returns an error if the file does not exist, cannot be read from, or has
     /// malformed YAML frontmatter.
-    pub fn load(path: &Path, hrid: Hrid) -> Result<Self, LoadError> {
-        Ok(MarkdownRequirement::load(path, hrid)?.try_into()?)
+    pub fn load(
+        root: &Path,
+        hrid: Hrid,
+        config: &crate::domain::Config,
+    ) -> Result<Self, LoadError> {
+        Ok(MarkdownRequirement::load(root, hrid, config)?.try_into()?)
     }
 
-    /// Writes the requirement to the given file path.
-    /// Creates the file if it doesn't exist, or overwrites it if it does.
+    /// Writes the requirement using the given configuration.
     ///
-    /// Note the path here is the path to the directory. The filename is
-    /// determined by the HRID.
+    /// The path construction respects the `subfolders_are_namespaces` setting:
+    /// - If `false`: file is saved as `root/FULL-HRID.md`
+    /// - If `true`: file is saved as `root/namespace/folders/KIND-ID.md`
+    ///
+    /// Parent directories are created automatically if they don't exist.
     ///
     /// # Errors
     ///
     /// This method returns an error if the path cannot be written to.
-    pub fn save(&self, path: &Path) -> io::Result<()> {
-        MarkdownRequirement::from(self.clone()).save(path)
+    pub fn save(&self, root: &Path, config: &crate::domain::Config) -> io::Result<()> {
+        MarkdownRequirement::from(self.clone()).save(root, config)
     }
 }
 

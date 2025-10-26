@@ -2,6 +2,49 @@
 
 Requiem is flexible about how you organize requirements on disk. This chapter explains directory organization options and best practices.
 
+## Directory Structure Modes
+
+Requiem supports two fundamental modes for organizing requirements, controlled by the `subfolders_are_namespaces` configuration option:
+
+### 1. Filename-Based Mode (Default)
+
+**Configuration**: `subfolders_are_namespaces = false` (or omitted)
+
+In this mode, the full HRID is encoded in the filename, and directory structure is purely organizational:
+
+```
+my-requirements/
+├── USR-001.md              → HRID: USR-001
+├── SYS-002.md              → HRID: SYS-002
+├── auth-USR-003.md         → HRID: auth-USR-003
+└── custom/folder/
+    └── system-REQ-004.md   → HRID: system-REQ-004
+```
+
+**Use when**: You want maximum flexibility in folder organization without affecting requirement namespaces.
+
+### 2. Path-Based Mode
+
+**Configuration**: `subfolders_are_namespaces = true`
+
+In this mode, subfolders encode the namespace, and the filename contains only KIND-ID:
+
+```
+my-requirements/
+├── REQ-001.md              → HRID: REQ-001 (no namespace)
+├── system/
+│   └── auth/
+│       ├── REQ-002.md      → HRID: system-auth-REQ-002
+│       └── USR/
+│           └── 003.md      → HRID: system-auth-USR-003 (KIND from parent)
+```
+
+The filename format is automatically inferred:
+- **Numeric only** (e.g., `003.md`) → KIND taken from parent folder
+- **KIND-ID** (e.g., `REQ-002.md`) → KIND and ID from filename
+
+**Use when**: You want folder structure to directly mirror requirement namespaces.
+
 ## Basic Structure
 
 At minimum, you need a directory containing requirement markdown files:
@@ -58,7 +101,7 @@ requirements/
 - Easy to navigate
 - Natural for large projects
 
-**Note**: Directory names don't affect requirement behavior. `user/USR-001.md` and `system/USR-001.md` would create a filename conflict (both have HRID `USR-001`), so use different kinds.
+**Note**: In filename-based mode (default), directory names don't affect requirement behavior. `user/USR-001.md` and `system/USR-001.md` would create a filename conflict (both have HRID `USR-001`), so use different kinds. In path-based mode, these would have different HRIDs: `user-USR-001` and `system-USR-001`.
 
 ### Organize by Feature
 
@@ -426,11 +469,150 @@ If requirements are on a network drive:
 - Consider using subdirectories to localize access patterns
 - Parallel loading helps mitigate network latency
 
+## Choosing Between Modes
+
+### When to Use Filename-Based Mode (Default)
+
+**Advantages**:
+- Maximum flexibility - organize folders however you want
+- Easy to move files between folders without changing HRIDs
+- Works well with arbitrary organizational schemes (by feature, by team, etc.)
+- Explicit namespaces visible in every filename
+
+**Best for**:
+- Projects where folder structure is organizational, not semantic
+- Teams that reorganize folders frequently
+- Mixed organizational schemes
+- When you want full control over namespaces
+
+**Example**:
+```
+requirements/
+├── team-a/
+│   └── auth-USR-001.md      → HRID: auth-USR-001
+└── team-b/
+    └── auth-SYS-002.md      → HRID: auth-SYS-002
+```
+
+### When to Use Path-Based Mode
+
+**Advantages**:
+- Cleaner filenames (shorter, less redundant)
+- Folder structure enforces namespace consistency
+- Natural for hierarchical component structures
+- Automatic namespace creation from folders
+
+**Best for**:
+- Projects with stable, hierarchical component structures
+- When folder structure mirrors system architecture
+- Microservices or multi-component systems
+- When you want enforced namespace-folder alignment
+
+**Example**:
+```
+requirements/
+├── auth/
+│   ├── USR-001.md           → HRID: auth-USR-001
+│   └── SYS-002.md           → HRID: auth-SYS-002
+└── payment/
+    ├── USR-001.md           → HRID: payment-USR-001
+    └── SYS-002.md           → HRID: payment-SYS-002
+```
+
+### Comparison Table
+
+| Aspect | Filename-Based | Path-Based |
+|--------|----------------|------------|
+| **Filename contains** | Full HRID | KIND-ID only |
+| **Namespace from** | Filename | Folder path |
+| **Folder flexibility** | High | Low (tied to namespace) |
+| **File move impact** | None | Changes HRID |
+| **Filename length** | Longer | Shorter |
+| **Default mode** | Yes | No |
+
+## Migration Between Modes
+
+### Converting from Filename-Based to Path-Based
+
+1. **Update configuration**:
+```toml
+# config.toml
+_version = "1"
+subfolders_are_namespaces = true
+```
+
+2. **Reorganize files** to match namespace structure:
+
+```bash
+# Before (filename-based):
+# requirements/
+# ├── auth-USR-001.md
+# └── payment-USR-002.md
+
+# Create namespace folders
+mkdir -p auth payment
+
+# Move and rename files
+mv auth-USR-001.md auth/USR-001.md
+mv payment-USR-002.md payment/USR-002.md
+
+# After (path-based):
+# requirements/
+# ├── auth/
+# │   └── USR-001.md
+# └── payment/
+#     └── USR-002.md
+```
+
+3. **Verify**:
+```bash
+req clean
+```
+
+### Converting from Path-Based to Filename-Based
+
+1. **Flatten files** and encode namespace in filename:
+
+```bash
+# Before (path-based):
+# requirements/
+# ├── auth/
+# │   └── USR-001.md        (HRID: auth-USR-001)
+# └── payment/
+#     └── USR-002.md        (HRID: payment-USR-002)
+
+# Move and rename with full HRID
+mv auth/USR-001.md auth-USR-001.md
+mv payment/USR-002.md payment-USR-002.md
+
+# Remove now-empty folders
+rmdir auth payment
+
+# After (filename-based):
+# requirements/
+# ├── auth-USR-001.md
+# └── payment-USR-002.md
+```
+
+2. **Update configuration**:
+```toml
+# config.toml
+_version = "1"
+subfolders_are_namespaces = false
+```
+
+3. **Verify**:
+```bash
+req clean
+```
+
+**Note**: When converting between modes, the HRID (and thus UUID) remains the same, preserving all links and history.
+
 ## Migration and Refactoring
 
 ### Reorganizing Files
 
-To reorganize directory structure:
+To reorganize directory structure in filename-based mode:
 
 1. Move requirement files:
 ```bash
