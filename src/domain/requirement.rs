@@ -177,22 +177,6 @@ impl Requirement {
             .map(|(&id, parent)| (id, parent))
     }
 
-    /// Reads a requirement from the given file path.
-    ///
-    /// Note the path here is the path to the directory. The filename is
-    /// determined by the HRID.
-    ///
-    /// This method assumes filename-based structure (full HRID in filename).
-    /// For config-aware loading, use `load_with_config`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file does not exist, cannot be read from, or has
-    /// malformed YAML frontmatter.
-    pub fn load(path: &Path, hrid: Hrid) -> Result<Self, LoadError> {
-        Ok(MarkdownRequirement::load(path, hrid)?.try_into()?)
-    }
-
     /// Reads a requirement using the given configuration.
     ///
     /// The path construction respects the `subfolders_are_namespaces` setting:
@@ -203,25 +187,12 @@ impl Requirement {
     ///
     /// Returns an error if the file does not exist, cannot be read from, or has
     /// malformed YAML frontmatter.
-    pub fn load_with_config(
+    pub fn load(
         root: &Path,
         hrid: Hrid,
         config: &crate::domain::Config,
     ) -> Result<Self, LoadError> {
-        Ok(MarkdownRequirement::load_with_config(root, hrid, config)?.try_into()?)
-    }
-
-    /// Writes the requirement to the given file path.
-    /// Creates the file if it doesn't exist, or overwrites it if it does.
-    ///
-    /// Note the path here is the path to the directory. The filename is
-    /// determined by the HRID.
-    ///
-    /// # Errors
-    ///
-    /// This method returns an error if the path cannot be written to.
-    pub fn save(&self, path: &Path) -> io::Result<()> {
-        MarkdownRequirement::from(self.clone()).save(path)
+        Ok(MarkdownRequirement::load(root, hrid, config)?.try_into()?)
     }
 
     /// Writes the requirement using the given configuration.
@@ -235,8 +206,8 @@ impl Requirement {
     /// # Errors
     ///
     /// This method returns an error if the path cannot be written to.
-    pub fn save_with_config(&self, root: &Path, config: &crate::domain::Config) -> io::Result<()> {
-        MarkdownRequirement::from(self.clone()).save_with_config(root, config)
+    pub fn save(&self, root: &Path, config: &crate::domain::Config) -> io::Result<()> {
+        MarkdownRequirement::from(self.clone()).save(root, config)
     }
 }
 

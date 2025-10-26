@@ -164,10 +164,7 @@ fn parse_kind_in_parent(components: &[String], id_str: &str) -> Result<Hrid, Par
 /// Parse HRID when KIND and ID are in the filename.
 ///
 /// Example: `system/auth/REQ-001.md` → `system-auth-REQ-001`
-fn parse_kind_in_filename(
-    components: &[String],
-    filename_stem: &str,
-) -> Result<Hrid, ParseError> {
+fn parse_kind_in_filename(components: &[String], filename_stem: &str) -> Result<Hrid, ParseError> {
     // Split on last dash to handle multi-dash patterns
     let dash_pos = filename_stem
         .rfind('-')
