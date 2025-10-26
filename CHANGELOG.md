@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- add `req list` command with filtering, traversal, and JSON/CSV output helpers
+- consolidate relationship exploration behind a `--view` flag with optional `--depth`
+- add `req status` summary (default command) with kind counts and suspect-link check
+
 ## [0.1.0](https://github.com/danieleades/requirements-manager/releases/tag/v0.1.0) - 2025-07-23
 
 ### Added

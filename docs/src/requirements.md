@@ -28,6 +28,7 @@ High-level requirements that describe **what** users need from the tool. These f
 - [USR-004](./requirements/USR-004.md): Graph Analysis and Validation
 - [USR-005](./requirements/USR-005.md): Static Site Generator Integration
 - [USR-006](./requirements/USR-006.md): Requirement Templates
+- [USR-007](./requirements/USR-007.md): Requirement Visibility and Navigation
 
 [View all user requirements →](./requirements/user-requirements.md)
 
@@ -37,7 +38,7 @@ Detailed technical requirements that describe **how** the system implements user
 - [SYS-001](./requirements/SYS-001.md): Markdown File Format with YAML Frontmatter
 - [SYS-002](./requirements/SYS-002.md): UUID and HRID Fields
 - [SYS-003](./requirements/SYS-003.md): Parent Requirement Links
-- ... and 12 more system requirements
+- ... and 17 more system requirements
 
 [View all system requirements →](./requirements/system-requirements.md)
 
@@ -63,6 +64,7 @@ As you read through the user guide, refer back to these requirements to see conc
 - **Parent Links**: See [SYS-003](./requirements/SYS-003.md) for linking structure
 - **Fingerprints**: See [SYS-005](./requirements/SYS-005.md) for suspect link detection
 - **Templates**: See SYS-011 through SYS-015 for complete template system specification
+- **CLI Visibility**: See SYS-017 through SYS-019 for the listing and navigation interface
 
 ## Configuration
 

@@ -1,7 +1,12 @@
 use std::path::PathBuf;
 
+mod list;
+mod status;
+
 use clap::ArgAction;
+use list::List;
 use requiem::{Directory, Hrid};
+use status::Status;
 use tracing::instrument;
 
 #[derive(Debug, clap::Parser)]
@@ -16,14 +21,16 @@ pub struct Cli {
     root: PathBuf,
 
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 impl Cli {
     pub fn run(self) -> anyhow::Result<()> {
         Self::setup_logging(self.verbose);
 
-        self.command.run(self.root)
+        self.command
+            .unwrap_or(Command::Status(Status))
+            .run(self.root)
     }
 
     fn setup_logging(verbosity: u8) {
@@ -53,6 +60,9 @@ impl Cli {
 
 #[derive(Debug, clap::Parser)]
 pub enum Command {
+    /// Show repository status (default)
+    Status(Status),
+
     /// Add a new requirement
     Add(Add),
 
@@ -74,16 +84,21 @@ pub enum Command {
     ///
     /// Updates fingerprints to mark requirements as reviewed and valid.
     Accept(Accept),
+
+    /// List requirements with filters and relationship views
+    List(List),
 }
 
 impl Command {
     fn run(self, root: PathBuf) -> anyhow::Result<()> {
         match self {
+            Self::Status(command) => command.run(root)?,
             Self::Add(command) => command.run(root)?,
             Self::Link(command) => command.run(root)?,
             Self::Clean => Clean::run(root)?,
             Self::Suspect => Suspect::run(root)?,
             Self::Accept(command) => command.run(root)?,
+            Self::List(command) => command.run(root)?,
         }
         Ok(())
     }

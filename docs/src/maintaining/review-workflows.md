@@ -322,21 +322,26 @@ Total affected: 7 requirements
 **Workflow**:
 
 ```bash
-req status --summary
+req status
 ```
 
-Output:
+Sample output:
 ```
-Requirement Status Summary:
+Requirement Counts
+==================
+Kind       | Count
+-----------+-----
+SYS        | 118
+TST        | 24
+USR        | 6
+-----------+-----
+Total      | 148
 
-✓ Current: 142 requirements
-⚠ Needs Review: 3 requirements
-⏳ Under Review: 1 requirement
-
-Release ready: NO (reviews pending)
+Suspect links: 3
 ```
 
-Fix issues before release:
+If the command exits with code `1`, use the suspect link total as your release checklist—clear
+them before shipping:
 ```bash
 req check
 # Review each flagged requirement

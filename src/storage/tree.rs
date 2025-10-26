@@ -25,7 +25,8 @@ pub struct Tree {
 }
 
 impl Tree {
-    /// Creates a new tree with pre-allocated capacity for the given number of requirements.
+    /// Creates a new tree with pre-allocated capacity for the given number of
+    /// requirements.
     #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
@@ -128,6 +129,17 @@ impl Tree {
     #[must_use]
     pub fn next_index(&self, kind: &str) -> usize {
         self.next_indices.get(kind).copied().unwrap_or(1)
+    }
+
+    /// Returns an iterator over all requirements in the tree.
+    pub fn iter(&self) -> impl Iterator<Item = &Requirement> {
+        self.requirements.iter()
+    }
+
+    /// Finds a requirement by its human-readable identifier.
+    #[must_use]
+    pub fn find_by_hrid(&self, hrid: &Hrid) -> Option<&Requirement> {
+        self.requirements.iter().find(|req| req.hrid() == hrid)
     }
 
     /// Find all suspect links in the requirement graph.

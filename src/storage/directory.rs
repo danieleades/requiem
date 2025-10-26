@@ -133,7 +133,8 @@ impl Directory<Unloaded> {
 /// Error type for directory loading operations.
 #[derive(Debug, thiserror::Error)]
 pub enum DirectoryLoadError {
-    /// One or more files in the directory could not be recognized as valid requirements.
+    /// One or more files in the directory could not be recognized as valid
+    /// requirements.
     UnrecognisedFiles(Vec<PathBuf>),
 }
 
@@ -252,8 +253,8 @@ fn load_requirement_from_file(
     _config: &Config,
 ) -> Result<Requirement, LoadError> {
     // Load directly from the file path we found during directory scanning
-    use std::fs::File;
-    use std::io::BufReader;
+    use std::{fs::File, io::BufReader};
+
     use crate::domain::requirement::storage::MarkdownRequirement;
 
     let file = File::open(path).map_err(|io_error| match io_error.kind() {
@@ -267,6 +268,41 @@ fn load_requirement_from_file(
 }
 
 impl Directory<Loaded> {
+    /// Returns the filesystem root backing this directory.
+    #[must_use]
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Returns the filesystem path for a requirement HRID using directory
+    /// configuration.
+    #[must_use]
+    pub fn path_for(&self, hrid: &Hrid) -> PathBuf {
+        crate::storage::construct_path_from_hrid(
+            &self.root,
+            hrid,
+            self.state.config.subfolders_are_namespaces,
+            self.state.config.digits(),
+        )
+    }
+
+    /// Returns an iterator over all requirements stored in the directory.
+    pub fn requirements(&self) -> impl Iterator<Item = &Requirement> {
+        self.state.tree.iter()
+    }
+
+    /// Returns the configuration used when loading this directory.
+    #[must_use]
+    pub const fn config(&self) -> &Config {
+        &self.state.config
+    }
+
+    /// Retrieves a requirement by its human-readable identifier.
+    #[must_use]
+    pub fn requirement_by_hrid(&self, hrid: &Hrid) -> Option<&Requirement> {
+        self.state.tree.find_by_hrid(hrid)
+    }
+
     /// Add a new requirement to the directory.
     ///
     /// # Errors
@@ -731,15 +767,15 @@ Test requirement
 
         // Verify the requirement was loaded with correct HRID (KIND from parent folder)
         let hrid = Hrid::try_from("system-auth-USR-001").unwrap();
-        // The requirement should have been loaded from system/auth/USR/001.md during load_all
-        // We verify it exists by checking the file was found
+        // The requirement should have been loaded from system/auth/USR/001.md during
+        // load_all We verify it exists by checking the file was found
         let loaded_path = root.join("system/auth/USR/001.md");
         assert!(loaded_path.exists());
 
         // Verify the requirement can be read directly from the file
         {
-            use std::fs::File;
-            use std::io::BufReader;
+            use std::{fs::File, io::BufReader};
+
             use crate::domain::requirement::storage::MarkdownRequirement;
             let file = File::open(&loaded_path).unwrap();
             let mut reader = BufReader::new(file);
@@ -821,8 +857,8 @@ Test requirement
 
         // Verify the requirement can be read directly from the file
         {
-            use std::fs::File;
-            use std::io::BufReader;
+            use std::{fs::File, io::BufReader};
+
             use crate::domain::requirement::storage::MarkdownRequirement;
             let file = File::open(&loaded_path).unwrap();
             let mut reader = BufReader::new(file);

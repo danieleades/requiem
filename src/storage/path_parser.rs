@@ -222,8 +222,9 @@ pub enum ParseError {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::path::PathBuf;
+
+    use super::*;
 
     #[test]
     fn filename_based_flat() {

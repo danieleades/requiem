@@ -33,7 +33,8 @@ pub struct Config {
     ///
     /// When `false` (default): The full HRID is encoded in the filename.
     ///   Example: `system/auth/REQ-001.md` -> HRID is parsed as `REQ-001`
-    ///   Example: `custom/system-auth-REQ-001.md` -> HRID is `system-auth-REQ-001`
+    ///   Example: `custom/system-auth-REQ-001.md` -> HRID is
+    /// `system-auth-REQ-001`
     ///
     /// When `true`: Subfolders encode the namespace, filename contains KIND-ID.
     ///   Example: `system/auth/REQ-001.md` -> HRID is `system-auth-REQ-001`

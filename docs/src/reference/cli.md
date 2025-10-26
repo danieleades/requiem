@@ -12,6 +12,9 @@ The `req` command is the main interface to Requiem. It provides commands for cre
 req [OPTIONS] <COMMAND>
 ```
 
+Running `req` with no subcommand defaults to `req status`, providing a quick health
+dashboard for the repository.
+
 ### Getting Help
 
 ```bash
@@ -75,6 +78,34 @@ req --root ~/project/requirements link SYS-001 USR-001
 - Directory should contain `config.toml` (optional) and `.md` requirement files
 
 ## Commands
+
+### `req status`
+
+Display a quick summary of requirement counts and suspect links.
+
+#### Synopsis
+
+```
+req status [OPTIONS]
+```
+
+#### Options
+
+None.
+
+#### Behavior
+
+1. Loads all requirements in the repository.
+2. Prints a table listing each requirement kind with its count and the overall total.
+3. Displays the total number of suspect links.
+4. Exits with status code `1` when any suspect links are present, otherwise `0`.
+
+#### Examples
+
+**Summary view**:
+```bash
+req status
+```
 
 ### `req add`
 
@@ -509,6 +540,82 @@ req accept SYS-001 USR-001
 ```bash
 req accept --all
 # Output: No suspect links to accept.
+```
+
+### `req list`
+
+List requirements with optional filtering, traversal, and output formatting.
+
+#### Synopsis
+
+```
+req list [OPTIONS] [HRID...]
+```
+
+#### Arguments
+
+**`<HRID>`** *(optional, repeats)*
+
+Target requirements to anchor the listing. When omitted, the command starts from all
+requirements (with the default view limited to top-level, parentless requirements).
+
+#### Options
+
+- **`--columns <COL>`**: Comma-separated list of columns (`hrid`, `title`, `kind`, `namespace`,
+  `parents`, `children`, `tags`, `path`, `created`). Default columns show HRID, title, kind,
+  parent count, child count, and tags. When `--quiet` is present without explicit columns, only
+  HRIDs are emitted.
+- **`--sort <FIELD>`**: Sort output by `hrid` *(default)*, `kind`, `title`, or `created`.
+- **`--output <FORMAT>`**: Choose `table` *(default)*, `json`, or `csv`. Table output is human
+  readable; JSON and CSV are machine friendly.
+- **`--quiet`**: Suppress headers and format rows for shell pipelines. Defaults to one HRID per
+  line unless additional columns are requested.
+- **`--kind <KIND>`**, **`--namespace <SEG>`**, **`--tag <TAG>`**: Filter by kind, namespace
+  segment, or tag (case-insensitive, commas or repeated flags allowed).
+- **`--orphans`**, **`--leaves`**: Limit to requirements with no parents or no children.
+- **`--contains <TEXT>`**, **`--regex <PATTERN>`**: Search requirement title/body with a
+  case-insensitive substring or Rust regular expression (mutually exclusive).
+- **`--view <MODE>`**: Choose how to explore relationships. Options: `summary` *(default table)*,
+  `parents`, `children`, `ancestors`, `descendants`, `tree` (indented descendant view), and
+  `context` (base rows plus labelled neighbours).
+- **`--depth <N>`**: Depth limit for the selected view (default `1` for parents/children/context,
+  unlimited for ancestors/descendants/tree). Use `0` for no limit.
+- **`--limit <N>`**, **`--offset <N>`**: Paginate large result sets by skipping `offset` rows and
+  then truncating to `limit`. Defaults to 200 rows when omitted; pass `--limit 0` for no cap.
+
+#### Behavior
+
+1. Loads all requirements and builds parent/child relationships.
+2. Determines the working set:
+   - If HRIDs are provided, they anchor traversal; otherwise all requirements are considered.
+   - Without explicit filters or traversal flags, the default view lists every requirement sorted
+     by HRID and capped at the default limit.
+3. Applies requested filters and relationship traversal.
+4. Formats output according to the selected layout.
+
+#### Examples
+
+**Top-level overview**:
+```bash
+req list
+HRID     Title                              Kind  Parents  Children  Tags
+USR-001  Plain Text Storage                 USR   0        2         
+USR-004  Graph Analysis and Validation      USR   0        5         
+```
+
+**Filter by kind and tag**:
+```bash
+req list --kind SYS --tag navigation --output csv
+```
+
+**Descendants of a user requirement**:
+```bash
+req list USR-004 --view descendants --kind SYS
+```
+
+**Tree view**:
+```bash
+req list USR-004 --view tree --depth 2
 ```
 
 ### `req clean`
