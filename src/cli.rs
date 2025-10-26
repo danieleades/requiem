@@ -270,12 +270,15 @@ impl Accept {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::path::Path;
+
     use requiem::{Directory, Requirement};
     use tempfile::tempdir;
 
-    fn load_directory(path: &PathBuf) -> Directory<requiem::storage::directory::Loaded> {
-        Directory::new(path.clone())
+    use super::*;
+
+    fn load_directory(path: &Path) -> Directory<requiem::storage::directory::Loaded> {
+        Directory::new(path.to_path_buf())
             .load_all()
             .expect("failed to load directory")
     }
@@ -336,7 +339,7 @@ mod tests {
         add.run(root.to_path_buf())
             .expect("add command should succeed");
 
-        let directory = load_directory(&root.to_path_buf());
+        let directory = load_directory(root);
         let child = collect_child(&directory, "USR");
         assert_eq!(child.content(), "## Template body");
     }
@@ -446,7 +449,7 @@ mod tests {
             .link_requirement(child.hrid().clone(), parent.hrid().clone())
             .unwrap();
 
-        Status::default()
+        Status
             .run(root)
             .expect("status should succeed when no suspect links exist");
     }

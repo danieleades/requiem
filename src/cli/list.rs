@@ -1136,14 +1136,42 @@ impl fmt::Display for OutputFormat {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::{collections::HashMap, path::PathBuf};
+
     use chrono::{Duration, TimeZone, Utc};
     use regex::Regex;
     use requiem::Directory;
-    use std::collections::HashMap;
-    use std::path::PathBuf;
     use tempfile::tempdir;
     use uuid::Uuid;
+
+    use super::*;
+
+    fn base_list() -> List {
+        List {
+            targets: Vec::new(),
+            columns: vec![
+                ListColumn::Hrid,
+                ListColumn::Title,
+                ListColumn::Parents,
+                ListColumn::Children,
+                ListColumn::Tags,
+            ],
+            sort: SortField::Hrid,
+            output: OutputFormat::Table,
+            quiet: false,
+            kind: Vec::new(),
+            namespace: Vec::new(),
+            tag: Vec::new(),
+            orphans: false,
+            leaves: false,
+            contains: None,
+            regex: None,
+            view: View::Summary,
+            depth: None,
+            limit: Some(10),
+            offset: Some(0),
+        }
+    }
 
     fn sample_entries() -> (Vec<Entry>, HashMap<Uuid, usize>) {
         let base_time = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
@@ -1152,18 +1180,9 @@ mod tests {
         let child_uuid = Uuid::new_v4();
         let leaf_uuid = Uuid::new_v4();
 
-        let root_hrid = Hrid::try_from("SYS-001").unwrap();
-        let child_hrid = Hrid::try_from("SYS-002").unwrap();
-        let leaf_hrid = Hrid::new_with_namespace(
-            vec!["System".to_string(), "Auth".to_string()],
-            "USR".to_string(),
-            7,
-        )
-        .unwrap();
-
         let mut root = Entry {
             uuid: root_uuid,
-            hrid: root_hrid.clone(),
+            hrid: Hrid::try_from("SYS-001").unwrap(),
             title: Some("Root".to_string()),
             tags: vec!["core".to_string()],
             created: base_time,
@@ -1175,33 +1194,38 @@ mod tests {
 
         let mut child = Entry {
             uuid: child_uuid,
-            hrid: child_hrid.clone(),
+            hrid: Hrid::try_from("SYS-002").unwrap(),
             title: Some("Child".to_string()),
             tags: Vec::new(),
             created: base_time + Duration::days(1),
             content: "## Child details\nImplements root".to_string(),
-            parents: vec![LinkRef::new(root_uuid, root_hrid.clone())],
+            parents: vec![LinkRef::new(root_uuid, root.hrid.clone())],
             children: Vec::new(),
             path: PathBuf::from("SYS-002.md"),
         };
 
         let leaf = Entry {
             uuid: leaf_uuid,
-            hrid: leaf_hrid.clone(),
+            hrid: Hrid::new_with_namespace(
+                vec!["System".to_string(), "Auth".to_string()],
+                "USR".to_string(),
+                7,
+            )
+            .unwrap(),
             title: Some("Login".to_string()),
             tags: vec!["Security".to_string(), "UI".to_string()],
             created: base_time + Duration::days(2),
             content: "Implements login".to_string(),
-            parents: vec![LinkRef::new(child_uuid, child_hrid.clone())],
+            parents: vec![LinkRef::new(child_uuid, child.hrid.clone())],
             children: Vec::new(),
             path: PathBuf::from("system/auth/USR-007.md"),
         };
 
         root.children
-            .push(LinkRef::new(child_uuid, child_hrid.clone()));
+            .push(LinkRef::new(child_uuid, child.hrid.clone()));
         child
             .children
-            .push(LinkRef::new(leaf_uuid, leaf_hrid.clone()));
+            .push(LinkRef::new(leaf_uuid, leaf.hrid.clone()));
 
         let entries = vec![root, child, leaf];
         let mut index = HashMap::new();
@@ -1249,7 +1273,7 @@ mod tests {
             orphans: false,
             leaves: false,
             contains: Some("login".to_string()),
-            regex: Some(Regex::new("Login").unwrap()),
+            regex: Some(Regex::new(r"(?i)login").unwrap()),
         };
 
         let filters = build_filters();
@@ -1287,14 +1311,8 @@ mod tests {
             .iter()
             .any(|row| entries[row.index].hrid.to_string() == "SYS-001"));
 
-        let children = produce_direction_rows(
-            View::Descendants,
-            &entries,
-            &index,
-            &filters,
-            &vec![0],
-            Some(3),
-        );
+        let children =
+            produce_direction_rows(View::Descendants, &entries, &index, &filters, &[0], Some(3));
         assert_eq!(children.len(), 2);
         assert!(children
             .iter()
@@ -1583,33 +1601,6 @@ mod tests {
         Directory::new(root.clone())
             .link_requirement(child.hrid().clone(), parent.hrid().clone())
             .unwrap();
-
-        fn base_list() -> List {
-            List {
-                targets: Vec::new(),
-                columns: vec![
-                    ListColumn::Hrid,
-                    ListColumn::Title,
-                    ListColumn::Parents,
-                    ListColumn::Children,
-                    ListColumn::Tags,
-                ],
-                sort: SortField::Hrid,
-                output: OutputFormat::Table,
-                quiet: false,
-                kind: Vec::new(),
-                namespace: Vec::new(),
-                tag: Vec::new(),
-                orphans: false,
-                leaves: false,
-                contains: None,
-                regex: None,
-                view: View::Summary,
-                depth: None,
-                limit: Some(10),
-                offset: Some(0),
-            }
-        }
 
         let mut table = base_list();
         table.sort = SortField::Title;

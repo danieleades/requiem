@@ -145,16 +145,15 @@ impl From<super::Config> for Versions {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Write;
+
+    use super::*;
 
     #[test]
     fn load_reads_valid_file() {
         let mut file = tempfile::NamedTempFile::new().unwrap();
-        writeln!(
-            file,
-            "{content}",
-            content = "_version = \"1\"\nallowed_kinds = [\"USR\", \"SYS\"]\ndigits = 4\nallow_unrecognised = true\nallow_invalid = true\nsubfolders_are_namespaces = true"
+        file.write_all(
+            b"_version = \"1\"\nallowed_kinds = [\"USR\", \"SYS\"]\ndigits = 4\nallow_unrecognised = true\nallow_invalid = true\nsubfolders_are_namespaces = true\n",
         )
         .unwrap();
 
@@ -182,12 +181,8 @@ mod tests {
     #[test]
     fn load_invalid_toml_returns_error() {
         let mut file = tempfile::NamedTempFile::new().unwrap();
-        writeln!(
-            file,
-            "{content}",
-            content = "_version = \"1\"\ndigits = \"three\""
-        )
-        .unwrap();
+        file.write_all(b"_version = \"1\"\ndigits = \"three\"\n")
+            .unwrap();
 
         let error = Config::load(file.path()).unwrap_err();
         assert!(error.starts_with("Failed to parse config file:"));
