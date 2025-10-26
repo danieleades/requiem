@@ -1,0 +1,303 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Introduction - Requiem User Guide</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="A comprehensive guide to plain-text requirements management with Requiem">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Requiem User Guide</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/danieleades/requirements-manager" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/danieleades/requirements-manager/edit/main/docs/src/introduction.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
+<p>Welcome to Requiem, a modern plain-text requirements management tool designed for software and systems engineers who value simplicity, speed, and integration with their existing workflows.</p>
+<h2 id="what-is-requiem"><a class="header" href="#what-is-requiem">What is Requiem?</a></h2>
+<p>Requiem (package name: <code>requirements-manager</code>, CLI: <code>req</code>) is a spiritual successor to <a href="https://github.com/doorstop-dev/doorstop">Doorstop</a>, reimagined for the modern development landscape. It enables teams to:</p>
+<ul>
+<li><strong>Manage requirements as plain text</strong> - Store requirements as markdown files with YAML frontmatter, making them human-readable, version-controllable, and diff-friendly</li>
+<li><strong>Build traceable requirement hierarchies</strong> - Link requirements together to form directed acyclic graphs (DAGs) that trace from high-level user needs down to detailed specifications</li>
+<li><strong>Support multiple parents</strong> - Unlike many tools, Requiem allows a single requirement to satisfy multiple parent requirements, reflecting real-world complexity</li>
+<li><strong>Integrate seamlessly</strong> - Works alongside documentation tools like <a href="https://github.com/sphinx-doc/sphinx">Sphinx</a> and <a href="https://github.com/rust-lang/mdBook">MdBook</a>, fitting naturally into your existing documentation workflow</li>
+<li><strong>Scale with performance</strong> - Built in Rust with parallel processing, Requiem is designed to be much, much faster than its predecessors</li>
+</ul>
+<h2 id="when-to-use-requirements-management"><a class="header" href="#when-to-use-requirements-management">When to Use Requirements Management</a></h2>
+<p>Requirements management is essential when:</p>
+<ul>
+<li><strong>Traceability is critical</strong> - Regulated industries (aerospace, medical devices, automotive) often require proof that each requirement is implemented and tested</li>
+<li><strong>Teams need alignment</strong> - Multiple stakeholders (users, developers, testers, managers) need a shared understanding of what's being built</li>
+<li><strong>Systems are complex</strong> - Large projects with many interconnected components benefit from formal requirement tracking</li>
+<li><strong>Change management matters</strong> - Understanding the impact of requirement changes across dependent systems is crucial</li>
+<li><strong>Documentation must be maintained</strong> - Requirements serve as the foundation for design documents, test plans, and user manuals</li>
+</ul>
+<h2 id="project-status"><a class="header" href="#project-status">Project Status</a></h2>
+<p>Requiem is in <strong>early development</strong> and not yet ready for production use. Current status:</p>
+<p><strong>Implemented:</strong></p>
+<ul>
+<li>✅ Manage requirements, specifications, and documents in plain text</li>
+<li>✅ Create and link requirements with human-readable IDs</li>
+<li>✅ Support multiple parent relationships</li>
+<li>✅ Content fingerprinting for change detection</li>
+<li>✅ Integration with MdBook and Sphinx</li>
+<li>✅ Parallel loading for performance</li>
+</ul>
+<p><strong>Planned:</strong></p>
+<ul>
+<li>🚧 Detect cycles in requirement graphs</li>
+<li>🚧 Trigger reviews when dependent requirements change</li>
+<li>🚧 Generate coverage reports (requirement → implementation → test)</li>
+<li>🚧 Import and export in standard formats</li>
+</ul>
+<p>Contributions are welcome! See the <a href="https://github.com/danieleades/requirements-manager">GitHub repository</a> for more information.</p>
+<h2 id="design-philosophy"><a class="header" href="#design-philosophy">Design Philosophy</a></h2>
+<p>Requiem is built on several core principles:</p>
+<ol>
+<li><strong>Plain text first</strong> - Requirements are markdown files that can be read, edited, and reviewed without special tools</li>
+<li><strong>Git-friendly</strong> - Every requirement change creates a meaningful diff that's easy to review in pull requests</li>
+<li><strong>Dual identifiers</strong> - Stable UUIDs for machine processing, human-readable IDs (like <code>USR-001</code>) for people</li>
+<li><strong>Fast by default</strong> - Parallel processing and efficient data structures mean Requiem scales to large projects</li>
+<li><strong>Composable</strong> - Works alongside your existing documentation tools rather than replacing them</li>
+</ol>
+<h2 id="who-this-guide-is-for"><a class="header" href="#who-this-guide-is-for">Who This Guide Is For</a></h2>
+<p>This guide is designed for:</p>
+<ul>
+<li><strong>Requirements engineers</strong> managing formal requirement sets</li>
+<li><strong>Technical writers</strong> documenting software systems</li>
+<li><strong>Developers</strong> working in regulated environments</li>
+<li><strong>Project managers</strong> needing traceability and impact analysis</li>
+<li><strong>QA engineers</strong> mapping requirements to test cases</li>
+</ul>
+<p>You should be comfortable with:</p>
+<ul>
+<li>Command-line tools</li>
+<li>Text editors</li>
+<li>Basic version control (Git)</li>
+<li>Markdown formatting</li>
+</ul>
+<h2 id="whats-in-this-guide"><a class="header" href="#whats-in-this-guide">What's in This Guide</a></h2>
+<p>This guide includes:</p>
+<ul>
+<li><strong>User Guide</strong>: Learn how to use Requiem effectively</li>
+<li><strong>Reference</strong>: Detailed CLI and file format specifications</li>
+<li><strong>Example Project</strong>: See Requiem managing its own requirements as a real-world example</li>
+</ul>
+<p>The <a href="./requirements.html">Example Project</a> contains all 21 requirements that define what Requiem does, demonstrating traceability, proper structure, and best practices.</p>
+<p>Let's get started!</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+
+                            <a rel="next prefetch" href="getting-started.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+
+                    <a rel="next prefetch" href="getting-started.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

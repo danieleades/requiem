@@ -1,0 +1,32 @@
+name: Deploy Latest Documentation
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Needed for peaceiris/actions-gh-pages
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mdBook
+        uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook
+
+      - name: Build documentation
+        run: mdbook build
+        working-directory: docs
+
+      - name: Deploy to GitHub Pages (root)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs/book
+          # Deploy to root of gh-pages branch (latest docs)
+          destination_dir: .
+          cname: ''  # Add custom domain here if needed

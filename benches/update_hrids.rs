@@ -13,8 +13,8 @@ use tempfile::TempDir;
 fn preseed_directory(path: PathBuf) {
     let mut directory = Directory::new(path).load_all().unwrap();
     for i in 1..=99 {
-        directory.add_requirement("USR".to_string()).unwrap();
-        directory.add_requirement("SYS".to_string()).unwrap();
+        directory.add_requirement("USR".to_string(), String::new()).unwrap();
+        directory.add_requirement("SYS".to_string(), String::new()).unwrap();
         let mut requirement = directory
             .link_requirement(
                 Hrid::new("SYS".to_string(), i).unwrap(),

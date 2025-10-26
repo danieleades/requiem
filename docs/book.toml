@@ -1,0 +1,21 @@
+[book]
+authors = ["Daniel Eades"]
+language = "en"
+src = "src"
+title = "Requiem User Guide"
+description = "A comprehensive guide to plain-text requirements management with Requiem"
+
+[build]
+build-dir = "book"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/danieleades/requirements-manager"
+edit-url-template = "https://github.com/danieleades/requirements-manager/edit/main/docs/{path}"
+site-url = "/requirements-manager/"  # Update to "/requiem/" if repo is renamed
+no-section-label = true
+
+# Note: Version information is added automatically during deployment
+# - Latest (main branch) deployed to root: /
+# - Tagged releases deployed to: /vX.Y.Z/

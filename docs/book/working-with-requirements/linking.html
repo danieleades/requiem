@@ -1,0 +1,451 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Linking Requirements - Requiem User Guide</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="A comprehensive guide to plain-text requirements management with Requiem">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="../highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="../tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Requiem User Guide</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/danieleades/requirements-manager" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/danieleades/requirements-manager/edit/main/docs/src/working-with-requirements/linking.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="linking-requirements"><a class="header" href="#linking-requirements">Linking Requirements</a></h1>
+<p>The <code>req link</code> command establishes parent-child relationships between requirements, creating traceability throughout your requirement hierarchy.</p>
+<h2 id="basic-usage"><a class="header" href="#basic-usage">Basic Usage</a></h2>
+<pre><code class="language-bash">req link &lt;CHILD&gt; &lt;PARENT&gt;
+</code></pre>
+<p>This adds PARENT to CHILD's parent list.</p>
+<h3 id="example"><a class="header" href="#example">Example</a></h3>
+<pre><code class="language-bash">req link SYS-001 USR-001
+</code></pre>
+<p>Output:</p>
+<pre><code>Linked SYS-001 to USR-001
+</code></pre>
+<p>Now <code>SYS-001.md</code> contains:</p>
+<pre><code class="language-yaml">---
+_version: '1'
+uuid: 81e63bac-4035-47b5-b273-ac13e47a2ff6
+created: 2025-07-22T13:14:40.510075462Z
+parents:
+- uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
+  fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
+  hrid: USR-001
+---
+
+...requirement content...
+</code></pre>
+<h2 id="multiple-parents"><a class="header" href="#multiple-parents">Multiple Parents</a></h2>
+<p>You can link a child to multiple parents by running <code>req link</code> multiple times:</p>
+<pre><code class="language-bash">req link SYS-001 USR-001
+req link SYS-001 USR-002
+req link SYS-001 USR-003
+</code></pre>
+<p>Now <code>SYS-001.md</code> has three parents:</p>
+<pre><code class="language-yaml">parents:
+- uuid: &lt;USR-001 UUID&gt;
+  fingerprint: &lt;USR-001 fingerprint&gt;
+  hrid: USR-001
+- uuid: &lt;USR-002 UUID&gt;
+  fingerprint: &lt;USR-002 fingerprint&gt;
+  hrid: USR-002
+- uuid: &lt;USR-003 UUID&gt;
+  fingerprint: &lt;USR-003 fingerprint&gt;
+  hrid: USR-003
+</code></pre>
+<h2 id="linking-at-creation-time"><a class="header" href="#linking-at-creation-time">Linking at Creation Time</a></h2>
+<p>Instead of linking after creation, you can specify parents when creating:</p>
+<pre><code class="language-bash"># Instead of:
+req add SYS
+req link SYS-001 USR-001
+req link SYS-001 USR-002
+
+# Do:
+req add SYS --parents USR-001,USR-002
+</code></pre>
+<p>This is more efficient and ensures traceability from the start.</p>
+<h2 id="what-gets-updated"><a class="header" href="#what-gets-updated">What Gets Updated</a></h2>
+<p>When you run <code>req link CHILD PARENT</code>:</p>
+<ol>
+<li><strong>CHILD file is modified</strong>: The parent entry is added to the YAML frontmatter</li>
+<li><strong>PARENT file is NOT modified</strong>: Parent doesn't know about its children</li>
+</ol>
+<p>This is a directed relationship: children point to parents, not vice versa.</p>
+<h3 id="finding-children"><a class="header" href="#finding-children">Finding Children</a></h3>
+<p>To find all children of a requirement, search files:</p>
+<pre><code class="language-bash">grep -l "hrid: USR-001" *.md
+</code></pre>
+<p>This shows all requirements that list USR-001 as a parent.</p>
+<h2 id="parent-information"><a class="header" href="#parent-information">Parent Information</a></h2>
+<p>Each parent entry contains three fields:</p>
+<h3 id="uuid-required"><a class="header" href="#uuid-required">UUID (Required)</a></h3>
+<pre><code class="language-yaml">uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
+</code></pre>
+<p>The stable, unique identifier of the parent. This is the canonical reference that enables reliable traceability even if the parent is renumbered.</p>
+<h3 id="fingerprint-required"><a class="header" href="#fingerprint-required">Fingerprint (Required)</a></h3>
+<pre><code class="language-yaml">fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
+</code></pre>
+<p>A SHA256 hash of the parent's content at the time of linking. This enables change detection:</p>
+<ul>
+<li>Parent content changes → fingerprint changes</li>
+<li>Child still has old fingerprint → signals that parent has changed</li>
+<li>Child should be reviewed to ensure it's still valid</li>
+</ul>
+<h3 id="hrid-required"><a class="header" href="#hrid-required">HRID (Required)</a></h3>
+<pre><code class="language-yaml">hrid: USR-001
+</code></pre>
+<p>The human-readable ID of the parent. This is for convenience when reading the YAML. The actual relationship is based on the UUID.</p>
+<p>If the parent is renumbered, the HRID can be corrected with <code>req clean</code> (covered in <a href="../maintaining.html">Maintaining Requirements</a>).</p>
+<h2 id="linking-across-namespaces"><a class="header" href="#linking-across-namespaces">Linking Across Namespaces</a></h2>
+<p>You can link requirements with different namespaces:</p>
+<pre><code class="language-bash">req link PAYMENT-SYS-001 CORE-USR-001
+</code></pre>
+<p>The namespaces don't need to match. Links are based on UUIDs, which are globally unique across all namespaces.</p>
+<h2 id="error-conditions"><a class="header" href="#error-conditions">Error Conditions</a></h2>
+<h3 id="child-not-found"><a class="header" href="#child-not-found">Child Not Found</a></h3>
+<pre><code class="language-bash">req link SYS-999 USR-001
+</code></pre>
+<p>If <code>SYS-999.md</code> doesn't exist:</p>
+<pre><code>Error: Failed to load requirement SYS-999
+</code></pre>
+<h3 id="parent-not-found"><a class="header" href="#parent-not-found">Parent Not Found</a></h3>
+<pre><code class="language-bash">req link SYS-001 USR-999
+</code></pre>
+<p>If <code>USR-999.md</code> doesn't exist:</p>
+<pre><code>Error: Failed to load requirement USR-999
+</code></pre>
+<h3 id="duplicate-link"><a class="header" href="#duplicate-link">Duplicate Link</a></h3>
+<p>Linking a child to the same parent twice:</p>
+<pre><code class="language-bash">req link SYS-001 USR-001
+req link SYS-001 USR-001
+</code></pre>
+<p>This creates duplicate entries in the parent list. <strong>Avoid this</strong> by checking existing links before adding new ones.</p>
+<p><em>Note: Duplicate detection is not currently implemented but may be added in future versions.</em></p>
+<h2 id="typical-linking-patterns"><a class="header" href="#typical-linking-patterns">Typical Linking Patterns</a></h2>
+<h3 id="one-to-many-parent--children"><a class="header" href="#one-to-many-parent--children">One-to-Many (Parent → Children)</a></h3>
+<p>One user requirement satisfied by multiple system requirements:</p>
+<pre><code>USR-001
+  ├─ SYS-001
+  ├─ SYS-002
+  └─ SYS-003
+</code></pre>
+<pre><code class="language-bash">req add USR
+req add SYS --parents USR-001
+req add SYS --parents USR-001
+req add SYS --parents USR-001
+</code></pre>
+<h3 id="many-to-one-parents--child"><a class="header" href="#many-to-one-parents--child">Many-to-One (Parents → Child)</a></h3>
+<p>One system requirement satisfying multiple user requirements:</p>
+<pre><code>USR-001 ─┐
+USR-002 ─┼─ SYS-001
+USR-003 ─┘
+</code></pre>
+<pre><code class="language-bash">req add USR
+req add USR
+req add USR
+req add SYS --parents USR-001,USR-002,USR-003
+</code></pre>
+<h3 id="many-to-many"><a class="header" href="#many-to-many">Many-to-Many</a></h3>
+<p>Complex dependencies:</p>
+<pre><code>USR-001 ─┬─ SYS-001
+         └─ SYS-002
+USR-002 ─┬─ SYS-002
+         └─ SYS-003
+</code></pre>
+<pre><code class="language-bash">req add SYS --parents USR-001
+req add SYS --parents USR-001,USR-002
+req add SYS --parents USR-002
+</code></pre>
+<h2 id="best-practices"><a class="header" href="#best-practices">Best Practices</a></h2>
+<h3 id="link-during-creation-when-possible"><a class="header" href="#link-during-creation-when-possible">Link During Creation When Possible</a></h3>
+<pre><code class="language-bash"># Preferred
+req add SYS --parents USR-001
+
+# Works but requires two commands
+req add SYS
+req link SYS-001 USR-001
+</code></pre>
+<h3 id="establish-traceability-early"><a class="header" href="#establish-traceability-early">Establish Traceability Early</a></h3>
+<p>Link requirements as you create them, not as an afterthought. This ensures your hierarchy is always traceable.</p>
+<h3 id="document-linking-rationale"><a class="header" href="#document-linking-rationale">Document Linking Rationale</a></h3>
+<p>In the requirement body, explain why each parent link exists:</p>
+<pre><code class="language-markdown">---
+parents:
+- hrid: USR-001
+  ...
+- hrid: USR-003
+  ...
+---
+
+The system shall provide OAuth authentication.
+
+Satisfies USR-001 (secure login) and USR-003 (third-party integration).
+</code></pre>
+<h3 id="validate-links-in-code-review"><a class="header" href="#validate-links-in-code-review">Validate Links in Code Review</a></h3>
+<p>When reviewing requirement changes, check that:</p>
+<ul>
+<li>New requirements link to appropriate parents</li>
+<li>Links are not duplicated</li>
+<li>Parent requirements actually exist</li>
+</ul>
+<h2 id="unlinking-not-yet-supported"><a class="header" href="#unlinking-not-yet-supported">Unlinking (Not Yet Supported)</a></h2>
+<p>Currently, there's no <code>req unlink</code> command. To remove a parent link, manually edit the child file:</p>
+<pre><code class="language-yaml"># Before
+parents:
+- uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
+  fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
+  hrid: USR-001
+- uuid: 7a8f9e2b-1c3d-4e5f-6a7b-8c9d0e1f2a3b
+  fingerprint: a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+  hrid: USR-002
+
+# After (removed USR-002)
+parents:
+- uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
+  fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
+  hrid: USR-001
+</code></pre>
+<p>Be careful to preserve valid YAML syntax.</p>
+<h2 id="visualizing-links"><a class="header" href="#visualizing-links">Visualizing Links</a></h2>
+<p>Since links aren't bidirectional in the files, you may want to generate visual representations:</p>
+<pre><code class="language-bash"># Simple script to list parent-child relationships
+for file in *.md; do
+  hrid=$(basename "$file" .md)
+  parents=$(grep "hrid:" "$file" | awk '{print $2}')
+  for parent in $parents; do
+    echo "$parent -&gt; $hrid"
+  done
+done
+</code></pre>
+<p>Output:</p>
+<pre><code>USR-001 -&gt; SYS-001
+USR-001 -&gt; SYS-002
+USR-002 -&gt; SYS-002
+</code></pre>
+<p>You can pipe this to graph visualization tools like Graphviz.</p>
+<h2 id="next-steps"><a class="header" href="#next-steps">Next Steps</a></h2>
+<p>Learn how to work with complex requirement relationships in <a href="./relationships.html">Managing Relationships</a>.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../working-with-requirements/templates.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../working-with-requirements/relationships.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../working-with-requirements/templates.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../working-with-requirements/relationships.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>
