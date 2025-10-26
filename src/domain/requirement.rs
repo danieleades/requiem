@@ -180,7 +180,10 @@ impl Requirement {
     /// Reads a requirement from the given file path.
     ///
     /// Note the path here is the path to the directory. The filename is
-    /// determined by the HRID
+    /// determined by the HRID.
+    ///
+    /// This method assumes filename-based structure (full HRID in filename).
+    /// For config-aware loading, use `load_with_config`.
     ///
     /// # Errors
     ///
@@ -188,6 +191,24 @@ impl Requirement {
     /// malformed YAML frontmatter.
     pub fn load(path: &Path, hrid: Hrid) -> Result<Self, LoadError> {
         Ok(MarkdownRequirement::load(path, hrid)?.try_into()?)
+    }
+
+    /// Reads a requirement using the given configuration.
+    ///
+    /// The path construction respects the `subfolders_are_namespaces` setting:
+    /// - If `false`: loads from `root/FULL-HRID.md`
+    /// - If `true`: loads from `root/namespace/folders/KIND-ID.md`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file does not exist, cannot be read from, or has
+    /// malformed YAML frontmatter.
+    pub fn load_with_config(
+        root: &Path,
+        hrid: Hrid,
+        config: &crate::domain::Config,
+    ) -> Result<Self, LoadError> {
+        Ok(MarkdownRequirement::load_with_config(root, hrid, config)?.try_into()?)
     }
 
     /// Writes the requirement to the given file path.

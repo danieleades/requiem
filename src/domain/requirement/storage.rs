@@ -113,9 +113,11 @@ impl MarkdownRequirement {
 
     /// Reads a requirement from the given file path.
     ///
-    ///
     /// Note the path here is the path to the directory. The filename is
-    /// determined by the HRID
+    /// determined by the HRID.
+    ///
+    /// This method assumes filename-based structure (full HRID in filename).
+    /// For config-aware loading, use `load_with_config`.
     pub fn load(path: &Path, hrid: Hrid) -> Result<Self, LoadError> {
         let file =
             File::open(path.join(hrid.to_string()).with_extension("md")).map_err(|io_error| {
@@ -124,6 +126,34 @@ impl MarkdownRequirement {
                     _ => LoadError::Io(io_error),
                 }
             })?;
+        let mut reader = BufReader::new(file);
+        Self::read(&mut reader, hrid)
+    }
+
+    /// Reads a requirement using the given configuration.
+    ///
+    /// The path construction respects the `subfolders_are_namespaces` setting:
+    /// - If `false`: loads from `root/FULL-HRID.md`
+    /// - If `true`: loads from `root/namespace/folders/KIND-ID.md`
+    pub fn load_with_config(
+        root: &Path,
+        hrid: Hrid,
+        config: &crate::domain::Config,
+    ) -> Result<Self, LoadError> {
+        use crate::storage::path_parser::construct_path_from_hrid;
+
+        let file_path = construct_path_from_hrid(
+            root,
+            &hrid,
+            config.subfolders_are_namespaces,
+            config.digits(),
+        );
+
+        let file = File::open(&file_path).map_err(|io_error| match io_error.kind() {
+            io::ErrorKind::NotFound => LoadError::NotFound,
+            _ => LoadError::Io(io_error),
+        })?;
+
         let mut reader = BufReader::new(file);
         Self::read(&mut reader, hrid)
     }

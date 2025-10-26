@@ -72,7 +72,9 @@ impl<S> Directory<S> {
     }
 
     fn load_requirement(&self, hrid: Hrid) -> Result<Requirement, LoadError> {
-        Requirement::load(&self.root, hrid)
+        // Load config to use config-aware loading
+        let config = load_config(&self.root);
+        Requirement::load_with_config(&self.root, hrid, &config)
     }
 }
 
@@ -656,9 +658,9 @@ Test requirement
         // Load all requirements
         let dir = Directory::new(root.to_path_buf()).load_all().unwrap();
 
-        // Should be able to load the requirement with the correct HRID
+        // Should be able to load the requirement with the correct HRID using config
         let hrid = Hrid::try_from("system-auth-REQ-001").unwrap();
-        let req = Requirement::load(&root, hrid.clone()).unwrap();
+        let req = Requirement::load_with_config(&root, hrid.clone(), &dir.state.config).unwrap();
         assert_eq!(req.hrid(), &hrid);
     }
 
@@ -693,9 +695,9 @@ Test requirement
         // Load all requirements
         let dir = Directory::new(root.to_path_buf()).load_all().unwrap();
 
-        // Should be able to load with correct HRID (KIND from parent folder)
+        // Should be able to load with correct HRID (KIND from parent folder) using config
         let hrid = Hrid::try_from("system-auth-USR-001").unwrap();
-        let req = Requirement::load(&root, hrid.clone()).unwrap();
+        let req = Requirement::load_with_config(&root, hrid.clone(), &dir.state.config).unwrap();
         assert_eq!(req.hrid(), &hrid);
     }
 
@@ -729,8 +731,8 @@ Test requirement
         // File should be created at system/auth/REQ-001.md
         assert!(root.join("system/auth/REQ-001.md").exists());
 
-        // Should be able to reload it
-        let loaded = Requirement::load(&root, hrid.clone()).unwrap();
+        // Should be able to reload it using config
+        let loaded = Requirement::load_with_config(&root, hrid.clone(), &dir.state.config).unwrap();
         assert_eq!(loaded.hrid(), &hrid);
     }
 
