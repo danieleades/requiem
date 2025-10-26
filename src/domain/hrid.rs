@@ -59,7 +59,7 @@ impl Hrid {
     }
 
     /// Internal constructor that doesn't validate (for use after validation).
-    const fn new_with_namespace_unchecked(
+    pub(crate) const fn new_with_namespace_unchecked(
         namespace: Vec<NonEmptyString>,
         kind: NonEmptyString,
         id: usize,

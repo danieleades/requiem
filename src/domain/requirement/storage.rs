@@ -30,7 +30,7 @@ impl MarkdownRequirement {
         writer.write_all(result.as_bytes())
     }
 
-    fn read<R: BufRead>(reader: &mut R, hrid: Hrid) -> Result<Self, LoadError> {
+    pub(crate) fn read<R: BufRead>(reader: &mut R, hrid: Hrid) -> Result<Self, LoadError> {
         let mut lines = reader.lines();
 
         // Ensure frontmatter starts correctly
@@ -74,9 +74,39 @@ impl MarkdownRequirement {
     /// Creates the file if it doesn't exist, or overwrites it if it does.
     ///
     /// Note the path here is the path to the directory. The filename is
-    /// determined by the HRID
+    /// determined by the HRID.
+    ///
+    /// This method constructs the file path based on the current directory
+    /// structure (filename-based), where the full HRID is encoded in the filename.
     pub fn save(&self, path: &Path) -> io::Result<()> {
         let file = File::create(path.join(self.hrid.to_string()).with_extension("md"))?;
+        let mut writer = BufWriter::new(file);
+        self.write(&mut writer)
+    }
+
+    /// Writes the requirement to a file path constructed using the given config.
+    ///
+    /// The path construction respects the `subfolders_are_namespaces` setting:
+    /// - If `false`: file is saved as `root/FULL-HRID.md`
+    /// - If `true`: file is saved as `root/namespace/folders/KIND-ID.md`
+    ///
+    /// Parent directories are created automatically if they don't exist.
+    pub fn save_with_config(&self, root: &Path, config: &crate::domain::Config) -> io::Result<()> {
+        use crate::storage::path_parser::construct_path_from_hrid;
+
+        let file_path = construct_path_from_hrid(
+            root,
+            &self.hrid,
+            config.subfolders_are_namespaces,
+            config.digits(),
+        );
+
+        // Create parent directories if needed
+        if let Some(parent) = file_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let file = File::create(file_path)?;
         let mut writer = BufWriter::new(file);
         self.write(&mut writer)
     }

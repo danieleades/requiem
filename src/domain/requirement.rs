@@ -202,6 +202,21 @@ impl Requirement {
     pub fn save(&self, path: &Path) -> io::Result<()> {
         MarkdownRequirement::from(self.clone()).save(path)
     }
+
+    /// Writes the requirement using the given configuration.
+    ///
+    /// The path construction respects the `subfolders_are_namespaces` setting:
+    /// - If `false`: file is saved as `root/FULL-HRID.md`
+    /// - If `true`: file is saved as `root/namespace/folders/KIND-ID.md`
+    ///
+    /// Parent directories are created automatically if they don't exist.
+    ///
+    /// # Errors
+    ///
+    /// This method returns an error if the path cannot be written to.
+    pub fn save_with_config(&self, root: &Path, config: &crate::domain::Config) -> io::Result<()> {
+        MarkdownRequirement::from(self.clone()).save_with_config(root, config)
+    }
 }
 
 #[cfg(test)]

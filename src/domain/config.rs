@@ -28,6 +28,18 @@ pub struct Config {
     /// Whether to allow markdown files with names that are valid HRIDs that are
     /// not correctly formatted
     pub allow_invalid: bool,
+
+    /// Whether subfolder paths contribute to the namespace of requirements.
+    ///
+    /// When `false` (default): The full HRID is encoded in the filename.
+    ///   Example: `system/auth/REQ-001.md` -> HRID is parsed as `REQ-001`
+    ///   Example: `custom/system-auth-REQ-001.md` -> HRID is `system-auth-REQ-001`
+    ///
+    /// When `true`: Subfolders encode the namespace, filename contains KIND-ID.
+    ///   Example: `system/auth/REQ-001.md` -> HRID is `system-auth-REQ-001`
+    ///   Example: `system/auth/USR/001.md` -> HRID is `system-auth-USR-001`
+    ///   (The format is inferred: numeric filename means KIND in parent folder)
+    pub subfolders_are_namespaces: bool,
 }
 
 impl Default for Config {
@@ -37,6 +49,7 @@ impl Default for Config {
             digits: default_digits(),
             allow_unrecognised: false,
             allow_invalid: false,
+            subfolders_are_namespaces: false,
         }
     }
 }
@@ -47,6 +60,18 @@ impl Config {
         let content = std::fs::read_to_string(path)
             .map_err(|e| format!("Failed to read config file: {e}"))?;
         toml::from_str(&content).map_err(|e| format!("Failed to parse config file: {e}"))
+    }
+
+    /// Returns the number of digits for padding HRID IDs.
+    #[must_use]
+    pub const fn digits(&self) -> usize {
+        self.digits
+    }
+
+    /// Returns the allowed kinds, if configured.
+    #[must_use]
+    pub fn allowed_kinds(&self) -> &[String] {
+        &self.allowed_kinds
     }
 }
 
@@ -79,6 +104,9 @@ enum Versions {
 
         #[serde(default)]
         allow_invalid: bool,
+
+        #[serde(default)]
+        subfolders_are_namespaces: bool,
     },
 }
 
@@ -90,11 +118,13 @@ impl From<Versions> for super::Config {
                 digits,
                 allow_unrecognised,
                 allow_invalid,
+                subfolders_are_namespaces,
             } => Self {
                 allowed_kinds,
                 digits,
                 allow_unrecognised,
                 allow_invalid,
+                subfolders_are_namespaces,
             },
         }
     }
@@ -107,6 +137,7 @@ impl From<super::Config> for Versions {
             digits: config.digits,
             allow_unrecognised: config.allow_unrecognised,
             allow_invalid: config.allow_invalid,
+            subfolders_are_namespaces: config.subfolders_are_namespaces,
         }
     }
 }
