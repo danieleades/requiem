@@ -256,7 +256,7 @@ impl Accept {
 
             println!("Accepted {} suspect link(s):", updated.len());
             for (child, parent) in &updated {
-                println!("  {} → {}", child, parent);
+                println!("  {child} → {parent}");
             }
         } else {
             let child = self
@@ -285,14 +285,18 @@ impl Accept {
 /// Print a list of suspect links in a consistent format.
 fn print_suspect_links(links: &[requiem::storage::SuspectLink]) {
     for link in links {
-        println!("  {} → {}", link.child_hrid, link.parent_hrid);
+        let child = &link.child_hrid;
+        let parent = &link.parent_hrid;
+        println!("  {child} → {parent}");
     }
 }
 
 /// Print detailed information about suspect links including fingerprints.
 fn print_suspect_links_detailed(links: &[requiem::storage::SuspectLink]) {
     for link in links {
-        println!("  {} → {}", link.child_hrid, link.parent_hrid);
+        let child = &link.child_hrid;
+        let parent = &link.parent_hrid;
+        println!("  {child} → {parent}");
         println!(
             "    Stored fingerprint:  {}",
             &link.stored_fingerprint[..16]

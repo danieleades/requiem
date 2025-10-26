@@ -46,18 +46,28 @@ impl Directory {
     /// in the directory will return an error.
     pub fn new(root: PathBuf) -> Result<Self, DirectoryLoadError> {
         let config = load_config(&root);
-        let md_paths = collect_markdown_paths(&root);
+        let tree = Self::load_tree(&root, &config)?;
 
-        let (requirements, unrecognised_paths): (Vec<_>, Vec<_>) = md_paths
+        Ok(Self { root, tree, config })
+    }
+
+    fn load_tree(root: &Path, config: &Config) -> Result<Tree, DirectoryLoadError> {
+        let md_paths = collect_markdown_paths(root);
+
+        let results: Vec<_> = md_paths
             .par_iter()
-            .map(|path| try_load_requirement(path, &root, &config))
-            .partition(Result::is_ok);
-
-        let requirements: Vec<_> = requirements.into_iter().map(Result::unwrap).collect();
-        let unrecognised_paths: Vec<_> = unrecognised_paths
-            .into_iter()
-            .map(Result::unwrap_err)
+            .map(|path| try_load_requirement(path, root, config))
             .collect();
+
+        let mut requirements = Vec::with_capacity(results.len());
+        let mut unrecognised_paths = Vec::new();
+
+        for result in results {
+            match result {
+                Ok(requirement) => requirements.push(requirement),
+                Err(path) => unrecognised_paths.push(path),
+            }
+        }
 
         if !config.allow_unrecognised && !unrecognised_paths.is_empty() {
             return Err(DirectoryLoadError::UnrecognisedFiles(unrecognised_paths));
@@ -68,7 +78,26 @@ impl Directory {
             tree.insert(req);
         }
 
-        Ok(Self { root, tree, config })
+        Ok(tree)
+    }
+
+    /// Returns the root filesystem path for this directory.
+    #[must_use]
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Returns the configuration loaded for this directory.
+    #[must_use]
+    pub const fn config(&self) -> &Config {
+        &self.config
+    }
+
+    /// Returns an immutable view of the in-memory requirement tree.
+    #[must_use]
+    pub const fn tree(&self) -> &Tree {
+        &self.tree
     }
 
     /// Link two requirements together with a parent-child relationship.
@@ -192,7 +221,7 @@ fn try_load_template_file(path: &Path) -> Option<String> {
     }
 }
 
-fn collect_markdown_paths(root: &PathBuf) -> Vec<PathBuf> {
+fn collect_markdown_paths(root: &Path) -> Vec<PathBuf> {
     WalkDir::new(root)
         .into_iter()
         .filter_map(Result::ok)
@@ -557,7 +586,7 @@ mod tests {
 
         assert_eq!(r1.hrid().to_string(), "REQ-001");
 
-        let loaded = Requirement::load(&dir.root, r1.hrid().clone(), &dir.config)
+        let loaded = Requirement::load(dir.root(), r1.hrid().clone(), dir.config())
             .expect("should load saved requirement");
         assert_eq!(loaded.uuid(), r1.uuid());
     }
@@ -586,14 +615,14 @@ mod tests {
             .add_requirement("USR".to_string(), String::new())
             .unwrap();
 
-        Directory::new(dir.root.clone())
+        Directory::new(dir.root().to_path_buf())
             .unwrap()
             .link_requirement(child.hrid().clone(), parent.hrid().clone())
             .unwrap();
 
-        let config = load_config(&dir.root);
-        let updated =
-            Requirement::load(&dir.root, child.hrid().clone(), &config).expect("should load child");
+        let config = load_config(dir.root());
+        let updated = Requirement::load(dir.root(), child.hrid().clone(), &config)
+            .expect("should load child");
 
         let parents: Vec<_> = updated.parents().collect();
         assert_eq!(parents.len(), 1);
@@ -615,13 +644,14 @@ mod tests {
                 fingerprint: parent.fingerprint(),
             },
         );
-        child.save(&dir.root, &dir.config).unwrap();
+        child.save(dir.root(), dir.config()).unwrap();
 
-        let mut loaded_dir = Directory::new(dir.root.clone()).unwrap();
+        let mut loaded_dir = Directory::new(dir.root().to_path_buf()).unwrap();
         loaded_dir.update_hrids().unwrap();
 
-        let updated = Requirement::load(&loaded_dir.root, child.hrid().clone(), &loaded_dir.config)
-            .expect("should load updated child");
+        let updated =
+            Requirement::load(loaded_dir.root(), child.hrid().clone(), loaded_dir.config())
+                .expect("should load updated child");
         let (_, parent_ref) = updated.parents().next().unwrap();
 
         assert_eq!(&parent_ref.hrid, parent.hrid());
@@ -634,12 +664,12 @@ mod tests {
         let r1 = dir.add_requirement("X".to_string(), String::new()).unwrap();
         let r2 = dir.add_requirement("X".to_string(), String::new()).unwrap();
 
-        let loaded = Directory::new(dir.root.clone()).unwrap();
+        let loaded = Directory::new(dir.root().to_path_buf()).unwrap();
 
         let mut found = 0;
         for i in 1..=2 {
             let hrid = Hrid::from_str(&format!("X-00{i}")).unwrap();
-            let req = Requirement::load(&loaded.root, hrid, &loaded.config).unwrap();
+            let req = Requirement::load(loaded.root(), hrid, loaded.config()).unwrap();
             if req.uuid() == r1.uuid() || req.uuid() == r2.uuid() {
                 found += 1;
             }
@@ -681,7 +711,7 @@ Test requirement
 
         // Should be able to load the requirement with the correct HRID using config
         let hrid = Hrid::try_from("system-auth-REQ-001").unwrap();
-        let req = Requirement::load(root, hrid.clone(), &dir.config).unwrap();
+        let req = Requirement::load(root, hrid.clone(), dir.config()).unwrap();
         assert_eq!(req.hrid(), &hrid);
     }
 
@@ -762,13 +792,13 @@ Test requirement
         let req = Requirement::new(hrid.clone(), "Test content".to_string());
 
         // Save using config
-        req.save(root, &dir.config).unwrap();
+        req.save(root, dir.config()).unwrap();
 
         // File should be created at system/auth/REQ-001.md
         assert!(root.join("system/auth/REQ-001.md").exists());
 
         // Should be able to reload it using config
-        let loaded = Requirement::load(root, hrid.clone(), &dir.config).unwrap();
+        let loaded = Requirement::load(root, hrid.clone(), dir.config()).unwrap();
         assert_eq!(loaded.hrid(), &hrid);
     }
 
@@ -842,7 +872,7 @@ Test requirement
         let req = Requirement::new(hrid, "Test content".to_string());
 
         // Save using config
-        req.save(root, &dir.config).unwrap();
+        req.save(root, dir.config()).unwrap();
 
         // File should be created in root with full HRID
         assert!(root.join("system-auth-REQ-001.md").exists());
