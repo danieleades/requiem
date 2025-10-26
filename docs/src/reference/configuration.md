@@ -36,6 +36,7 @@ allowed_kinds = ["USR", "SYS", "SWR", "TST"]
 digits = 3
 allow_unrecognised = false
 allow_invalid = false
+subfolders_are_namespaces = false
 ```
 
 ## Configuration Fields
@@ -350,6 +351,118 @@ allow_unrecognised = True  # Wrong: uppercase
 Error: Failed to parse config file: invalid value
 ```
 
+### `subfolders_are_namespaces`
+
+Control whether subfolder paths contribute to requirement namespaces.
+
+**Type**: Boolean
+
+**Required**: No
+
+**Default**: `false`
+
+**Valid Values**: `true`, `false`
+
+**Example**:
+```toml
+subfolders_are_namespaces = true
+```
+
+**Purpose**:
+- Choose between filename-based and path-based directory organization
+- Enable cleaner filenames in hierarchical structures
+- Align folder structure with namespace hierarchy
+
+**Behavior**:
+
+**subfolders_are_namespaces = false** (default, filename-based):
+```
+requirements/
+├── custom/folder/
+│   └── system-auth-REQ-001.md   → HRID: system-auth-REQ-001
+└── any/path/
+    └── payment-USR-002.md       → HRID: payment-USR-002
+```
+
+- **HRID**: Fully encoded in filename
+- **Folders**: Purely organizational, don't affect HRID
+- **Flexibility**: Move files freely without changing HRIDs
+
+**subfolders_are_namespaces = true** (path-based):
+```
+requirements/
+├── system/
+│   └── auth/
+│       ├── REQ-001.md           → HRID: system-auth-REQ-001
+│       └── USR/
+│           └── 002.md           → HRID: system-auth-USR-002
+└── payment/
+    └── USR-003.md               → HRID: payment-USR-003
+```
+
+- **HRID**: Namespace from folder path + KIND-ID from filename
+- **Folders**: Encode namespace segments
+- **Format inference**:
+  - Numeric filename (`002.md`) → KIND from parent folder
+  - KIND-ID filename (`USR-003.md`) → KIND from filename
+- **Constraint**: Moving files changes their HRID
+
+**Use Cases**:
+
+**Use `false` (default)**:
+- Maximum folder flexibility
+- Arbitrary organizational schemes
+- Frequent folder reorganization
+- Explicit namespaces in every filename
+
+**Use `true`**:
+- Hierarchical component structures
+- Folder structure mirrors system architecture
+- Cleaner, shorter filenames
+- Enforced namespace-folder alignment
+
+**Examples**:
+
+Filename-based (flexible organization):
+```toml
+_version = "1"
+subfolders_are_namespaces = false
+```
+
+Path-based (structured hierarchy):
+```toml
+_version = "1"
+subfolders_are_namespaces = true
+```
+
+**Migration**:
+
+To convert from filename-based to path-based:
+1. Set `subfolders_are_namespaces = true`
+2. Reorganize files to match namespace structure
+3. Rename files to remove namespace prefix
+
+To convert from path-based to filename-based:
+1. Move files and encode full HRID in filename
+2. Set `subfolders_are_namespaces = false`
+3. Optionally flatten directory structure
+
+See [Directory Structure](../configuration/directory-structure.md) for detailed migration guide.
+
+**Validation**:
+- Must be boolean
+- Case-sensitive: `true` or `false` (lowercase)
+
+**Errors**:
+
+Wrong type:
+```toml
+subfolders_are_namespaces = "yes"  # Wrong: string instead of boolean
+```
+```
+Error: Failed to parse config file: invalid type: string, expected a bool
+```
+
 ### `allow_invalid`
 
 Allow requirements with invalid YAML frontmatter or formatting.
@@ -458,6 +571,7 @@ All other fields use defaults:
 - `digits = 3`
 - `allow_unrecognised = false`
 - `allow_invalid = false`
+- `subfolders_are_namespaces = false`
 
 ## Default Configuration
 
@@ -469,6 +583,7 @@ allowed_kinds = []
 digits = 3
 allow_unrecognised = false
 allow_invalid = false
+subfolders_are_namespaces = false
 ```
 
 ## Configuration Examples
@@ -595,6 +710,7 @@ Fields:
 - `digits` (optional)
 - `allow_unrecognised` (optional)
 - `allow_invalid` (optional)
+- `subfolders_are_namespaces` (optional)
 
 ### Future Versions
 
@@ -693,12 +809,14 @@ allowed_kinds = []  # Allow all kinds
 - `digits`: HRID digit padding (default: `3`)
 - `allow_unrecognised`: Allow non-HRID files (default: `false`)
 - `allow_invalid`: Allow invalid requirements (default: `false`)
+- `subfolders_are_namespaces`: Use path-based structure (default: `false`)
 
 **Defaults**:
 - All kinds allowed
 - 3-digit HRID padding
 - Strict file validation
 - Strict requirement validation
+- Filename-based directory structure
 
 ## Next Steps
 

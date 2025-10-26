@@ -624,4 +624,174 @@ mod tests {
 
         assert_eq!(found, 2);
     }
+
+    #[test]
+    fn path_based_mode_kind_in_filename() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let root = tmp.path();
+
+        // Create config with subfolders_are_namespaces = true
+        std::fs::write(
+            root.join("config.toml"),
+            "_version = \"1\"\nsubfolders_are_namespaces = true\n",
+        )
+        .unwrap();
+
+        // Create directory structure
+        std::fs::create_dir_all(root.join("system/auth")).unwrap();
+
+        // Create a requirement file in path-based format
+        std::fs::write(
+            root.join("system/auth/REQ-001.md"),
+            r#"---
+_version: '1'
+uuid: 12345678-1234-1234-1234-123456789012
+created: 2025-01-01T00:00:00Z
+---
+Test requirement
+"#,
+        )
+        .unwrap();
+
+        // Load all requirements
+        let dir = Directory::new(root.to_path_buf()).load_all().unwrap();
+
+        // Should be able to load the requirement with the correct HRID
+        let hrid = Hrid::try_from("system-auth-REQ-001").unwrap();
+        let req = Requirement::load(&root, hrid.clone()).unwrap();
+        assert_eq!(req.hrid(), &hrid);
+    }
+
+    #[test]
+    fn path_based_mode_kind_in_parent_folder() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let root = tmp.path();
+
+        // Create config with subfolders_are_namespaces = true
+        std::fs::write(
+            root.join("config.toml"),
+            "_version = \"1\"\nsubfolders_are_namespaces = true\n",
+        )
+        .unwrap();
+
+        // Create directory structure with KIND as parent folder
+        std::fs::create_dir_all(root.join("system/auth/USR")).unwrap();
+
+        // Create a requirement file with numeric filename
+        std::fs::write(
+            root.join("system/auth/USR/001.md"),
+            r#"---
+_version: '1'
+uuid: 12345678-1234-1234-1234-123456789013
+created: 2025-01-01T00:00:00Z
+---
+Test requirement
+"#,
+        )
+        .unwrap();
+
+        // Load all requirements
+        let dir = Directory::new(root.to_path_buf()).load_all().unwrap();
+
+        // Should be able to load with correct HRID (KIND from parent folder)
+        let hrid = Hrid::try_from("system-auth-USR-001").unwrap();
+        let req = Requirement::load(&root, hrid.clone()).unwrap();
+        assert_eq!(req.hrid(), &hrid);
+    }
+
+    #[test]
+    fn path_based_mode_saves_in_subdirectories() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let root = tmp.path();
+
+        // Create config with subfolders_are_namespaces = true
+        std::fs::write(
+            root.join("config.toml"),
+            "_version = \"1\"\nsubfolders_are_namespaces = true\n",
+        )
+        .unwrap();
+
+        // Load directory
+        let mut dir = Directory::new(root.to_path_buf()).load_all().unwrap();
+
+        // Add a requirement with namespace
+        let hrid = Hrid::new_with_namespace(
+            vec!["system".to_string(), "auth".to_string()],
+            "REQ".to_string(),
+            1,
+        )
+        .unwrap();
+        let req = Requirement::new(hrid.clone(), "Test content".to_string());
+
+        // Save using config
+        req.save_with_config(&root, &dir.state.config).unwrap();
+
+        // File should be created at system/auth/REQ-001.md
+        assert!(root.join("system/auth/REQ-001.md").exists());
+
+        // Should be able to reload it
+        let loaded = Requirement::load(&root, hrid.clone()).unwrap();
+        assert_eq!(loaded.hrid(), &hrid);
+    }
+
+    #[test]
+    fn filename_based_mode_ignores_folder_structure() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let root = tmp.path();
+
+        // Create config with subfolders_are_namespaces = false (default)
+        std::fs::write(root.join("config.toml"), "_version = \"1\"\n").unwrap();
+
+        // Create nested directory structure
+        std::fs::create_dir_all(root.join("some/random/path")).unwrap();
+
+        // Create a requirement with full HRID in filename
+        std::fs::write(
+            root.join("some/random/path/system-auth-REQ-001.md"),
+            r#"---
+_version: '1'
+uuid: 12345678-1234-1234-1234-123456789014
+created: 2025-01-01T00:00:00Z
+---
+Test requirement
+"#,
+        )
+        .unwrap();
+
+        // Load all requirements
+        let _dir = Directory::new(root.to_path_buf()).load_all().unwrap();
+
+        // Should load with HRID from filename, not path
+        let hrid = Hrid::try_from("system-auth-REQ-001").unwrap();
+        let req = Requirement::load(&root, hrid.clone()).unwrap();
+        assert_eq!(req.hrid(), &hrid);
+    }
+
+    #[test]
+    fn filename_based_mode_saves_in_root() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let root = tmp.path();
+
+        // Create default config (filename-based)
+        std::fs::write(root.join("config.toml"), "_version = \"1\"\n").unwrap();
+
+        // Load directory
+        let mut dir = Directory::new(root.to_path_buf()).load_all().unwrap();
+
+        // Add a requirement with namespace
+        let hrid = Hrid::new_with_namespace(
+            vec!["system".to_string(), "auth".to_string()],
+            "REQ".to_string(),
+            1,
+        )
+        .unwrap();
+        let req = Requirement::new(hrid.clone(), "Test content".to_string());
+
+        // Save using config
+        req.save_with_config(&root, &dir.state.config).unwrap();
+
+        // File should be created in root with full HRID
+        assert!(root.join("system-auth-REQ-001.md").exists());
+        assert!(!root.join("system/auth/REQ-001.md").exists());
+    }
 }
