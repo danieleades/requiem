@@ -1,0 +1,357 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>System Requirements - Requiem User Guide</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="A comprehensive guide to plain-text requirements management with Requiem">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="../highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="../tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Requiem User Guide</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/danieleades/requirements-manager" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/danieleades/requirements-manager/edit/main/docs/src/requirements/system-requirements.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="system-requirements"><a class="header" href="#system-requirements">System Requirements</a></h1>
+<p>System requirements (SYS) define the technical implementation details for Requiem. While user requirements describe <strong>what</strong> users need, system requirements specify <strong>how</strong> the tool delivers those capabilities.</p>
+<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
+<p>Requiem has 15 system requirements organized by functional area:</p>
+<h3 id="file-format--identifiers"><a class="header" href="#file-format--identifiers">File Format &amp; Identifiers</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>ID</th><th>Title</th><th>Parent</th><th>Summary</th></tr></thead><tbody>
+<tr><td><a href="./SYS-001.html">SYS-001</a></td><td>Markdown File Format with YAML Frontmatter</td><td>USR-001</td><td>Files contain YAML metadata block and Markdown body</td></tr>
+<tr><td><a href="./SYS-002.html">SYS-002</a></td><td>UUID and HRID Fields</td><td>USR-001, USR-002</td><td>Frontmatter includes UUID, HRID, version, created timestamp</td></tr>
+<tr><td><a href="./SYS-003.html">SYS-003</a></td><td>Parent Requirement Links</td><td>USR-003</td><td>Parent links stored as arrays with UUID, HRID, fingerprint</td></tr>
+</tbody></table>
+</div>
+<h3 id="graph-analysis--validation"><a class="header" href="#graph-analysis--validation">Graph Analysis &amp; Validation</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>ID</th><th>Title</th><th>Parent</th><th>Summary</th></tr></thead><tbody>
+<tr><td><a href="./SYS-004.html">SYS-004</a></td><td>Cycle Detection in Requirement Graph</td><td>USR-004</td><td>Tool validates requirements form a DAG with no cycles</td></tr>
+<tr><td><a href="./SYS-005.html">SYS-005</a></td><td>Suspect Link Detection</td><td>USR-004</td><td>Detects when parent fingerprint doesn't match stored value</td></tr>
+<tr><td><a href="./SYS-008.html">SYS-008</a></td><td>Suspect Links CLI Command</td><td>USR-004</td><td><code>req suspect</code> command lists all suspect links</td></tr>
+<tr><td><a href="./SYS-009.html">SYS-009</a></td><td>Accept Individual Suspect Links</td><td>USR-004</td><td><code>req accept &lt;child&gt; &lt;parent&gt;</code> updates one suspect link</td></tr>
+<tr><td><a href="./SYS-010.html">SYS-010</a></td><td>Accept All Suspect Links in Bulk</td><td>USR-004</td><td><code>req accept --all</code> updates all suspect links with dry-run/force</td></tr>
+</tbody></table>
+</div>
+<h3 id="static-site-integration"><a class="header" href="#static-site-integration">Static Site Integration</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>ID</th><th>Title</th><th>Parent</th><th>Summary</th></tr></thead><tbody>
+<tr><td><a href="./SYS-006.html">SYS-006</a></td><td>Sphinx and MyST Parser Compatibility</td><td>USR-005</td><td>Requirements compatible with Sphinx + MyST Parser</td></tr>
+<tr><td><a href="./SYS-007.html">SYS-007</a></td><td>MdBook Compatibility</td><td>USR-005</td><td>Requirements render correctly in MdBook</td></tr>
+</tbody></table>
+</div>
+<h3 id="template-system"><a class="header" href="#template-system">Template System</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>ID</th><th>Title</th><th>Parent</th><th>Summary</th></tr></thead><tbody>
+<tr><td><a href="./SYS-011.html">SYS-011</a></td><td>Template File Storage</td><td>USR-006</td><td>Templates stored as markdown files in <code>.req/templates/</code></td></tr>
+<tr><td><a href="./SYS-012.html">SYS-012</a></td><td>Default Template Application</td><td>USR-006</td><td>Creating requirement uses template content as default body</td></tr>
+<tr><td><a href="./SYS-013.html">SYS-013</a></td><td>Template Override via CLI</td><td>USR-006</td><td><code>-t</code> and <code>-b</code> flags override template content</td></tr>
+<tr><td><a href="./SYS-014.html">SYS-014</a></td><td>Template Format</td><td>USR-006</td><td>Templates support full CommonMark markdown</td></tr>
+<tr><td><a href="./SYS-015.html">SYS-015</a></td><td>Namespace-Specific Templates</td><td>USR-006</td><td>Different templates for same KIND with different namespaces</td></tr>
+</tbody></table>
+</div>
+<h2 id="detailed-requirements"><a class="header" href="#detailed-requirements">Detailed Requirements</a></h2>
+<h3 id="file-format--identifiers-1"><a class="header" href="#file-format--identifiers-1">File Format &amp; Identifiers</a></h3>
+<h4 id="sys-001-markdown-file-format-with-yaml-frontmatter"><a class="header" href="#sys-001-markdown-file-format-with-yaml-frontmatter">SYS-001: Markdown File Format with YAML Frontmatter</a></h4>
+<p>Each requirement shall be stored as a single plain-text Markdown file containing a YAML frontmatter block and a Markdown body. Files are named <code>{HRID}.md</code> with frontmatter delimited by <code>---</code> markers.</p>
+<p><a href="./SYS-001.html">Read full requirement →</a></p>
+<hr />
+<h4 id="sys-002-uuid-and-hrid-fields"><a class="header" href="#sys-002-uuid-and-hrid-fields">SYS-002: UUID and HRID Fields</a></h4>
+<p>The YAML frontmatter shall include required fields: <code>_version</code> (format version), <code>uuid</code> (globally unique identifier), <code>created</code> (ISO 8601 timestamp). The HRID is derived from the filename.</p>
+<p><a href="./SYS-002.html">Read full requirement →</a></p>
+<hr />
+<h4 id="sys-003-parent-requirement-links"><a class="header" href="#sys-003-parent-requirement-links">SYS-003: Parent Requirement Links</a></h4>
+<p>Parent links shall be stored in a <code>parents</code> array, where each link contains <code>uuid</code>, <code>hrid</code>, and <code>fingerprint</code> (SHA256 hash of parent content) for change detection.</p>
+<p><a href="./SYS-003.html">Read full requirement →</a></p>
+<hr />
+<h3 id="graph-analysis--validation-1"><a class="header" href="#graph-analysis--validation-1">Graph Analysis &amp; Validation</a></h3>
+<h4 id="sys-004-cycle-detection-in-requirement-graph"><a class="header" href="#sys-004-cycle-detection-in-requirement-graph">SYS-004: Cycle Detection in Requirement Graph</a></h4>
+<p>The tool shall validate that requirements form a directed acyclic graph (DAG). Cycles are invalid because they create circular dependencies. Detection uses depth-first traversal.</p>
+<p><a href="./SYS-004.html">Read full requirement →</a></p>
+<hr />
+<h4 id="sys-005-suspect-link-detection"><a class="header" href="#sys-005-suspect-link-detection">SYS-005: Suspect Link Detection</a></h4>
+<p>When a parent's fingerprint doesn't match the stored value in a child's frontmatter, the link is "suspect" - indicating the parent changed. The tool identifies these for review.</p>
+<p><a href="./SYS-005.html">Read full requirement →</a></p>
+<hr />
+<h4 id="sys-008-suspect-links-cli-command"><a class="header" href="#sys-008-suspect-links-cli-command">SYS-008: Suspect Links CLI Command</a></h4>
+<p>The <code>req suspect</code> command lists all suspect links in the graph, showing child HRID and suspect parent HRID. Exits with non-zero status if suspect links found (useful for CI).</p>
+<p><a href="./SYS-008.html">Read full requirement →</a></p>
+<hr />
+<h4 id="sys-009-accept-individual-suspect-links"><a class="header" href="#sys-009-accept-individual-suspect-links">SYS-009: Accept Individual Suspect Links</a></h4>
+<p>The <code>req accept &lt;child-hrid&gt; &lt;parent-hrid&gt;</code> command accepts a specific suspect link by updating the fingerprint in the child's frontmatter to match the parent's current content hash.</p>
+<p><a href="./SYS-009.html">Read full requirement →</a></p>
+<hr />
+<h4 id="sys-010-accept-all-suspect-links-in-bulk"><a class="header" href="#sys-010-accept-all-suspect-links-in-bulk">SYS-010: Accept All Suspect Links in Bulk</a></h4>
+<p>The <code>req accept --all</code> command accepts all suspect links in bulk. Supports <code>--dry-run</code> to preview changes and <code>--force</code> to bypass confirmation prompt.</p>
+<p><a href="./SYS-010.html">Read full requirement →</a></p>
+<hr />
+<h3 id="static-site-integration-1"><a class="header" href="#static-site-integration-1">Static Site Integration</a></h3>
+<h4 id="sys-006-sphinx-and-myst-parser-compatibility"><a class="header" href="#sys-006-sphinx-and-myst-parser-compatibility">SYS-006: Sphinx and MyST Parser Compatibility</a></h4>
+<p>Requirement files shall be compatible with Sphinx using the MyST Parser, rendering frontmatter as metadata and body content correctly. YAML syntax must be MyST-compatible.</p>
+<p><a href="./SYS-006.html">Read full requirement →</a></p>
+<hr />
+<h4 id="sys-007-mdbook-compatibility"><a class="header" href="#sys-007-mdbook-compatibility">SYS-007: MdBook Compatibility</a></h4>
+<p>Requirement files shall render correctly in MdBook. YAML frontmatter is ignored (not rendered), and markdown body content displays properly following CommonMark specification.</p>
+<p><a href="./SYS-007.html">Read full requirement →</a></p>
+<hr />
+<h3 id="template-system-1"><a class="header" href="#template-system-1">Template System</a></h3>
+<h4 id="sys-011-template-file-storage"><a class="header" href="#sys-011-template-file-storage">SYS-011: Template File Storage</a></h4>
+<p>Templates are stored as individual markdown files in the <code>.req/templates/</code> directory, named after requirement kind: <code>{KIND}.md</code>. Namespace-specific templates use <code>{NAMESPACE}-{KIND}.md</code>.</p>
+<p><a href="./SYS-011.html">Read full requirement →</a></p>
+<hr />
+<h4 id="sys-012-default-template-application"><a class="header" href="#sys-012-default-template-application">SYS-012: Default Template Application</a></h4>
+<p>When creating a requirement via <code>req add &lt;KIND&gt;</code>, if a template file exists for that kind, the tool uses the template content as the default body content.</p>
+<p><a href="./SYS-012.html">Read full requirement →</a></p>
+<hr />
+<h4 id="sys-013-template-override-via-cli"><a class="header" href="#sys-013-template-override-via-cli">SYS-013: Template Override via CLI</a></h4>
+<p>The <code>-t/--title</code> and <code>-b/--body</code> flags allow users to override template content. If either flag is provided, the template is completely ignored.</p>
+<p><a href="./SYS-013.html">Read full requirement →</a></p>
+<hr />
+<h4 id="sys-014-template-format"><a class="header" href="#sys-014-template-format">SYS-014: Template Format</a></h4>
+<p>Template files contain plain markdown text supporting standard markdown formatting: headings, lists, code blocks, links, etc. No special template syntax required - content is inserted verbatim.</p>
+<p><a href="./SYS-014.html">Read full requirement →</a></p>
+<hr />
+<h4 id="sys-015-namespace-specific-templates"><a class="header" href="#sys-015-namespace-specific-templates">SYS-015: Namespace-Specific Templates</a></h4>
+<p>Different templates can be configured for the same KIND with different namespaces (e.g., <code>AUTH-USR.md</code> vs <code>USR.md</code>). Template lookup tries full prefix first, then falls back to KIND only.</p>
+<p><a href="./SYS-015.html">Read full requirement →</a></p>
+<hr />
+<h2 id="implementation-status"><a class="header" href="#implementation-status">Implementation Status</a></h2>
+<p><strong>Implemented</strong> ✅:</p>
+<ul>
+<li>All file format requirements (SYS-001, SYS-002, SYS-003)</li>
+<li>Fingerprints and suspect link detection (SYS-005, SYS-008)</li>
+<li>Static site integration (SYS-006, SYS-007)</li>
+<li>Complete template system (SYS-011 through SYS-015)</li>
+<li>Individual suspect link acceptance (SYS-009)</li>
+</ul>
+<p><strong>In Progress</strong> 🚧:</p>
+<ul>
+<li>Cycle detection (SYS-004)</li>
+<li>Bulk suspect link acceptance (SYS-010)</li>
+</ul>
+<h2 id="traceability"><a class="header" href="#traceability">Traceability</a></h2>
+<p>Each system requirement traces back to one or more user requirements. See the "Parent" column in the tables above, or view the <a href="./user-requirements.html">User Requirements page</a> for the complete traceability tree.</p>
+<h2 id="next-steps"><a class="header" href="#next-steps">Next Steps</a></h2>
+<ul>
+<li><a href="./user-requirements.html">View User Requirements →</a></li>
+<li><a href="../requirements.html">Back to Requirements Overview →</a></li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../requirements/user-requirements.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../reference/cli.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../requirements/user-requirements.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../reference/cli.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

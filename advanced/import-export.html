@@ -1,0 +1,679 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Import and Export - Requiem User Guide</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="A comprehensive guide to plain-text requirements management with Requiem">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="../highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="../tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Requiem User Guide</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/danieleades/requirements-manager" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/danieleades/requirements-manager/edit/main/docs/src/advanced/import-export.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="import-and-export"><a class="header" href="#import-and-export">Import and Export</a></h1>
+<blockquote>
+<p><strong>Note</strong>: Import and export features are <strong>planned but not yet implemented</strong>. This chapter describes how these features will work when available.</p>
+</blockquote>
+<p>Import and export enable interoperability with other requirements management tools and formats.</p>
+<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
+<p>Planned import/export formats:</p>
+<ul>
+<li><strong>ReqIF</strong>: Requirements Interchange Format (OMG standard)</li>
+<li><strong>JSON</strong>: Machine-readable format for custom tools</li>
+<li><strong>CSV</strong>: Spreadsheet format for analysis</li>
+<li><strong>Doorstop YAML</strong>: Migrate from Doorstop projects</li>
+<li><strong>HTML</strong>: Human-readable export for documentation</li>
+<li><strong>PDF</strong>: Formal document generation</li>
+</ul>
+<h2 id="why-importexport-matters"><a class="header" href="#why-importexport-matters">Why Import/Export Matters</a></h2>
+<p><strong>Migration</strong>: Move requirements from other tools to Requiem</p>
+<p><strong>Integration</strong>: Exchange requirements with other systems</p>
+<p><strong>Analysis</strong>: Export to spreadsheets for custom analysis</p>
+<p><strong>Documentation</strong>: Generate formal requirement documents</p>
+<p><strong>Backup</strong>: Archive requirements in multiple formats</p>
+<p><strong>Compliance</strong>: Provide requirements in auditor-requested formats</p>
+<h2 id="export-functionality"><a class="header" href="#export-functionality">Export Functionality</a></h2>
+<h3 id="export-to-json"><a class="header" href="#export-to-json">Export to JSON</a></h3>
+<pre><code class="language-bash">req export --format json --output requirements.json
+</code></pre>
+<p><strong>Output format</strong>:</p>
+<pre><code class="language-json">{
+  "version": "1",
+  "exported_at": "2025-07-22T12:00:00Z",
+  "requirements": [
+    {
+      "hrid": "USR-001",
+      "uuid": "4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a",
+      "created": "2025-07-22T10:00:00Z",
+      "content": "The system shall validate...",
+      "tags": ["authentication", "security"],
+      "parents": [
+        {
+          "uuid": "3fc6800c-5acc-457e-baf9-a29b42b663fd",
+          "hrid": "USR-002",
+          "fingerprint": "e533784ff58c16cbf08e436cb06f09e0..."
+        }
+      ]
+    }
+  ]
+}
+</code></pre>
+<h3 id="export-to-csv"><a class="header" href="#export-to-csv">Export to CSV</a></h3>
+<pre><code class="language-bash">req export --format csv --output requirements.csv
+</code></pre>
+<p><strong>Output format</strong>:</p>
+<pre><code class="language-csv">HRID,UUID,Created,Content,Tags,Parents
+USR-001,4bfeb7d5-...,2025-07-22T10:00:00Z,"The system shall...","authentication,security","USR-002"
+USR-002,3fc6800c-...,2025-07-22T09:00:00Z,"Users shall be able to...","",""
+SYS-001,81e63bac-...,2025-07-22T11:00:00Z,"The authentication service...","","USR-001,USR-002"
+</code></pre>
+<p>Open in Excel, Google Sheets, or other spreadsheet tools.</p>
+<h3 id="export-to-reqif"><a class="header" href="#export-to-reqif">Export to ReqIF</a></h3>
+<pre><code class="language-bash">req export --format reqif --output requirements.reqif
+</code></pre>
+<p><strong>ReqIF</strong>: OMG standard for requirements exchange, compatible with:</p>
+<ul>
+<li>IBM DOORS</li>
+<li>Siemens Polarion</li>
+<li>PTC Integrity</li>
+<li>Jama Connect</li>
+<li>Many other tools</li>
+</ul>
+<p><strong>Use case</strong>: Send requirements to partners/customers using commercial tools.</p>
+<h3 id="export-to-html"><a class="header" href="#export-to-html">Export to HTML</a></h3>
+<pre><code class="language-bash">req export --format html --output requirements.html
+</code></pre>
+<p><strong>Features</strong>:</p>
+<ul>
+<li>Styled requirement documents</li>
+<li>Clickable traceability links</li>
+<li>Filterable by kind, tag</li>
+<li>Printable</li>
+<li>Standalone (no external dependencies)</li>
+</ul>
+<h3 id="export-to-pdf"><a class="header" href="#export-to-pdf">Export to PDF</a></h3>
+<pre><code class="language-bash">req export --format pdf --output requirements.pdf
+</code></pre>
+<p><strong>Use case</strong>: Formal requirement documents for:</p>
+<ul>
+<li>Reviews</li>
+<li>Approvals</li>
+<li>Audits</li>
+<li>Archival</li>
+</ul>
+<h2 id="import-functionality"><a class="header" href="#import-functionality">Import Functionality</a></h2>
+<h3 id="import-from-json"><a class="header" href="#import-from-json">Import from JSON</a></h3>
+<pre><code class="language-bash">req import --format json --input requirements.json
+</code></pre>
+<p>Creates <code>.md</code> files from JSON requirement data.</p>
+<p><strong>Validation</strong>:</p>
+<ul>
+<li>Checks for UUID conflicts</li>
+<li>Validates HRID format</li>
+<li>Ensures parent references are valid</li>
+</ul>
+<p><strong>Conflict resolution</strong>:</p>
+<pre><code class="language-bash">req import --format json --input requirements.json --on-conflict skip
+req import --format json --input requirements.json --on-conflict overwrite
+req import --format json --input requirements.json --on-conflict rename
+</code></pre>
+<h3 id="import-from-csv"><a class="header" href="#import-from-csv">Import from CSV</a></h3>
+<pre><code class="language-bash">req import --format csv --input requirements.csv
+</code></pre>
+<p><strong>CSV format requirements</strong>:</p>
+<ul>
+<li>Must have headers: <code>HRID</code>, <code>UUID</code>, <code>Content</code></li>
+<li>Optional: <code>Created</code>, <code>Tags</code>, <code>Parents</code></li>
+<li><code>Parents</code> column: comma-separated HRIDs or UUIDs</li>
+</ul>
+<p><strong>Example CSV</strong>:</p>
+<pre><code class="language-csv">HRID,UUID,Content,Tags,Parents
+USR-001,4bfeb7d5-...,The system shall validate emails,authentication,
+SYS-001,81e63bac-...,Email validation service,authentication,USR-001
+</code></pre>
+<h3 id="import-from-doorstop"><a class="header" href="#import-from-doorstop">Import from Doorstop</a></h3>
+<p>Migrate from Doorstop projects:</p>
+<pre><code class="language-bash">req import --format doorstop --input /path/to/doorstop/project
+</code></pre>
+<p><strong>What's imported</strong>:</p>
+<ul>
+<li>Doorstop documents → Requiem requirement kinds</li>
+<li>Doorstop items → Requiem requirements</li>
+<li>Links → Parent relationships</li>
+<li>Attributes → Tags or content</li>
+</ul>
+<p><strong>Mapping</strong>:</p>
+<pre><code>Doorstop                  Requiem
+--------                  -------
+Document PREFIX           Requirement KIND (e.g., USR)
+Item UID                  UUID (generated or preserved)
+Item text                 Requirement content
+Item links                Parent relationships
+Item attributes           Tags
+</code></pre>
+<h3 id="import-from-reqif"><a class="header" href="#import-from-reqif">Import from ReqIF</a></h3>
+<pre><code class="language-bash">req import --format reqif --input requirements.reqif
+</code></pre>
+<p><strong>Use case</strong>: Import from commercial tools (DOORS, Polarion, etc.)</p>
+<p><strong>Challenges</strong>:</p>
+<ul>
+<li>ReqIF is complex; not all features map to Requiem</li>
+<li>May require manual cleanup after import</li>
+</ul>
+<h2 id="selective-exportimport"><a class="header" href="#selective-exportimport">Selective Export/Import</a></h2>
+<h3 id="export-specific-requirements"><a class="header" href="#export-specific-requirements">Export Specific Requirements</a></h3>
+<p>By kind:</p>
+<pre><code class="language-bash">req export --kind USR --format json --output usr-requirements.json
+</code></pre>
+<p>By tag:</p>
+<pre><code class="language-bash">req export --tag security --format csv --output security-reqs.csv
+</code></pre>
+<p>By namespace:</p>
+<pre><code class="language-bash">req export --namespace AUTH --format html --output auth-reqs.html
+</code></pre>
+<h3 id="import-with-filtering"><a class="header" href="#import-with-filtering">Import with Filtering</a></h3>
+<p>Skip certain requirements:</p>
+<pre><code class="language-bash">req import --format json --input reqs.json --exclude-kind DOC
+</code></pre>
+<p>Rename on import:</p>
+<pre><code class="language-bash">req import --format json --input reqs.json --rename-kind USR=USER
+</code></pre>
+<h2 id="transformation-during-importexport"><a class="header" href="#transformation-during-importexport">Transformation During Import/Export</a></h2>
+<h3 id="hrid-remapping"><a class="header" href="#hrid-remapping">HRID Remapping</a></h3>
+<p>Change HRIDs during import:</p>
+<pre><code class="language-bash">req import --format json --input reqs.json --remap-hrids
+</code></pre>
+<p>Generates new HRIDs while preserving UUIDs (maintains traceability).</p>
+<p><strong>Use case</strong>: Merging requirement sets with conflicting HRIDs.</p>
+<h3 id="namespace-addition"><a class="header" href="#namespace-addition">Namespace Addition</a></h3>
+<p>Add namespace during import:</p>
+<pre><code class="language-bash">req import --format json --input reqs.json --add-namespace LEGACY
+</code></pre>
+<p>Imports USR-001 as LEGACY-USR-001.</p>
+<p><strong>Use case</strong>: Integrating acquired projects.</p>
+<h3 id="tag-transformation"><a class="header" href="#tag-transformation">Tag Transformation</a></h3>
+<p>Add tags during import:</p>
+<pre><code class="language-bash">req import --format json --input reqs.json --add-tag imported --add-tag legacy
+</code></pre>
+<h2 id="round-trip-compatibility"><a class="header" href="#round-trip-compatibility">Round-Trip Compatibility</a></h2>
+<p><strong>Goal</strong>: Export and re-import without data loss.</p>
+<p><strong>Guaranteed for</strong>:</p>
+<ul>
+<li>JSON format (lossless)</li>
+<li>ReqIF format (best effort)</li>
+</ul>
+<p><strong>Limitations</strong>:</p>
+<ul>
+<li>CSV format (lossy: no complex structures)</li>
+<li>HTML/PDF (read-only export, no import)</li>
+</ul>
+<p><strong>Validation</strong>:</p>
+<pre><code class="language-bash"># Export
+req export --format json --output export.json
+
+# Import to clean directory
+mkdir test &amp;&amp; cd test
+req import --format json --input ../export.json
+
+# Compare
+diff -r ../original ./
+# Should be identical
+</code></pre>
+<h2 id="use-cases"><a class="header" href="#use-cases">Use Cases</a></h2>
+<h3 id="use-case-1-migrating-from-doorstop"><a class="header" href="#use-case-1-migrating-from-doorstop">Use Case 1: Migrating from Doorstop</a></h3>
+<p><strong>Scenario</strong>: Existing project using Doorstop.</p>
+<p><strong>Goal</strong>: Migrate to Requiem.</p>
+<p><strong>Workflow</strong>:</p>
+<pre><code class="language-bash"># Export from Doorstop (if needed)
+doorstop export all doorstop-export.json
+
+# Import to Requiem
+mkdir requiem-reqs &amp;&amp; cd requiem-reqs
+req import --format doorstop --input ../doorstop-project
+
+# Validate
+req clean
+
+# Compare manually
+# Adjust as needed
+
+# Commit
+git init
+git add .
+git commit -m "Migrate from Doorstop to Requiem"
+</code></pre>
+<h3 id="use-case-2-exchanging-requirements-with-partners"><a class="header" href="#use-case-2-exchanging-requirements-with-partners">Use Case 2: Exchanging Requirements with Partners</a></h3>
+<p><strong>Scenario</strong>: Partner uses IBM DOORS; you use Requiem.</p>
+<p><strong>Goal</strong>: Exchange requirements.</p>
+<p><strong>Workflow</strong>:</p>
+<pre><code class="language-bash"># Export from Requiem to ReqIF
+req export --format reqif --output requirements.reqif
+
+# Send to partner
+# Partner imports into DOORS
+
+# Receive updated ReqIF from partner
+# Import updates
+req import --format reqif --input updated-requirements.reqif --on-conflict merge
+
+# Review changes
+git diff
+
+# Accept or reject
+</code></pre>
+<h3 id="use-case-3-spreadsheet-analysis"><a class="header" href="#use-case-3-spreadsheet-analysis">Use Case 3: Spreadsheet Analysis</a></h3>
+<p><strong>Scenario</strong>: Need to analyze requirements in Excel.</p>
+<p><strong>Goal</strong>: Export to CSV, analyze, re-import.</p>
+<p><strong>Workflow</strong>:</p>
+<pre><code class="language-bash"># Export to CSV
+req export --format csv --output requirements.csv
+
+# Open in Excel
+# Add column "Priority" with values
+# Save as requirements-with-priority.csv
+
+# Import with new tags
+req import --format csv --input requirements-with-priority.csv \
+  --map-column Priority=tag
+
+# Priority values become tags
+</code></pre>
+<h3 id="use-case-4-generating-formal-documents"><a class="header" href="#use-case-4-generating-formal-documents">Use Case 4: Generating Formal Documents</a></h3>
+<p><strong>Scenario</strong>: Need PDF for customer review.</p>
+<p><strong>Goal</strong>: Professional requirement document.</p>
+<p><strong>Workflow</strong>:</p>
+<pre><code class="language-bash"># Export to PDF
+req export --format pdf --output requirements.pdf \
+  --template formal \
+  --include-toc \
+  --include-traceability
+
+# Review
+open requirements.pdf
+
+# Send to customer
+</code></pre>
+<h2 id="configuration-planned"><a class="header" href="#configuration-planned">Configuration (Planned)</a></h2>
+<h3 id="export-settings"><a class="header" href="#export-settings">Export Settings</a></h3>
+<pre><code class="language-toml"># config.toml (planned)
+[export]
+# Default export format
+default_format = "json"
+
+# Include fingerprints in export
+include_fingerprints = true
+
+# Include timestamps
+include_timestamps = true
+
+[export.json]
+# Pretty-print JSON
+pretty = true
+indent = 2
+
+[export.csv]
+# CSV delimiter
+delimiter = ","
+
+# Include header row
+include_header = true
+
+[export.pdf]
+# Template to use
+template = "formal"
+
+# Include table of contents
+include_toc = true
+
+# Include traceability matrix
+include_traceability = true
+</code></pre>
+<h3 id="import-settings"><a class="header" href="#import-settings">Import Settings</a></h3>
+<pre><code class="language-toml">[import]
+# Action on UUID conflict
+on_conflict = "skip"  # skip, overwrite, rename
+
+# Validate after import
+validate = true
+
+# Automatically run req clean after import
+auto_clean = true
+</code></pre>
+<h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
+<h3 id="uuid-conflicts"><a class="header" href="#uuid-conflicts">UUID Conflicts</a></h3>
+<p><strong>Problem</strong>: Importing requirements with UUIDs that already exist.</p>
+<p><strong>Solutions</strong>:</p>
+<ul>
+<li><code>--on-conflict skip</code>: Skip conflicting requirements</li>
+<li><code>--on-conflict overwrite</code>: Replace existing</li>
+<li><code>--on-conflict rename</code>: Generate new UUIDs</li>
+</ul>
+<h3 id="invalid-hrids"><a class="header" href="#invalid-hrids">Invalid HRIDs</a></h3>
+<p><strong>Problem</strong>: Imported HRIDs don't match Requiem format.</p>
+<p><strong>Solution</strong>:</p>
+<pre><code class="language-bash">req import --format csv --input reqs.csv --remap-hrids
+</code></pre>
+<p>Generates valid HRIDs automatically.</p>
+<h3 id="broken-links-after-import"><a class="header" href="#broken-links-after-import">Broken Links After Import</a></h3>
+<p><strong>Problem</strong>: Parent references don't resolve.</p>
+<p><strong>Diagnosis</strong>:</p>
+<pre><code class="language-bash">req clean
+# Reports missing parent requirements
+</code></pre>
+<p><strong>Solution</strong>: Ensure all referenced requirements are imported.</p>
+<h2 id="workarounds-until-implemented"><a class="header" href="#workarounds-until-implemented">Workarounds (Until Implemented)</a></h2>
+<p>Manual export/import with scripts:</p>
+<h3 id="export-to-json-manual"><a class="header" href="#export-to-json-manual">Export to JSON (Manual)</a></h3>
+<pre><code class="language-python">#!/usr/bin/env python3
+import glob
+import yaml
+import re
+import json
+
+requirements = []
+for path in glob.glob("*.md"):
+    with open(path) as f:
+        content = f.read()
+    match = re.match(r'^---\n(.*?)\n---\n(.*)$', content, re.DOTALL)
+    if match:
+        frontmatter = yaml.safe_load(match.group(1))
+        body = match.group(2).strip()
+        hrid = path.replace('.md', '')
+        requirements.append({
+            "hrid": hrid,
+            "uuid": frontmatter['uuid'],
+            "created": frontmatter['created'],
+            "content": body,
+            "tags": frontmatter.get('tags', []),
+            "parents": frontmatter.get('parents', [])
+        })
+
+with open("requirements.json", "w") as f:
+    json.dump({"requirements": requirements}, f, indent=2, default=str)
+
+print(f"Exported {len(requirements)} requirements to requirements.json")
+</code></pre>
+<h3 id="import-from-csv-manual"><a class="header" href="#import-from-csv-manual">Import from CSV (Manual)</a></h3>
+<pre><code class="language-python">#!/usr/bin/env python3
+import csv
+import uuid
+from datetime import datetime
+
+with open("requirements.csv") as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+        hrid = row['HRID']
+        req_uuid = row.get('UUID', str(uuid.uuid4()))
+        content = row['Content']
+        tags = row.get('Tags', '').split(',') if row.get('Tags') else []
+
+        frontmatter = f"""---
+_version: '1'
+uuid: {req_uuid}
+created: {datetime.utcnow().isoformat()}Z
+"""
+        if tags:
+            frontmatter += "tags:\n"
+            for tag in tags:
+                frontmatter += f"- {tag.strip()}\n"
+
+        frontmatter += "---\n\n"
+
+        with open(f"{hrid}.md", "w") as f:
+            f.write(frontmatter + content + "\n")
+
+print("Import complete")
+</code></pre>
+<h2 id="summary"><a class="header" href="#summary">Summary</a></h2>
+<p><strong>Planned formats</strong>:</p>
+<ul>
+<li><strong>Export</strong>: JSON, CSV, ReqIF, HTML, PDF</li>
+<li><strong>Import</strong>: JSON, CSV, ReqIF, Doorstop</li>
+</ul>
+<p><strong>Use cases</strong>:</p>
+<ul>
+<li>Migration from other tools</li>
+<li>Partner/customer exchange</li>
+<li>Spreadsheet analysis</li>
+<li>Formal document generation</li>
+<li>Backup and archival</li>
+</ul>
+<p><strong>Key features</strong>:</p>
+<ul>
+<li>Selective export/import</li>
+<li>Format transformation</li>
+<li>Conflict resolution</li>
+<li>Round-trip compatibility (JSON, ReqIF)</li>
+<li>Validation</li>
+</ul>
+<p><strong>Timeline</strong>: Implementation planned for future release</p>
+<h2 id="next-steps"><a class="header" href="#next-steps">Next Steps</a></h2>
+<ul>
+<li>Use <a href="#workarounds-until-implemented">manual workarounds</a> for current export/import needs</li>
+<li>Plan your <a href="#configuration-planned">import/export requirements</a> for when feature is available</li>
+<li>Review <a href="./coverage.html">Coverage Reports</a> and <a href="./cycles.html">Cycle Detection</a> for other advanced features</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../advanced/cycles.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../requirements.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../advanced/cycles.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../requirements.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>
