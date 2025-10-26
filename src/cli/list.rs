@@ -1173,67 +1173,119 @@ mod tests {
         }
     }
 
-    fn sample_entries() -> (Vec<Entry>, HashMap<Uuid, usize>) {
-        let base_time = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+    struct SampleEntries {
+        entries: Vec<Entry>,
+        index_by_uuid: HashMap<Uuid, usize>,
+        root_uuid: Uuid,
+        child_uuid: Uuid,
+        leaf_uuid: Uuid,
+    }
 
-        let root_uuid = Uuid::new_v4();
-        let child_uuid = Uuid::new_v4();
-        let leaf_uuid = Uuid::new_v4();
+    impl SampleEntries {
+        fn new() -> Self {
+            let base_time = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
 
-        let mut root = Entry {
-            uuid: root_uuid,
-            hrid: Hrid::try_from("SYS-001").unwrap(),
-            title: Some("Root".to_string()),
-            tags: vec!["core".to_string()],
-            created: base_time,
-            content: "# Root requirement\nPrimary".to_string(),
-            parents: Vec::new(),
-            children: Vec::new(),
-            path: PathBuf::from("SYS-001.md"),
-        };
+            let root_uuid = Uuid::new_v4();
+            let child_uuid = Uuid::new_v4();
+            let leaf_uuid = Uuid::new_v4();
 
-        let mut child = Entry {
-            uuid: child_uuid,
-            hrid: Hrid::try_from("SYS-002").unwrap(),
-            title: Some("Child".to_string()),
-            tags: Vec::new(),
-            created: base_time + Duration::days(1),
-            content: "## Child details\nImplements root".to_string(),
-            parents: vec![LinkRef::new(root_uuid, root.hrid.clone())],
-            children: Vec::new(),
-            path: PathBuf::from("SYS-002.md"),
-        };
+            let mut root = Entry {
+                uuid: root_uuid,
+                hrid: Hrid::try_from("SYS-001").unwrap(),
+                title: Some("Root".to_string()),
+                tags: vec!["core".to_string()],
+                created: base_time,
+                content: "# Root requirement\nPrimary".to_string(),
+                parents: Vec::new(),
+                children: Vec::new(),
+                path: PathBuf::from("SYS-001.md"),
+            };
 
-        let leaf = Entry {
-            uuid: leaf_uuid,
-            hrid: Hrid::new_with_namespace(
-                vec!["System".to_string(), "Auth".to_string()],
-                "USR".to_string(),
-                7,
-            )
-            .unwrap(),
-            title: Some("Login".to_string()),
-            tags: vec!["Security".to_string(), "UI".to_string()],
-            created: base_time + Duration::days(2),
-            content: "Implements login".to_string(),
-            parents: vec![LinkRef::new(child_uuid, child.hrid.clone())],
-            children: Vec::new(),
-            path: PathBuf::from("system/auth/USR-007.md"),
-        };
+            let mut child = Entry {
+                uuid: child_uuid,
+                hrid: Hrid::try_from("SYS-002").unwrap(),
+                title: Some("Child".to_string()),
+                tags: Vec::new(),
+                created: base_time + Duration::days(1),
+                content: "## Child details\nImplements root".to_string(),
+                parents: vec![LinkRef::new(root_uuid, root.hrid.clone())],
+                children: Vec::new(),
+                path: PathBuf::from("SYS-002.md"),
+            };
 
-        root.children
-            .push(LinkRef::new(child_uuid, child.hrid.clone()));
-        child
-            .children
-            .push(LinkRef::new(leaf_uuid, leaf.hrid.clone()));
+            let leaf = Entry {
+                uuid: leaf_uuid,
+                hrid: Hrid::new_with_namespace(
+                    vec!["System".to_string(), "Auth".to_string()],
+                    "USR".to_string(),
+                    7,
+                )
+                .unwrap(),
+                title: Some("Login".to_string()),
+                tags: vec!["Security".to_string(), "UI".to_string()],
+                created: base_time + Duration::days(2),
+                content: "Implements login".to_string(),
+                parents: vec![LinkRef::new(child_uuid, child.hrid.clone())],
+                children: Vec::new(),
+                path: PathBuf::from("system/auth/USR-007.md"),
+            };
 
-        let entries = vec![root, child, leaf];
-        let mut index = HashMap::new();
-        for (idx, entry) in entries.iter().enumerate() {
-            index.insert(entry.uuid, idx);
+            root.children
+                .push(LinkRef::new(child_uuid, child.hrid.clone()));
+            child
+                .children
+                .push(LinkRef::new(leaf_uuid, leaf.hrid.clone()));
+
+            let entries = vec![root, child, leaf];
+            let mut index_by_uuid = HashMap::new();
+            for (idx, entry) in entries.iter().enumerate() {
+                index_by_uuid.insert(entry.uuid, idx);
+            }
+
+            Self {
+                entries,
+                index_by_uuid,
+                root_uuid,
+                child_uuid,
+                leaf_uuid,
+            }
         }
 
-        (entries, index)
+        fn entries(&self) -> &[Entry] {
+            &self.entries
+        }
+
+        fn index_map(&self) -> &HashMap<Uuid, usize> {
+            &self.index_by_uuid
+        }
+
+        fn entry(&self, index: usize) -> &Entry {
+            &self.entries[index]
+        }
+
+        fn root_index(&self) -> usize {
+            self.index_by_uuid[&self.root_uuid]
+        }
+
+        fn child_index(&self) -> usize {
+            self.index_by_uuid[&self.child_uuid]
+        }
+
+        fn leaf_index(&self) -> usize {
+            self.index_by_uuid[&self.leaf_uuid]
+        }
+
+        fn leaf(&self) -> &Entry {
+            self.entry(self.leaf_index())
+        }
+    }
+
+    const fn row(index: usize, direction: Direction, depth: usize) -> Row {
+        Row {
+            index,
+            direction,
+            depth,
+        }
     }
 
     fn empty_filters() -> Filters {
@@ -1246,6 +1298,16 @@ mod tests {
             contains: None,
             regex: None,
         }
+    }
+
+    fn add_requirement(
+        directory: &mut Directory<Loaded>,
+        kind: &str,
+        content: &str,
+    ) -> Requirement {
+        directory
+            .add_requirement(kind.to_string(), content.to_string())
+            .unwrap()
     }
 
     #[test]
@@ -1263,8 +1325,8 @@ mod tests {
 
     #[test]
     fn filters_match_combined_conditions() {
-        let (entries, _) = sample_entries();
-        let leaf = &entries[2];
+        let fixtures = SampleEntries::new();
+        let leaf = fixtures.leaf();
 
         let build_filters = || Filters {
             kinds: vec!["usr".to_string()],
@@ -1294,14 +1356,14 @@ mod tests {
 
     #[test]
     fn produce_direction_rows_walks_graph() {
-        let (entries, index) = sample_entries();
+        let fixtures = SampleEntries::new();
         let filters = empty_filters();
-        let target = vec![2];
+        let target = vec![fixtures.leaf_index()];
 
         let parents = produce_direction_rows(
             View::Ancestors,
-            &entries,
-            &index,
+            fixtures.entries(),
+            fixtures.index_map(),
             &filters,
             &target,
             Some(2),
@@ -1309,65 +1371,64 @@ mod tests {
         assert_eq!(parents.len(), 2);
         assert!(parents
             .iter()
-            .any(|row| entries[row.index].hrid.to_string() == "SYS-001"));
+            .any(|row| { fixtures.entries()[row.index].hrid.to_string() == "SYS-001" }));
 
-        let children =
-            produce_direction_rows(View::Descendants, &entries, &index, &filters, &[0], Some(3));
+        let children = produce_direction_rows(
+            View::Descendants,
+            fixtures.entries(),
+            fixtures.index_map(),
+            &filters,
+            &[fixtures.root_index()],
+            Some(3),
+        );
         assert_eq!(children.len(), 2);
-        assert!(children
-            .iter()
-            .any(|row| entries[row.index].hrid.to_string().contains("USR-007")));
+        assert!(children.iter().any(|row| {
+            fixtures.entries()[row.index]
+                .hrid
+                .to_string()
+                .contains("USR-007")
+        }));
     }
 
     #[test]
     fn produce_tree_rows_and_context() {
-        let (entries, index) = sample_entries();
+        let fixtures = SampleEntries::new();
         let filters = empty_filters();
 
-        let mut rows = produce_tree_rows(&entries, &index, &filters, &[0], Some(5));
+        let mut rows = produce_tree_rows(
+            fixtures.entries(),
+            fixtures.index_map(),
+            &filters,
+            &[fixtures.root_index()],
+            Some(5),
+        );
         assert!(rows.iter().any(|row| row.depth == 2));
 
         rows = augment_with_context(
-            &entries,
-            &index,
-            vec![Row {
-                index: 1,
-                direction: Direction::None,
-                depth: 0,
-            }],
+            fixtures.entries(),
+            fixtures.index_map(),
+            vec![row(fixtures.child_index(), Direction::None, 0)],
             2,
         );
 
         assert!(rows
             .iter()
-            .any(|row| entries[row.index].hrid.to_string() == "SYS-001"));
-        assert!(rows
-            .iter()
-            .any(|row| entries[row.index].hrid.to_string().contains("USR-007")));
+            .any(|row| { fixtures.entries()[row.index].hrid.to_string() == "SYS-001" }));
+        assert!(rows.iter().any(|row| {
+            fixtures.entries()[row.index]
+                .hrid
+                .to_string()
+                .contains("USR-007")
+        }));
     }
 
     #[test]
     fn append_unique_rows_avoids_duplicates() {
-        let mut rows = vec![Row {
-            index: 0,
-            direction: Direction::None,
-            depth: 0,
-        }];
+        let mut rows = vec![row(0, Direction::None, 0)];
 
         append_unique_rows(
             &mut rows,
-            vec![
-                Row {
-                    index: 0,
-                    direction: Direction::None,
-                    depth: 1,
-                },
-                Row {
-                    index: 1,
-                    direction: Direction::Down,
-                    depth: 1,
-                },
-            ],
+            vec![row(0, Direction::None, 1), row(1, Direction::Down, 1)],
         );
 
         assert_eq!(rows.len(), 2);
@@ -1375,38 +1436,27 @@ mod tests {
 
     #[test]
     fn apply_sort_orders_by_fields() {
-        let (entries, _) = sample_entries();
+        let fixtures = SampleEntries::new();
+        let entries = fixtures.entries();
         let rows = vec![
-            Row {
-                index: 1,
-                direction: Direction::None,
-                depth: 1,
-            },
-            Row {
-                index: 0,
-                direction: Direction::None,
-                depth: 0,
-            },
-            Row {
-                index: 2,
-                direction: Direction::None,
-                depth: 2,
-            },
+            row(fixtures.child_index(), Direction::None, 1),
+            row(fixtures.root_index(), Direction::None, 0),
+            row(fixtures.leaf_index(), Direction::None, 2),
         ];
 
-        let ordered = apply_sort(rows.clone(), &entries, SortField::Hrid);
+        let ordered = apply_sort(rows.clone(), entries, SortField::Hrid);
         assert_eq!(entries[ordered[0].index].hrid.to_string(), "SYS-001");
 
-        let ordered_kind = apply_sort(rows.clone(), &entries, SortField::Kind);
+        let ordered_kind = apply_sort(rows.clone(), entries, SortField::Kind);
         assert_eq!(entries[ordered_kind[0].index].hrid.kind(), "SYS");
 
-        let ordered_title = apply_sort(rows.clone(), &entries, SortField::Title);
+        let ordered_title = apply_sort(rows.clone(), entries, SortField::Title);
         assert_eq!(
             entries[ordered_title[0].index].title.as_deref(),
             Some("Child")
         );
 
-        let ordered_created = apply_sort(rows, &entries, SortField::Created);
+        let ordered_created = apply_sort(rows, entries, SortField::Created);
         assert_eq!(
             entries[ordered_created[0].index].hrid.to_string(),
             "SYS-001"
@@ -1416,21 +1466,9 @@ mod tests {
     #[test]
     fn apply_offset_limit_slices_rows() {
         let rows = vec![
-            Row {
-                index: 0,
-                direction: Direction::None,
-                depth: 0,
-            },
-            Row {
-                index: 1,
-                direction: Direction::None,
-                depth: 0,
-            },
-            Row {
-                index: 2,
-                direction: Direction::None,
-                depth: 0,
-            },
+            row(0, Direction::None, 0),
+            row(1, Direction::None, 0),
+            row(2, Direction::None, 0),
         ];
 
         let truncated = apply_offset_limit(rows.clone(), Some(1), Some(1));
@@ -1443,23 +1481,16 @@ mod tests {
 
     #[test]
     fn render_rows_supports_all_formats() {
-        let (entries, _) = sample_entries();
+        let fixtures = SampleEntries::new();
+        let entries = fixtures.entries();
         let rows = vec![
-            Row {
-                index: 0,
-                direction: Direction::None,
-                depth: 0,
-            },
-            Row {
-                index: 1,
-                direction: Direction::Down,
-                depth: 1,
-            },
+            row(fixtures.root_index(), Direction::None, 0),
+            row(fixtures.child_index(), Direction::Down, 1),
         ];
 
         render_rows(
             rows.clone(),
-            &entries,
+            entries,
             &[ListColumn::Hrid, ListColumn::Title, ListColumn::Tags],
             OutputFormat::Table,
             false,
@@ -1469,7 +1500,7 @@ mod tests {
 
         render_rows(
             rows.clone(),
-            &entries,
+            entries,
             &[ListColumn::Hrid],
             OutputFormat::Table,
             true,
@@ -1479,7 +1510,7 @@ mod tests {
 
         render_rows(
             rows.clone(),
-            &entries,
+            entries,
             &[
                 ListColumn::Hrid,
                 ListColumn::Title,
@@ -1494,7 +1525,7 @@ mod tests {
 
         render_rows(
             rows.clone(),
-            &entries,
+            entries,
             &[ListColumn::Hrid, ListColumn::Title, ListColumn::Tags],
             OutputFormat::Csv,
             false,
@@ -1504,7 +1535,7 @@ mod tests {
 
         render_rows(
             rows,
-            &entries,
+            entries,
             &[ListColumn::Hrid],
             OutputFormat::Table,
             false,
@@ -1531,8 +1562,8 @@ mod tests {
 
     #[test]
     fn build_serializable_row_populates_fields() {
-        let (entries, _) = sample_entries();
-        let entry = &entries[2];
+        let fixtures = SampleEntries::new();
+        let entry = fixtures.entry(fixtures.leaf_index());
         let row = build_serializable_row(
             entry,
             &[
@@ -1591,14 +1622,10 @@ mod tests {
         let root = tmp.path().to_path_buf();
 
         let mut directory = Directory::new(root.clone()).load_all().unwrap();
-        let parent = directory
-            .add_requirement("SYS".to_string(), "# Parent".to_string())
-            .unwrap();
-        let child = directory
-            .add_requirement("USR".to_string(), "# Child\nImplements parent".to_string())
-            .unwrap();
+        let parent = add_requirement(&mut directory, "SYS", "# Parent");
+        let child = add_requirement(&mut directory, "USR", "# Child\nImplements parent");
 
-        Directory::new(root.clone())
+        directory
             .link_requirement(child.hrid().clone(), parent.hrid().clone())
             .unwrap();
 
