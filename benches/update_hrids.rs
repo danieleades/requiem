@@ -11,7 +11,7 @@ use tempfile::TempDir;
 
 /// Generates a large number of interlinked documents
 fn preseed_directory(path: PathBuf) {
-    let mut directory = Directory::new(path).load_all().unwrap();
+    let mut directory = Directory::new(path).unwrap();
     for i in 1..=99 {
         directory
             .add_requirement("USR".to_string(), String::new())
@@ -42,7 +42,6 @@ fn update_hrids(c: &mut Criterion) {
             },
             |tmp_dir| {
                 Directory::new(tmp_dir.path().to_path_buf())
-                    .load_all()
                     .unwrap()
                     .update_hrids()
                     .unwrap();

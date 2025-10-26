@@ -399,7 +399,7 @@ Accept suspect links after review, updating fingerprints to current values.
 
 ```
 req accept <CHILD> <PARENT>
-req accept --all
+req accept --all [--dry-run] [--force]
 ```
 
 #### Arguments
@@ -418,6 +418,14 @@ HRID of the parent requirement referenced by the suspect link.
 
 Accept all suspect links in the requirements directory. Updates all fingerprints to match current parent values.
 
+**`--dry-run`** (requires `--all`)
+
+Preview changes without applying them. Shows which links would be accepted but doesn't modify any files.
+
+**`--force`** (requires `--all`)
+
+Skip confirmation prompt and accept all suspect links immediately. Useful for automation and CI/CD workflows.
+
 #### Behavior
 
 **Single link mode** (`req accept <CHILD> <PARENT>`):
@@ -429,9 +437,11 @@ Accept all suspect links in the requirements directory. Updates all fingerprints
 
 **Bulk mode** (`req accept --all`):
 1. Finds all suspect links
-2. Updates all fingerprints to current values
-3. Saves all affected requirements
-4. Prints summary of updated links
+2. Shows what will be updated
+3. Requests confirmation (unless `--force`)
+4. Updates all fingerprints to current values (unless `--dry-run`)
+5. Saves all affected requirements
+6. Prints summary of updated links
 
 #### Examples
 
@@ -445,6 +455,39 @@ req accept SYS-001 USR-001
 ```bash
 req accept --all
 # Output:
+# Found 3 suspect link(s):
+#   SYS-001 → USR-001
+#   SYS-002 → USR-001
+#   SYS-005 → USR-004
+#
+# Accept all 3 suspect link(s)? [y/N] y
+# Accepted 3 suspect link(s):
+#   SYS-001 → USR-001
+#   SYS-002 → USR-001
+#   SYS-005 → USR-004
+```
+
+**Dry-run mode (preview only)**:
+```bash
+req accept --all --dry-run
+# Output:
+# Found 3 suspect link(s):
+#   SYS-001 → USR-001
+#   SYS-002 → USR-001
+#   SYS-005 → USR-004
+#
+# Dry-run mode: no changes made.
+```
+
+**Force mode (skip confirmation)**:
+```bash
+req accept --all --force
+# Output:
+# Found 3 suspect link(s):
+#   SYS-001 → USR-001
+#   SYS-002 → USR-001
+#   SYS-005 → USR-004
+#
 # Accepted 3 suspect link(s):
 #   SYS-001 → USR-001
 #   SYS-002 → USR-001
@@ -510,6 +553,22 @@ req accept SYS-001 USR-001
 req accept --all
 # Output: No suspect links to accept.
 ```
+
+**User aborts confirmation**:
+```bash
+req accept --all
+# Found 3 suspect link(s):
+#   ...
+# Accept all 3 suspect link(s)? [y/N] n
+# Aborted.
+```
+
+#### Exit Codes
+
+- **0**: Success - links accepted or already up to date
+- **Non-zero**: Error occurred (child/parent not found, link doesn't exist, I/O error)
+
+Note: Unlike `req suspect`, `req accept` does not use special exit codes to indicate the presence of suspect links.
 
 ### `req clean`
 

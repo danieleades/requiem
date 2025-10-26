@@ -70,7 +70,8 @@ impl MarkdownRequirement {
         })
     }
 
-    /// Writes the requirement to a file path constructed using the given config.
+    /// Writes the requirement to a file path constructed using the given
+    /// config.
     ///
     /// The path construction respects the `subfolders_are_namespaces` setting:
     /// - If `false`: file is saved as `root/FULL-HRID.md`

@@ -25,7 +25,8 @@ pub struct Tree {
 }
 
 impl Tree {
-    /// Creates a new tree with pre-allocated capacity for the given number of requirements.
+    /// Creates a new tree with pre-allocated capacity for the given number of
+    /// requirements.
     #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {

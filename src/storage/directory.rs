@@ -25,25 +25,52 @@ use crate::{
     EmptyStringError, Requirement,
 };
 
-/// State indicating a directory has been loaded with its requirements.
-#[derive(Debug, PartialEq)]
-pub struct Loaded {
+/// A filesystem backed store of requirements.
+pub struct Directory {
+    /// The root of the directory requirements are stored in.
+    root: PathBuf,
     tree: Tree,
     config: Config,
 }
 
-/// State indicating a directory has not yet been loaded.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Unloaded;
+impl Directory {
+    /// Opens a directory at the given path and loads all requirements.
+    ///
+    /// # Errors
+    ///
+    /// This method has different behaviour depending on the configuration file
+    /// in the requirements root. If `allow_unrecognised` is `true`, then
+    /// any files with names that are not valid HRIDs, or any files that cannot
+    /// be parsed as requirements, are skipped. if `allow_unrecognised` is
+    /// `false` (the default), then any unrecognised or invalid markdown files
+    /// in the directory will return an error.
+    pub fn new(root: PathBuf) -> Result<Self, DirectoryLoadError> {
+        let config = load_config(&root);
+        let md_paths = collect_markdown_paths(&root);
 
-/// A filesystem backed store of requirements.
-pub struct Directory<S> {
-    /// The root of the directory requirements are stored in.
-    root: PathBuf,
-    state: S,
-}
+        let (requirements, unrecognised_paths): (Vec<_>, Vec<_>) = md_paths
+            .par_iter()
+            .map(|path| try_load_requirement(path, &root, &config))
+            .partition(Result::is_ok);
 
-impl<S> Directory<S> {
+        let requirements: Vec<_> = requirements.into_iter().map(Result::unwrap).collect();
+        let unrecognised_paths: Vec<_> = unrecognised_paths
+            .into_iter()
+            .map(Result::unwrap_err)
+            .collect();
+
+        if !config.allow_unrecognised && !unrecognised_paths.is_empty() {
+            return Err(DirectoryLoadError::UnrecognisedFiles(unrecognised_paths));
+        }
+
+        let mut tree = Tree::with_capacity(requirements.len());
+        for req in requirements {
+            tree.insert(req);
+        }
+
+        Ok(Self { root, tree, config })
+    }
+
     /// Link two requirements together with a parent-child relationship.
     ///
     /// # Errors
@@ -66,74 +93,21 @@ impl<S> Directory<S> {
         );
 
         // Load config to use for saving
-        let config = load_config(&self.root);
-        child.save(&self.root, &config)?;
+        child.save(&self.root, &self.config)?;
 
         Ok(child)
     }
 
     fn load_requirement(&self, hrid: Hrid) -> Result<Requirement, LoadError> {
-        // Load config to use config-aware loading
-        let config = load_config(&self.root);
-        Requirement::load(&self.root, hrid, &config)
-    }
-}
-
-impl Directory<Unloaded> {
-    /// Opens a directory at the given path.
-    #[must_use]
-    pub const fn new(root: PathBuf) -> Self {
-        Self {
-            root,
-            state: Unloaded,
-        }
-    }
-
-    /// Load all requirements from disk
-    ///
-    /// # Errors
-    ///
-    /// This method has different behaviour depending on the configuration file
-    /// in the requirements root. If `allow_unrecognised` is `true`, then
-    /// any files with names that are not valid HRIDs, or any files that cannot
-    /// be parsed as requirements, are skipped. if `allow_unrecognised` is
-    /// `false` (the default), then any unrecognised or invalid markdown files
-    /// in the directory will return an error.
-    pub fn load_all(self) -> Result<Directory<Loaded>, DirectoryLoadError> {
-        let config = load_config(&self.root);
-        let md_paths = collect_markdown_paths(&self.root);
-
-        let (requirements, unrecognised_paths): (Vec<_>, Vec<_>) = md_paths
-            .par_iter()
-            .map(|path| try_load_requirement(path, &self.root, &config))
-            .partition(Result::is_ok);
-
-        let requirements: Vec<_> = requirements.into_iter().map(Result::unwrap).collect();
-        let unrecognised_paths: Vec<_> = unrecognised_paths
-            .into_iter()
-            .map(Result::unwrap_err)
-            .collect();
-
-        if !config.allow_unrecognised && !unrecognised_paths.is_empty() {
-            return Err(DirectoryLoadError::UnrecognisedFiles(unrecognised_paths));
-        }
-
-        let mut tree = Tree::with_capacity(requirements.len());
-        for req in requirements {
-            tree.insert(req);
-        }
-
-        Ok(Directory {
-            root: self.root,
-            state: Loaded { tree, config },
-        })
+        Requirement::load(&self.root, hrid, &self.config)
     }
 }
 
 /// Error type for directory loading operations.
 #[derive(Debug, thiserror::Error)]
 pub enum DirectoryLoadError {
-    /// One or more files in the directory could not be recognized as valid requirements.
+    /// One or more files in the directory could not be recognized as valid
+    /// requirements.
     UnrecognisedFiles(Vec<PathBuf>),
 }
 
@@ -176,22 +150,16 @@ fn load_template(root: &Path, hrid: &Hrid) -> String {
     let full_prefix = hrid.prefix();
     let full_path = templates_dir.join(format!("{full_prefix}.md"));
 
-    if full_path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&full_path) {
-            tracing::debug!("Loaded template from {}", full_path.display());
-            return content;
-        }
+    if let Some(content) = try_load_template_file(&full_path) {
+        return content;
     }
 
     // Fall back to KIND only (e.g., "USR.md")
     let kind = hrid.kind();
     let kind_path = templates_dir.join(format!("{kind}.md"));
 
-    if kind_path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&kind_path) {
-            tracing::debug!("Loaded template from {}", kind_path.display());
-            return content;
-        }
+    if let Some(content) = try_load_template_file(&kind_path) {
+        return content;
     }
 
     tracing::debug!(
@@ -201,6 +169,27 @@ fn load_template(root: &Path, hrid: &Hrid) -> String {
         kind_path.display()
     );
     String::new()
+}
+
+/// Try to load a template file from the given path.
+///
+/// Returns `Some(content)` if the file exists and can be read, `None`
+/// otherwise.
+fn try_load_template_file(path: &Path) -> Option<String> {
+    if path.exists() {
+        match std::fs::read_to_string(path) {
+            Ok(content) => {
+                tracing::debug!("Loaded template from {}", path.display());
+                Some(content)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to read template at {}: {}", path.display(), e);
+                None
+            }
+        }
+    } else {
+        None
+    }
 }
 
 fn collect_markdown_paths(root: &PathBuf) -> Vec<PathBuf> {
@@ -252,8 +241,8 @@ fn load_requirement_from_file(
     _config: &Config,
 ) -> Result<Requirement, LoadError> {
     // Load directly from the file path we found during directory scanning
-    use std::fs::File;
-    use std::io::BufReader;
+    use std::{fs::File, io::BufReader};
+
     use crate::domain::requirement::storage::MarkdownRequirement;
 
     let file = File::open(path).map_err(|io_error| match io_error.kind() {
@@ -266,7 +255,7 @@ fn load_requirement_from_file(
     Ok(md_req.try_into()?)
 }
 
-impl Directory<Loaded> {
+impl Directory {
     /// Add a new requirement to the directory.
     ///
     /// # Errors
@@ -280,7 +269,7 @@ impl Directory<Loaded> {
         kind: String,
         content: String,
     ) -> Result<Requirement, AddRequirementError> {
-        let tree = &mut self.state.tree;
+        let tree = &mut self.tree;
 
         let id = tree.next_index(&kind);
         let hrid = Hrid::new(kind, id)?;
@@ -294,7 +283,7 @@ impl Directory<Loaded> {
 
         let requirement = Requirement::new(hrid, final_content);
 
-        requirement.save(&self.root, &self.state.config)?;
+        requirement.save(&self.root, &self.config)?;
         tree.insert(requirement.clone());
 
         tracing::info!("Added requirement: {}", requirement.hrid());
@@ -313,27 +302,28 @@ impl Directory<Loaded> {
     /// to disk. This method does *not* fail fast. That is, it will attempt
     /// to save all the requirements before returning the error.
     pub fn update_hrids(&mut self) -> Result<(), UpdateHridsError> {
-        let tree = &mut self.state.tree;
+        let tree = &mut self.tree;
         let updated: Vec<_> = tree.update_hrids().collect();
+
+        // Capture config values to avoid borrowing self in closure
+        let root = &self.root;
+        let subfolders_are_namespaces = self.config.subfolders_are_namespaces;
+        let digits = self.config.digits();
 
         let failures = updated
             .iter()
             .filter_map(|&id| {
                 let requirement = tree.requirement(id)?;
-                requirement
-                    .save(&self.root, &self.state.config)
-                    .err()
-                    .map(|e| {
-                        // Construct the path using the same logic as save_with_config
-                        use crate::storage::path_parser::construct_path_from_hrid;
-                        let path = construct_path_from_hrid(
-                            &self.root,
-                            requirement.hrid(),
-                            self.state.config.subfolders_are_namespaces,
-                            self.state.config.digits(),
-                        );
-                        (path, e)
-                    })
+                requirement.save(root, &self.config).err().map(|e| {
+                    use crate::storage::path_parser::construct_path_from_hrid;
+                    let path = construct_path_from_hrid(
+                        root,
+                        requirement.hrid(),
+                        subfolders_are_namespaces,
+                        digits,
+                    );
+                    (path, e)
+                })
             })
             .collect();
 
@@ -346,7 +336,7 @@ impl Directory<Loaded> {
     /// does not match the current fingerprint of the parent requirement.
     #[must_use]
     pub fn suspect_links(&self) -> Vec<crate::storage::SuspectLink> {
-        self.state.tree.suspect_links()
+        self.tree.suspect_links()
     }
 
     /// Accept a specific suspect link by updating its fingerprint.
@@ -374,7 +364,7 @@ impl Directory<Loaded> {
             return Err(AcceptSuspectLinkError::LinkNotFound { child, parent });
         }
 
-        let was_updated = self.state.tree.accept_suspect_link(child_uuid, parent_uuid);
+        let was_updated = self.tree.accept_suspect_link(child_uuid, parent_uuid);
 
         if !was_updated {
             return Ok(AcceptResult::AlreadyUpToDate);
@@ -382,11 +372,10 @@ impl Directory<Loaded> {
 
         // Save the updated requirement
         let updated_child = self
-            .state
             .tree
             .requirement(child_uuid)
             .ok_or(AcceptSuspectLinkError::ChildNotFound(child))?;
-        updated_child.save(&self.root, &self.state.config)?;
+        updated_child.save(&self.root, &self.config)?;
 
         Ok(AcceptResult::Updated)
     }
@@ -401,26 +390,27 @@ impl Directory<Loaded> {
     pub fn accept_all_suspect_links(
         &mut self,
     ) -> Result<Vec<(Hrid, Hrid)>, UpdateSuspectLinksError> {
-        let updated = self.state.tree.accept_all_suspect_links();
+        let updated = self.tree.accept_all_suspect_links();
+
+        // Capture config values to avoid borrowing self in closure
+        let root = &self.root;
+        let subfolders_are_namespaces = self.config.subfolders_are_namespaces;
+        let digits = self.config.digits();
 
         let failures: Vec<_> = updated
             .iter()
             .filter_map(|&(child_uuid, _parent_uuid)| {
-                let requirement = self.state.tree.requirement(child_uuid)?;
-                requirement
-                    .save(&self.root, &self.state.config)
-                    .err()
-                    .map(|e| {
-                        // Construct the path using the same logic as save_with_config
-                        use crate::storage::path_parser::construct_path_from_hrid;
-                        let path = construct_path_from_hrid(
-                            &self.root,
-                            requirement.hrid(),
-                            self.state.config.subfolders_are_namespaces,
-                            self.state.config.digits(),
-                        );
-                        (path, e)
-                    })
+                let requirement = self.tree.requirement(child_uuid)?;
+                requirement.save(root, &self.config).err().map(|e| {
+                    use crate::storage::path_parser::construct_path_from_hrid;
+                    let path = construct_path_from_hrid(
+                        root,
+                        requirement.hrid(),
+                        subfolders_are_namespaces,
+                        digits,
+                    );
+                    (path, e)
+                })
             })
             .collect();
 
@@ -432,8 +422,8 @@ impl Directory<Loaded> {
         let updated_hrids: Vec<_> = updated
             .iter()
             .filter_map(|&(child_uuid, parent_uuid)| {
-                let child = self.state.tree.requirement(child_uuid)?;
-                let parent = self.state.tree.requirement(parent_uuid)?;
+                let child = self.tree.requirement(child_uuid)?;
+                let parent = self.tree.requirement(parent_uuid)?;
                 Some((child.hrid().clone(), parent.hrid().clone()))
             })
             .collect();
@@ -552,10 +542,10 @@ mod tests {
     use super::*;
     use crate::Requirement;
 
-    fn setup_temp_directory() -> (TempDir, Directory<Loaded>) {
+    fn setup_temp_directory() -> (TempDir, Directory) {
         let tmp = TempDir::new().expect("failed to create temp dir");
         let path = tmp.path().to_path_buf();
-        (tmp, Directory::new(path).load_all().unwrap())
+        (tmp, Directory::new(path).unwrap())
     }
 
     #[test]
@@ -567,7 +557,7 @@ mod tests {
 
         assert_eq!(r1.hrid().to_string(), "REQ-001");
 
-        let loaded = Requirement::load(&dir.root, r1.hrid().clone(), &dir.state.config)
+        let loaded = Requirement::load(&dir.root, r1.hrid().clone(), &dir.config)
             .expect("should load saved requirement");
         assert_eq!(loaded.uuid(), r1.uuid());
     }
@@ -597,6 +587,7 @@ mod tests {
             .unwrap();
 
         Directory::new(dir.root.clone())
+            .unwrap()
             .link_requirement(child.hrid().clone(), parent.hrid().clone())
             .unwrap();
 
@@ -624,35 +615,31 @@ mod tests {
                 fingerprint: parent.fingerprint(),
             },
         );
-        child.save(&dir.root, &dir.state.config).unwrap();
+        child.save(&dir.root, &dir.config).unwrap();
 
-        let mut loaded_dir = Directory::new(dir.root.clone()).load_all().unwrap();
+        let mut loaded_dir = Directory::new(dir.root.clone()).unwrap();
         loaded_dir.update_hrids().unwrap();
 
-        let updated = Requirement::load(
-            &loaded_dir.root,
-            child.hrid().clone(),
-            &loaded_dir.state.config,
-        )
-        .expect("should load updated child");
+        let updated = Requirement::load(&loaded_dir.root, child.hrid().clone(), &loaded_dir.config)
+            .expect("should load updated child");
         let (_, parent_ref) = updated.parents().next().unwrap();
 
         assert_eq!(&parent_ref.hrid, parent.hrid());
     }
 
     #[test]
-    fn load_all_reads_all_saved_requirements() {
+    fn new_reads_all_saved_requirements() {
         use std::str::FromStr;
         let (_tmp, mut dir) = setup_temp_directory();
         let r1 = dir.add_requirement("X".to_string(), String::new()).unwrap();
         let r2 = dir.add_requirement("X".to_string(), String::new()).unwrap();
 
-        let loaded = Directory::new(dir.root.clone()).load_all().unwrap();
+        let loaded = Directory::new(dir.root.clone()).unwrap();
 
         let mut found = 0;
         for i in 1..=2 {
             let hrid = Hrid::from_str(&format!("X-00{i}")).unwrap();
-            let req = Requirement::load(&loaded.root, hrid, &loaded.state.config).unwrap();
+            let req = Requirement::load(&loaded.root, hrid, &loaded.config).unwrap();
             if req.uuid() == r1.uuid() || req.uuid() == r2.uuid() {
                 found += 1;
             }
@@ -689,12 +676,12 @@ Test requirement
         )
         .unwrap();
 
-        // Load all requirements
-        let dir = Directory::new(root.to_path_buf()).load_all().unwrap();
+        // Construct directory (loads requirements)
+        let dir = Directory::new(root.to_path_buf()).unwrap();
 
         // Should be able to load the requirement with the correct HRID using config
         let hrid = Hrid::try_from("system-auth-REQ-001").unwrap();
-        let req = Requirement::load(root, hrid.clone(), &dir.state.config).unwrap();
+        let req = Requirement::load(root, hrid.clone(), &dir.config).unwrap();
         assert_eq!(req.hrid(), &hrid);
     }
 
@@ -726,20 +713,21 @@ Test requirement
         )
         .unwrap();
 
-        // Load all requirements
-        let _dir = Directory::new(root.to_path_buf()).load_all().unwrap();
+        // Construct directory (loads requirements)
+        let _dir = Directory::new(root.to_path_buf()).unwrap();
 
         // Verify the requirement was loaded with correct HRID (KIND from parent folder)
         let hrid = Hrid::try_from("system-auth-USR-001").unwrap();
-        // The requirement should have been loaded from system/auth/USR/001.md during load_all
-        // We verify it exists by checking the file was found
+        // The requirement should have been loaded from system/auth/USR/001.md during
+        // Directory::new loads all requirements. Verify it exists by checking the file
+        // was found
         let loaded_path = root.join("system/auth/USR/001.md");
         assert!(loaded_path.exists());
 
         // Verify the requirement can be read directly from the file
         {
-            use std::fs::File;
-            use std::io::BufReader;
+            use std::{fs::File, io::BufReader};
+
             use crate::domain::requirement::storage::MarkdownRequirement;
             let file = File::open(&loaded_path).unwrap();
             let mut reader = BufReader::new(file);
@@ -762,7 +750,7 @@ Test requirement
         .unwrap();
 
         // Load directory
-        let dir = Directory::new(root.to_path_buf()).load_all().unwrap();
+        let dir = Directory::new(root.to_path_buf()).unwrap();
 
         // Add a requirement with namespace
         let hrid = Hrid::new_with_namespace(
@@ -774,13 +762,13 @@ Test requirement
         let req = Requirement::new(hrid.clone(), "Test content".to_string());
 
         // Save using config
-        req.save(root, &dir.state.config).unwrap();
+        req.save(root, &dir.config).unwrap();
 
         // File should be created at system/auth/REQ-001.md
         assert!(root.join("system/auth/REQ-001.md").exists());
 
         // Should be able to reload it using config
-        let loaded = Requirement::load(root, hrid.clone(), &dir.state.config).unwrap();
+        let loaded = Requirement::load(root, hrid.clone(), &dir.config).unwrap();
         assert_eq!(loaded.hrid(), &hrid);
     }
 
@@ -808,21 +796,22 @@ Test requirement
         )
         .unwrap();
 
-        // Load all requirements
-        let _dir = Directory::new(root.to_path_buf()).load_all().unwrap();
+        // Construct directory (loads requirements)
+        let _dir = Directory::new(root.to_path_buf()).unwrap();
 
         // Verify the requirement was loaded with HRID from filename, not path
         // (The file is in some/random/path/ but the HRID comes from the filename)
         let hrid = Hrid::try_from("system-auth-REQ-001").unwrap();
-        // The requirement should have been loaded from the nested path during load_all
-        // We verify it exists by checking it can be found in the directory structure
+        // The requirement should have been loaded from the nested path during
+        // construction We verify it exists by checking it can be found in the
+        // directory structure
         let loaded_path = root.join("some/random/path/system-auth-REQ-001.md");
         assert!(loaded_path.exists());
 
         // Verify the requirement can be read directly from the file
         {
-            use std::fs::File;
-            use std::io::BufReader;
+            use std::{fs::File, io::BufReader};
+
             use crate::domain::requirement::storage::MarkdownRequirement;
             let file = File::open(&loaded_path).unwrap();
             let mut reader = BufReader::new(file);
@@ -841,7 +830,7 @@ Test requirement
         std::fs::write(root.join("config.toml"), "_version = \"1\"\n").unwrap();
 
         // Load directory
-        let dir = Directory::new(root.to_path_buf()).load_all().unwrap();
+        let dir = Directory::new(root.to_path_buf()).unwrap();
 
         // Add a requirement with namespace
         let hrid = Hrid::new_with_namespace(
@@ -853,10 +842,133 @@ Test requirement
         let req = Requirement::new(hrid, "Test content".to_string());
 
         // Save using config
-        req.save(root, &dir.state.config).unwrap();
+        req.save(root, &dir.config).unwrap();
 
         // File should be created in root with full HRID
         assert!(root.join("system-auth-REQ-001.md").exists());
         assert!(!root.join("system/auth/REQ-001.md").exists());
+    }
+
+    #[test]
+    fn template_loading_no_template() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let root = tmp.path();
+
+        // No .req/templates directory exists
+        let mut dir = Directory::new(root.to_path_buf()).unwrap();
+
+        let req = dir
+            .add_requirement("USR".to_string(), String::new())
+            .unwrap();
+
+        // Should create empty content
+        assert_eq!(req.content(), "");
+    }
+
+    #[test]
+    fn template_loading_kind_only_template() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let root = tmp.path();
+
+        // Create template directory and KIND template
+        std::fs::create_dir_all(root.join(".req/templates")).unwrap();
+        std::fs::write(
+            root.join(".req/templates/USR.md"),
+            "# User Requirement Template\n\nDescription here.",
+        )
+        .unwrap();
+
+        let mut dir = Directory::new(root.to_path_buf()).unwrap();
+
+        let req = dir
+            .add_requirement("USR".to_string(), String::new())
+            .unwrap();
+
+        // Should use template content
+        assert_eq!(
+            req.content(),
+            "# User Requirement Template\n\nDescription here."
+        );
+    }
+
+    #[test]
+    fn template_loading_namespace_specific_template() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let root = tmp.path();
+
+        // Create template directory with both general and namespace-specific templates
+        std::fs::create_dir_all(root.join(".req/templates")).unwrap();
+        std::fs::write(
+            root.join(".req/templates/USR.md"),
+            "# General User Requirement Template",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".req/templates/AUTH-USR.md"),
+            "# Auth User Requirement Template",
+        )
+        .unwrap();
+
+        let mut dir = Directory::new(root.to_path_buf()).unwrap();
+
+        // Create namespaced requirement - should use namespace-specific template
+        let auth_req = dir
+            .add_requirement("AUTH-USR".to_string(), String::new())
+            .unwrap();
+        assert_eq!(auth_req.content(), "# Auth User Requirement Template");
+
+        // Create non-namespaced requirement - should use general template
+        let usr_req = dir
+            .add_requirement("USR".to_string(), String::new())
+            .unwrap();
+        assert_eq!(usr_req.content(), "# General User Requirement Template");
+    }
+
+    #[test]
+    fn template_loading_fallback_to_kind() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let root = tmp.path();
+
+        // Create template directory with only KIND template (no namespace-specific)
+        std::fs::create_dir_all(root.join(".req/templates")).unwrap();
+        std::fs::write(
+            root.join(".req/templates/USR.md"),
+            "# General User Requirement Template",
+        )
+        .unwrap();
+
+        let mut dir = Directory::new(root.to_path_buf()).unwrap();
+
+        // Note: add_requirement API treats "AUTH-USR" as a single KIND, not
+        // namespace+kind To test fallback properly, we need to check that
+        // "AUTH-USR" (as a KIND) will fall back to "USR" template if "AUTH-USR"
+        // template doesn't exist
+        let auth_usr_req = dir
+            .add_requirement("AUTH-USR".to_string(), String::new())
+            .unwrap();
+        // "AUTH-USR" is the kind, not namespace. Template lookup will look for:
+        // 1. "AUTH-USR.md" (full prefix, which doesn't exist)
+        // 2. "AUTH-USR.md" as kind (same, doesn't exist)
+        // So it falls back to empty
+        // This test actually demonstrates that KIND is atomic in add_requirement
+        assert_eq!(auth_usr_req.content(), "");
+    }
+
+    #[test]
+    fn template_overridden_by_content() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let root = tmp.path();
+
+        // Create template
+        std::fs::create_dir_all(root.join(".req/templates")).unwrap();
+        std::fs::write(root.join(".req/templates/USR.md"), "# Template Content").unwrap();
+
+        let mut dir = Directory::new(root.to_path_buf()).unwrap();
+
+        // Provide explicit content - should override template
+        let req = dir
+            .add_requirement("USR".to_string(), "# Custom Content".to_string())
+            .unwrap();
+        assert_eq!(req.content(), "# Custom Content");
     }
 }

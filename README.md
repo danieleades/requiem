@@ -20,9 +20,9 @@ The name of the package is `requirements-manager`, but the name of this project 
 this is a work in progress, and will be updated as features are implemented
 
 - [x] Manage requirements, specifications, and other documents in plain text.
-- [ ] Link documents together to form a directed acyclic graph (DAG).
+- [x] Link documents together to form a directed acyclic graph (DAG).
+- [x] Detect fingerprint changes and trigger reviews when dependent requirements are changed.
 - [ ] Detect cycles in the graph and report them.
-- [ ] Trigger reviews when dependent requirements are changed.
 - [ ] Generate coverage reports
 - [ ] Import and export requirements in standard formats
 

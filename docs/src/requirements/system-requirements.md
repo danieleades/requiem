@@ -4,7 +4,7 @@ System requirements (SYS) define the technical implementation details for Requie
 
 ## Overview
 
-Requiem has 15 system requirements organized by functional area:
+System requirements are organized by functional area:
 
 ### File Format & Identifiers
 
@@ -40,6 +40,12 @@ Requiem has 15 system requirements organized by functional area:
 | [SYS-013](./SYS-013.md) | Template Override via CLI | USR-006 | `-t` and `-b` flags override template content |
 | [SYS-014](./SYS-014.md) | Template Format | USR-006 | Templates support full CommonMark markdown |
 | [SYS-015](./SYS-015.md) | Namespace-Specific Templates | USR-006 | Different templates for same KIND with different namespaces |
+
+### Configuration & Directory Structure
+
+| ID | Title | Parent | Summary |
+|----|-------|--------|---------|
+| [SYS-016](./SYS-016.md) | Directory Structure Modes | - | Supports filename-based and path-based directory organization modes |
 
 ## Detailed Requirements
 
@@ -171,18 +177,15 @@ Different templates can be configured for the same KIND with different namespace
 
 ---
 
-## Implementation Status
+### Configuration & Directory Structure
 
-**Implemented** ✅:
-- All file format requirements (SYS-001, SYS-002, SYS-003)
-- Fingerprints and suspect link detection (SYS-005, SYS-008)
-- Static site integration (SYS-006, SYS-007)
-- Complete template system (SYS-011 through SYS-015)
-- Individual suspect link acceptance (SYS-009)
+#### SYS-016: Directory Structure Modes
 
-**In Progress** 🚧:
-- Cycle detection (SYS-004)
-- Bulk suspect link acceptance (SYS-010)
+The tool shall support two directory structure modes controlled by the `subfolders_are_namespaces` configuration option: filename-based mode (default) where the full HRID is encoded in the filename, and path-based mode where subfolders encode the namespace.
+
+[Read full requirement →](./SYS-016.md)
+
+---
 
 ## Traceability
 

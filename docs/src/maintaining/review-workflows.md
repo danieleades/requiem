@@ -49,6 +49,41 @@ req accept SYS-001 USR-001
 ```bash
 req accept --all
 # Output:
+# Found 3 suspect link(s):
+#   SYS-001 → USR-001
+#   SYS-002 → USR-001
+#   SYS-005 → USR-004
+#
+# Accept all 3 suspect link(s)? [y/N] y
+# Accepted 3 suspect link(s):
+#   SYS-001 → USR-001
+#   SYS-002 → USR-001
+#   SYS-005 → USR-004
+```
+
+**`req accept --all --dry-run`** - Preview changes without applying
+
+```bash
+req accept --all --dry-run
+# Output:
+# Found 3 suspect link(s):
+#   SYS-001 → USR-001
+#   SYS-002 → USR-001
+#   SYS-005 → USR-004
+#
+# Dry-run mode: no changes made.
+```
+
+**`req accept --all --force`** - Skip confirmation for automation
+
+```bash
+req accept --all --force
+# Output:
+# Found 3 suspect link(s):
+#   SYS-001 → USR-001
+#   SYS-002 → USR-001
+#   SYS-005 → USR-004
+#
 # Accepted 3 suspect link(s):
 #   SYS-001 → USR-001
 #   SYS-002 → USR-001
@@ -624,7 +659,9 @@ Multi-step approval for critical requirements.
 **Available now**:
 - ✅ `req suspect` - Detect fingerprint mismatches
 - ✅ `req accept <CHILD> <PARENT>` - Accept individual suspect links
-- ✅ `req accept --all` - Accept all suspect links
+- ✅ `req accept --all` - Accept all suspect links with confirmation
+- ✅ `req accept --all --dry-run` - Preview changes without applying
+- ✅ `req accept --all --force` - Skip confirmation for automation
 - ✅ CI/CD integration via exit codes
 
 **Planned for future releases**:
