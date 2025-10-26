@@ -75,8 +75,8 @@ impl Tree {
     ///
     /// # Panics
     ///
-    /// Panics if a requirement references a parent UUID that doesn't exist in the tree,
-    /// or if a requirement is its own parent.
+    /// Panics if a requirement references a parent UUID that doesn't exist in
+    /// the tree, or if a requirement is its own parent.
     #[instrument(skip(self))]
     pub fn update_hrids(&mut self) -> impl Iterator<Item = Uuid> + '_ {
         (0..self.requirements.len()).filter_map(|i| {
@@ -135,7 +135,8 @@ impl Tree {
     /// This indicates the parent has been modified and the child should be
     /// reviewed.
     ///
-    /// Returns a vector of (`child_uuid`, `child_hrid`, `parent_uuid`, `parent_hrid`, `stored_fingerprint`, `current_fingerprint`)
+    /// Returns a vector of (`child_uuid`, `child_hrid`, `parent_uuid`,
+    /// `parent_hrid`, `stored_fingerprint`, `current_fingerprint`)
     #[must_use]
     pub fn suspect_links(&self) -> Vec<SuspectLink> {
         let mut suspect = Vec::new();
@@ -167,7 +168,8 @@ impl Tree {
         suspect
     }
 
-    /// Update the fingerprint for a specific parent link in a child requirement.
+    /// Update the fingerprint for a specific parent link in a child
+    /// requirement.
     ///
     /// This signals that the child has been reviewed and is still valid despite
     /// the parent's changes.
@@ -210,7 +212,8 @@ impl Tree {
 
     /// Update all suspect fingerprints in the tree.
     ///
-    /// Returns a vector of (`child_uuid`, `parent_uuid`) pairs that were updated.
+    /// Returns a vector of (`child_uuid`, `parent_uuid`) pairs that were
+    /// updated.
     pub fn accept_all_suspect_links(&mut self) -> Vec<(Uuid, Uuid)> {
         let suspect = self.suspect_links();
         let mut updated = Vec::new();
@@ -223,7 +226,6 @@ impl Tree {
 
         updated
     }
-
 }
 
 /// Information about a suspect link
@@ -371,11 +373,8 @@ mod tests {
         let original_fingerprint = parent.fingerprint();
 
         // Create child linking to parent with correct fingerprint
-        let mut child = Requirement::new_with_uuid(
-            Hrid::try_from("C-001").unwrap(),
-            String::new(),
-            child_uuid,
-        );
+        let mut child =
+            Requirement::new_with_uuid(Hrid::try_from("C-001").unwrap(), String::new(), child_uuid);
         child.add_parent(
             parent_uuid,
             crate::domain::requirement::Parent {
@@ -407,7 +406,10 @@ mod tests {
         assert_eq!(suspect[0].child_uuid, child_uuid);
         assert_eq!(suspect[0].parent_uuid, parent_uuid);
         assert_eq!(suspect[0].stored_fingerprint, original_fingerprint);
-        assert_ne!(suspect[0].stored_fingerprint, suspect[0].current_fingerprint);
+        assert_ne!(
+            suspect[0].stored_fingerprint,
+            suspect[0].current_fingerprint
+        );
     }
 
     #[test]
@@ -422,11 +424,8 @@ mod tests {
             parent_uuid,
         );
 
-        let mut child = Requirement::new_with_uuid(
-            Hrid::try_from("C-001").unwrap(),
-            String::new(),
-            child_uuid,
-        );
+        let mut child =
+            Requirement::new_with_uuid(Hrid::try_from("C-001").unwrap(), String::new(), child_uuid);
         child.add_parent(
             parent_uuid,
             crate::domain::requirement::Parent {

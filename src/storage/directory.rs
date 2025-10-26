@@ -183,8 +183,12 @@ fn load_template(root: &Path, hrid: &Hrid) -> String {
         }
     }
 
-    tracing::debug!("No template found for HRID {}, checked {} and {}",
-        hrid, full_path.display(), kind_path.display());
+    tracing::debug!(
+        "No template found for HRID {}, checked {} and {}",
+        hrid,
+        full_path.display(),
+        kind_path.display()
+    );
     String::new()
 }
 
@@ -236,7 +240,11 @@ impl Directory<Loaded> {
     ///
     /// - the provided `kind` is an empty string
     /// - the requirement file cannot be written to
-    pub fn add_requirement(&mut self, kind: String, content: String) -> Result<Requirement, AddRequirementError> {
+    pub fn add_requirement(
+        &mut self,
+        kind: String,
+        content: String,
+    ) -> Result<Requirement, AddRequirementError> {
         let tree = &mut self.state.0;
 
         let id = tree.next_index(&kind);
@@ -310,7 +318,11 @@ impl Directory<Loaded> {
     /// - The child or parent requirement doesn't exist
     /// - The parent link doesn't exist in the child
     /// - The requirement file cannot be saved
-    pub fn accept_suspect_link(&mut self, child: Hrid, parent: Hrid) -> Result<AcceptResult, AcceptSuspectLinkError> {
+    pub fn accept_suspect_link(
+        &mut self,
+        child: Hrid,
+        parent: Hrid,
+    ) -> Result<AcceptResult, AcceptSuspectLinkError> {
         let child_req = self.load_requirement(child.clone())?;
         let parent_req = self.load_requirement(parent.clone())?;
 
@@ -330,7 +342,10 @@ impl Directory<Loaded> {
         }
 
         // Save the updated requirement
-        let updated_child = self.state.0.requirement(child_uuid)
+        let updated_child = self
+            .state
+            .0
+            .requirement(child_uuid)
             .ok_or_else(|| AcceptSuspectLinkError::ChildNotFound(child))?;
         updated_child.save(&self.root)?;
 
@@ -342,9 +357,11 @@ impl Directory<Loaded> {
     /// # Errors
     ///
     /// Returns an error if any requirement file cannot be saved.
-    /// This method does not fail fast - it will attempt to save all requirements
-    /// before returning the error.
-    pub fn accept_all_suspect_links(&mut self) -> Result<Vec<(Hrid, Hrid)>, UpdateSuspectLinksError> {
+    /// This method does not fail fast - it will attempt to save all
+    /// requirements before returning the error.
+    pub fn accept_all_suspect_links(
+        &mut self,
+    ) -> Result<Vec<(Hrid, Hrid)>, UpdateSuspectLinksError> {
         let updated = self.state.0.accept_all_suspect_links();
 
         let failures: Vec<_> = updated
@@ -481,7 +498,9 @@ mod tests {
     #[test]
     fn can_add_requirement() {
         let (_tmp, mut dir) = setup_temp_directory();
-        let r1 = dir.add_requirement("REQ".to_string(), String::new()).unwrap();
+        let r1 = dir
+            .add_requirement("REQ".to_string(), String::new())
+            .unwrap();
 
         assert_eq!(r1.hrid().to_string(), "REQ-001");
 
@@ -493,8 +512,12 @@ mod tests {
     #[test]
     fn can_add_multiple_requirements_with_incrementing_id() {
         let (_tmp, mut dir) = setup_temp_directory();
-        let r1 = dir.add_requirement("REQ".to_string(), String::new()).unwrap();
-        let r2 = dir.add_requirement("REQ".to_string(), String::new()).unwrap();
+        let r1 = dir
+            .add_requirement("REQ".to_string(), String::new())
+            .unwrap();
+        let r2 = dir
+            .add_requirement("REQ".to_string(), String::new())
+            .unwrap();
 
         assert_eq!(r1.hrid().to_string(), "REQ-001");
         assert_eq!(r2.hrid().to_string(), "REQ-002");
@@ -503,8 +526,12 @@ mod tests {
     #[test]
     fn can_link_two_requirements() {
         let (_tmp, mut dir) = setup_temp_directory();
-        let parent = dir.add_requirement("SYS".to_string(), String::new()).unwrap();
-        let child = dir.add_requirement("USR".to_string(), String::new()).unwrap();
+        let parent = dir
+            .add_requirement("SYS".to_string(), String::new())
+            .unwrap();
+        let child = dir
+            .add_requirement("USR".to_string(), String::new())
+            .unwrap();
 
         Directory::new(dir.root.clone())
             .link_requirement(child.hrid().clone(), parent.hrid().clone())

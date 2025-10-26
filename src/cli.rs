@@ -187,8 +187,14 @@ impl Suspect {
 
         for link in &suspect_links {
             println!("  {} → {}", link.child_hrid, link.parent_hrid);
-            println!("    Stored fingerprint:  {}", &link.stored_fingerprint[..16]);
-            println!("    Current fingerprint: {}\n", &link.current_fingerprint[..16]);
+            println!(
+                "    Stored fingerprint:  {}",
+                &link.stored_fingerprint[..16]
+            );
+            println!(
+                "    Current fingerprint: {}\n",
+                &link.current_fingerprint[..16]
+            );
         }
 
         // Exit with non-zero status to indicate suspect links exist (for CI)
@@ -229,7 +235,9 @@ impl Accept {
             }
         } else {
             let child = self.child.expect("child is required when --all is not set");
-            let parent = self.parent.expect("parent is required when --all is not set");
+            let parent = self
+                .parent
+                .expect("parent is required when --all is not set");
 
             match directory.accept_suspect_link(child.clone(), parent.clone())? {
                 requiem::storage::AcceptResult::Updated => {
