@@ -3166,6 +3166,36 @@ allow_invalid = false
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="directory-structure"><a class="header" href="#directory-structure">Directory Structure</a></h1>
 <p>Requiem is flexible about how you organize requirements on disk. This chapter explains directory organization options and best practices.</p>
+<h2 id="directory-structure-modes"><a class="header" href="#directory-structure-modes">Directory Structure Modes</a></h2>
+<p>Requiem supports two fundamental modes for organizing requirements, controlled by the <code>subfolders_are_namespaces</code> configuration option:</p>
+<h3 id="1-filename-based-mode-default"><a class="header" href="#1-filename-based-mode-default">1. Filename-Based Mode (Default)</a></h3>
+<p><strong>Configuration</strong>: <code>subfolders_are_namespaces = false</code> (or omitted)</p>
+<p>In this mode, the full HRID is encoded in the filename, and directory structure is purely organizational:</p>
+<pre><code>my-requirements/
+├── USR-001.md              → HRID: USR-001
+├── SYS-002.md              → HRID: SYS-002
+├── auth-USR-003.md         → HRID: auth-USR-003
+└── custom/folder/
+    └── system-REQ-004.md   → HRID: system-REQ-004
+</code></pre>
+<p><strong>Use when</strong>: You want maximum flexibility in folder organization without affecting requirement namespaces.</p>
+<h3 id="2-path-based-mode"><a class="header" href="#2-path-based-mode">2. Path-Based Mode</a></h3>
+<p><strong>Configuration</strong>: <code>subfolders_are_namespaces = true</code></p>
+<p>In this mode, subfolders encode the namespace, and the filename contains only KIND-ID:</p>
+<pre><code>my-requirements/
+├── REQ-001.md              → HRID: REQ-001 (no namespace)
+├── system/
+│   └── auth/
+│       ├── REQ-002.md      → HRID: system-auth-REQ-002
+│       └── USR/
+│           └── 003.md      → HRID: system-auth-USR-003 (KIND from parent)
+</code></pre>
+<p>The filename format is automatically inferred:</p>
+<ul>
+<li><strong>Numeric only</strong> (e.g., <code>003.md</code>) → KIND taken from parent folder</li>
+<li><strong>KIND-ID</strong> (e.g., <code>REQ-002.md</code>) → KIND and ID from filename</li>
+</ul>
+<p><strong>Use when</strong>: You want folder structure to directly mirror requirement namespaces.</p>
 <h2 id="basic-structure"><a class="header" href="#basic-structure">Basic Structure</a></h2>
 <p>At minimum, you need a directory containing requirement markdown files:</p>
 <pre><code>my-requirements/
@@ -3208,7 +3238,7 @@ allow_invalid = false
 <li>Easy to navigate</li>
 <li>Natural for large projects</li>
 </ul>
-<p><strong>Note</strong>: Directory names don't affect requirement behavior. <code>user/USR-001.md</code> and <code>system/USR-001.md</code> would create a filename conflict (both have HRID <code>USR-001</code>), so use different kinds.</p>
+<p><strong>Note</strong>: In filename-based mode (default), directory names don't affect requirement behavior. <code>user/USR-001.md</code> and <code>system/USR-001.md</code> would create a filename conflict (both have HRID <code>USR-001</code>), so use different kinds. In path-based mode, these would have different HRIDs: <code>user-USR-001</code> and <code>system-USR-001</code>.</p>
 <h3 id="organize-by-feature"><a class="header" href="#organize-by-feature">Organize by Feature</a></h3>
 <pre><code>requirements/
 ├── config.toml
@@ -3491,9 +3521,138 @@ The requirement text...
 <li>Consider using subdirectories to localize access patterns</li>
 <li>Parallel loading helps mitigate network latency</li>
 </ul>
+<h2 id="choosing-between-modes"><a class="header" href="#choosing-between-modes">Choosing Between Modes</a></h2>
+<h3 id="when-to-use-filename-based-mode-default"><a class="header" href="#when-to-use-filename-based-mode-default">When to Use Filename-Based Mode (Default)</a></h3>
+<p><strong>Advantages</strong>:</p>
+<ul>
+<li>Maximum flexibility - organize folders however you want</li>
+<li>Easy to move files between folders without changing HRIDs</li>
+<li>Works well with arbitrary organizational schemes (by feature, by team, etc.)</li>
+<li>Explicit namespaces visible in every filename</li>
+</ul>
+<p><strong>Best for</strong>:</p>
+<ul>
+<li>Projects where folder structure is organizational, not semantic</li>
+<li>Teams that reorganize folders frequently</li>
+<li>Mixed organizational schemes</li>
+<li>When you want full control over namespaces</li>
+</ul>
+<p><strong>Example</strong>:</p>
+<pre><code>requirements/
+├── team-a/
+│   └── auth-USR-001.md      → HRID: auth-USR-001
+└── team-b/
+    └── auth-SYS-002.md      → HRID: auth-SYS-002
+</code></pre>
+<h3 id="when-to-use-path-based-mode"><a class="header" href="#when-to-use-path-based-mode">When to Use Path-Based Mode</a></h3>
+<p><strong>Advantages</strong>:</p>
+<ul>
+<li>Cleaner filenames (shorter, less redundant)</li>
+<li>Folder structure enforces namespace consistency</li>
+<li>Natural for hierarchical component structures</li>
+<li>Automatic namespace creation from folders</li>
+</ul>
+<p><strong>Best for</strong>:</p>
+<ul>
+<li>Projects with stable, hierarchical component structures</li>
+<li>When folder structure mirrors system architecture</li>
+<li>Microservices or multi-component systems</li>
+<li>When you want enforced namespace-folder alignment</li>
+</ul>
+<p><strong>Example</strong>:</p>
+<pre><code>requirements/
+├── auth/
+│   ├── USR-001.md           → HRID: auth-USR-001
+│   └── SYS-002.md           → HRID: auth-SYS-002
+└── payment/
+    ├── USR-001.md           → HRID: payment-USR-001
+    └── SYS-002.md           → HRID: payment-SYS-002
+</code></pre>
+<h3 id="comparison-table"><a class="header" href="#comparison-table">Comparison Table</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Aspect</th><th>Filename-Based</th><th>Path-Based</th></tr></thead><tbody>
+<tr><td><strong>Filename contains</strong></td><td>Full HRID</td><td>KIND-ID only</td></tr>
+<tr><td><strong>Namespace from</strong></td><td>Filename</td><td>Folder path</td></tr>
+<tr><td><strong>Folder flexibility</strong></td><td>High</td><td>Low (tied to namespace)</td></tr>
+<tr><td><strong>File move impact</strong></td><td>None</td><td>Changes HRID</td></tr>
+<tr><td><strong>Filename length</strong></td><td>Longer</td><td>Shorter</td></tr>
+<tr><td><strong>Default mode</strong></td><td>Yes</td><td>No</td></tr>
+</tbody></table>
+</div>
+<h2 id="migration-between-modes"><a class="header" href="#migration-between-modes">Migration Between Modes</a></h2>
+<h3 id="converting-from-filename-based-to-path-based"><a class="header" href="#converting-from-filename-based-to-path-based">Converting from Filename-Based to Path-Based</a></h3>
+<ol>
+<li><strong>Update configuration</strong>:</li>
+</ol>
+<pre><code class="language-toml"># config.toml
+_version = "1"
+subfolders_are_namespaces = true
+</code></pre>
+<ol start="2">
+<li><strong>Reorganize files</strong> to match namespace structure:</li>
+</ol>
+<pre><code class="language-bash"># Before (filename-based):
+# requirements/
+# ├── auth-USR-001.md
+# └── payment-USR-002.md
+
+# Create namespace folders
+mkdir -p auth payment
+
+# Move and rename files
+mv auth-USR-001.md auth/USR-001.md
+mv payment-USR-002.md payment/USR-002.md
+
+# After (path-based):
+# requirements/
+# ├── auth/
+# │   └── USR-001.md
+# └── payment/
+#     └── USR-002.md
+</code></pre>
+<ol start="3">
+<li><strong>Verify</strong>:</li>
+</ol>
+<pre><code class="language-bash">req clean
+</code></pre>
+<h3 id="converting-from-path-based-to-filename-based"><a class="header" href="#converting-from-path-based-to-filename-based">Converting from Path-Based to Filename-Based</a></h3>
+<ol>
+<li><strong>Flatten files</strong> and encode namespace in filename:</li>
+</ol>
+<pre><code class="language-bash"># Before (path-based):
+# requirements/
+# ├── auth/
+# │   └── USR-001.md        (HRID: auth-USR-001)
+# └── payment/
+#     └── USR-002.md        (HRID: payment-USR-002)
+
+# Move and rename with full HRID
+mv auth/USR-001.md auth-USR-001.md
+mv payment/USR-002.md payment-USR-002.md
+
+# Remove now-empty folders
+rmdir auth payment
+
+# After (filename-based):
+# requirements/
+# ├── auth-USR-001.md
+# └── payment-USR-002.md
+</code></pre>
+<ol start="2">
+<li><strong>Update configuration</strong>:</li>
+</ol>
+<pre><code class="language-toml"># config.toml
+_version = "1"
+subfolders_are_namespaces = false
+</code></pre>
+<ol start="3">
+<li><strong>Verify</strong>:</li>
+</ol>
+<pre><code class="language-bash">req clean
+</code></pre>
+<p><strong>Note</strong>: When converting between modes, the HRID (and thus UUID) remains the same, preserving all links and history.</p>
 <h2 id="migration-and-refactoring"><a class="header" href="#migration-and-refactoring">Migration and Refactoring</a></h2>
 <h3 id="reorganizing-files"><a class="header" href="#reorganizing-files">Reorganizing Files</a></h3>
-<p>To reorganize directory structure:</p>
+<p>To reorganize directory structure in filename-based mode:</p>
 <ol>
 <li>Move requirement files:</li>
 </ol>
@@ -10001,6 +10160,7 @@ allowed_kinds = ["USR", "SYS", "SWR", "TST"]
 digits = 3
 allow_unrecognised = false
 allow_invalid = false
+subfolders_are_namespaces = false
 </code></pre>
 <h2 id="configuration-fields"><a class="header" href="#configuration-fields">Configuration Fields</a></h2>
 <h3 id="_version-required-1"><a class="header" href="#_version-required-1"><code>_version</code> (required)</a></h3>
@@ -10236,6 +10396,104 @@ allow_unrecognised = true  # Allow chapter1.md, README.md, etc.
 </code></pre>
 <pre><code>Error: Failed to parse config file: invalid value
 </code></pre>
+<h3 id="subfolders_are_namespaces"><a class="header" href="#subfolders_are_namespaces"><code>subfolders_are_namespaces</code></a></h3>
+<p>Control whether subfolder paths contribute to requirement namespaces.</p>
+<p><strong>Type</strong>: Boolean</p>
+<p><strong>Required</strong>: No</p>
+<p><strong>Default</strong>: <code>false</code></p>
+<p><strong>Valid Values</strong>: <code>true</code>, <code>false</code></p>
+<p><strong>Example</strong>:</p>
+<pre><code class="language-toml">subfolders_are_namespaces = true
+</code></pre>
+<p><strong>Purpose</strong>:</p>
+<ul>
+<li>Choose between filename-based and path-based directory organization</li>
+<li>Enable cleaner filenames in hierarchical structures</li>
+<li>Align folder structure with namespace hierarchy</li>
+</ul>
+<p><strong>Behavior</strong>:</p>
+<p><strong>subfolders_are_namespaces = false</strong> (default, filename-based):</p>
+<pre><code>requirements/
+├── custom/folder/
+│   └── system-auth-REQ-001.md   → HRID: system-auth-REQ-001
+└── any/path/
+    └── payment-USR-002.md       → HRID: payment-USR-002
+</code></pre>
+<ul>
+<li><strong>HRID</strong>: Fully encoded in filename</li>
+<li><strong>Folders</strong>: Purely organizational, don't affect HRID</li>
+<li><strong>Flexibility</strong>: Move files freely without changing HRIDs</li>
+</ul>
+<p><strong>subfolders_are_namespaces = true</strong> (path-based):</p>
+<pre><code>requirements/
+├── system/
+│   └── auth/
+│       ├── REQ-001.md           → HRID: system-auth-REQ-001
+│       └── USR/
+│           └── 002.md           → HRID: system-auth-USR-002
+└── payment/
+    └── USR-003.md               → HRID: payment-USR-003
+</code></pre>
+<ul>
+<li><strong>HRID</strong>: Namespace from folder path + KIND-ID from filename</li>
+<li><strong>Folders</strong>: Encode namespace segments</li>
+<li><strong>Format inference</strong>:
+<ul>
+<li>Numeric filename (<code>002.md</code>) → KIND from parent folder</li>
+<li>KIND-ID filename (<code>USR-003.md</code>) → KIND from filename</li>
+</ul>
+</li>
+<li><strong>Constraint</strong>: Moving files changes their HRID</li>
+</ul>
+<p><strong>Use Cases</strong>:</p>
+<p><strong>Use <code>false</code> (default)</strong>:</p>
+<ul>
+<li>Maximum folder flexibility</li>
+<li>Arbitrary organizational schemes</li>
+<li>Frequent folder reorganization</li>
+<li>Explicit namespaces in every filename</li>
+</ul>
+<p><strong>Use <code>true</code></strong>:</p>
+<ul>
+<li>Hierarchical component structures</li>
+<li>Folder structure mirrors system architecture</li>
+<li>Cleaner, shorter filenames</li>
+<li>Enforced namespace-folder alignment</li>
+</ul>
+<p><strong>Examples</strong>:</p>
+<p>Filename-based (flexible organization):</p>
+<pre><code class="language-toml">_version = "1"
+subfolders_are_namespaces = false
+</code></pre>
+<p>Path-based (structured hierarchy):</p>
+<pre><code class="language-toml">_version = "1"
+subfolders_are_namespaces = true
+</code></pre>
+<p><strong>Migration</strong>:</p>
+<p>To convert from filename-based to path-based:</p>
+<ol>
+<li>Set <code>subfolders_are_namespaces = true</code></li>
+<li>Reorganize files to match namespace structure</li>
+<li>Rename files to remove namespace prefix</li>
+</ol>
+<p>To convert from path-based to filename-based:</p>
+<ol>
+<li>Move files and encode full HRID in filename</li>
+<li>Set <code>subfolders_are_namespaces = false</code></li>
+<li>Optionally flatten directory structure</li>
+</ol>
+<p>See <a href="reference/../configuration/directory-structure.html">Directory Structure</a> for detailed migration guide.</p>
+<p><strong>Validation</strong>:</p>
+<ul>
+<li>Must be boolean</li>
+<li>Case-sensitive: <code>true</code> or <code>false</code> (lowercase)</li>
+</ul>
+<p><strong>Errors</strong>:</p>
+<p>Wrong type:</p>
+<pre><code class="language-toml">subfolders_are_namespaces = "yes"  # Wrong: string instead of boolean
+</code></pre>
+<pre><code>Error: Failed to parse config file: invalid type: string, expected a bool
+</code></pre>
 <h3 id="allow_invalid"><a class="header" href="#allow_invalid"><code>allow_invalid</code></a></h3>
 <p>Allow requirements with invalid YAML frontmatter or formatting.</p>
 <p><strong>Type</strong>: Boolean</p>
@@ -10316,6 +10574,7 @@ allow_invalid = true  # Temporarily allow invalid requirements
 <li><code>digits = 3</code></li>
 <li><code>allow_unrecognised = false</code></li>
 <li><code>allow_invalid = false</code></li>
+<li><code>subfolders_are_namespaces = false</code></li>
 </ul>
 <h2 id="default-configuration"><a class="header" href="#default-configuration">Default Configuration</a></h2>
 <p>If <code>config.toml</code> is absent, equivalent to:</p>
@@ -10324,6 +10583,7 @@ allowed_kinds = []
 digits = 3
 allow_unrecognised = false
 allow_invalid = false
+subfolders_are_namespaces = false
 </code></pre>
 <h2 id="configuration-examples-1"><a class="header" href="#configuration-examples-1">Configuration Examples</a></h2>
 <h3 id="small-project"><a class="header" href="#small-project">Small Project</a></h3>
@@ -10414,6 +10674,7 @@ unknown_field = "value"
 <li><code>digits</code> (optional)</li>
 <li><code>allow_unrecognised</code> (optional)</li>
 <li><code>allow_invalid</code> (optional)</li>
+<li><code>subfolders_are_namespaces</code> (optional)</li>
 </ul>
 <h3 id="future-versions"><a class="header" href="#future-versions">Future Versions</a></h3>
 <p>Planned fields (not yet implemented):</p>
@@ -10499,6 +10760,7 @@ python -c "import sys, toml; toml.load(open('config.toml'))"
 <li><code>digits</code>: HRID digit padding (default: <code>3</code>)</li>
 <li><code>allow_unrecognised</code>: Allow non-HRID files (default: <code>false</code>)</li>
 <li><code>allow_invalid</code>: Allow invalid requirements (default: <code>false</code>)</li>
+<li><code>subfolders_are_namespaces</code>: Use path-based structure (default: <code>false</code>)</li>
 </ul>
 <p><strong>Defaults</strong>:</p>
 <ul>
@@ -10506,6 +10768,7 @@ python -c "import sys, toml; toml.load(open('config.toml'))"
 <li>3-digit HRID padding</li>
 <li>Strict file validation</li>
 <li>Strict requirement validation</li>
+<li>Filename-based directory structure</li>
 </ul>
 <h2 id="next-steps-29"><a class="header" href="#next-steps-29">Next Steps</a></h2>
 <ul>

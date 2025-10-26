@@ -204,6 +204,7 @@ allowed_kinds = ["USR", "SYS", "SWR", "TST"]
 digits = 3
 allow_unrecognised = false
 allow_invalid = false
+subfolders_are_namespaces = false
 </code></pre>
 <h2 id="configuration-fields"><a class="header" href="#configuration-fields">Configuration Fields</a></h2>
 <h3 id="_version-required"><a class="header" href="#_version-required"><code>_version</code> (required)</a></h3>
@@ -439,6 +440,104 @@ allow_unrecognised = true  # Allow chapter1.md, README.md, etc.
 </code></pre>
 <pre><code>Error: Failed to parse config file: invalid value
 </code></pre>
+<h3 id="subfolders_are_namespaces"><a class="header" href="#subfolders_are_namespaces"><code>subfolders_are_namespaces</code></a></h3>
+<p>Control whether subfolder paths contribute to requirement namespaces.</p>
+<p><strong>Type</strong>: Boolean</p>
+<p><strong>Required</strong>: No</p>
+<p><strong>Default</strong>: <code>false</code></p>
+<p><strong>Valid Values</strong>: <code>true</code>, <code>false</code></p>
+<p><strong>Example</strong>:</p>
+<pre><code class="language-toml">subfolders_are_namespaces = true
+</code></pre>
+<p><strong>Purpose</strong>:</p>
+<ul>
+<li>Choose between filename-based and path-based directory organization</li>
+<li>Enable cleaner filenames in hierarchical structures</li>
+<li>Align folder structure with namespace hierarchy</li>
+</ul>
+<p><strong>Behavior</strong>:</p>
+<p><strong>subfolders_are_namespaces = false</strong> (default, filename-based):</p>
+<pre><code>requirements/
+├── custom/folder/
+│   └── system-auth-REQ-001.md   → HRID: system-auth-REQ-001
+└── any/path/
+    └── payment-USR-002.md       → HRID: payment-USR-002
+</code></pre>
+<ul>
+<li><strong>HRID</strong>: Fully encoded in filename</li>
+<li><strong>Folders</strong>: Purely organizational, don't affect HRID</li>
+<li><strong>Flexibility</strong>: Move files freely without changing HRIDs</li>
+</ul>
+<p><strong>subfolders_are_namespaces = true</strong> (path-based):</p>
+<pre><code>requirements/
+├── system/
+│   └── auth/
+│       ├── REQ-001.md           → HRID: system-auth-REQ-001
+│       └── USR/
+│           └── 002.md           → HRID: system-auth-USR-002
+└── payment/
+    └── USR-003.md               → HRID: payment-USR-003
+</code></pre>
+<ul>
+<li><strong>HRID</strong>: Namespace from folder path + KIND-ID from filename</li>
+<li><strong>Folders</strong>: Encode namespace segments</li>
+<li><strong>Format inference</strong>:
+<ul>
+<li>Numeric filename (<code>002.md</code>) → KIND from parent folder</li>
+<li>KIND-ID filename (<code>USR-003.md</code>) → KIND from filename</li>
+</ul>
+</li>
+<li><strong>Constraint</strong>: Moving files changes their HRID</li>
+</ul>
+<p><strong>Use Cases</strong>:</p>
+<p><strong>Use <code>false</code> (default)</strong>:</p>
+<ul>
+<li>Maximum folder flexibility</li>
+<li>Arbitrary organizational schemes</li>
+<li>Frequent folder reorganization</li>
+<li>Explicit namespaces in every filename</li>
+</ul>
+<p><strong>Use <code>true</code></strong>:</p>
+<ul>
+<li>Hierarchical component structures</li>
+<li>Folder structure mirrors system architecture</li>
+<li>Cleaner, shorter filenames</li>
+<li>Enforced namespace-folder alignment</li>
+</ul>
+<p><strong>Examples</strong>:</p>
+<p>Filename-based (flexible organization):</p>
+<pre><code class="language-toml">_version = "1"
+subfolders_are_namespaces = false
+</code></pre>
+<p>Path-based (structured hierarchy):</p>
+<pre><code class="language-toml">_version = "1"
+subfolders_are_namespaces = true
+</code></pre>
+<p><strong>Migration</strong>:</p>
+<p>To convert from filename-based to path-based:</p>
+<ol>
+<li>Set <code>subfolders_are_namespaces = true</code></li>
+<li>Reorganize files to match namespace structure</li>
+<li>Rename files to remove namespace prefix</li>
+</ol>
+<p>To convert from path-based to filename-based:</p>
+<ol>
+<li>Move files and encode full HRID in filename</li>
+<li>Set <code>subfolders_are_namespaces = false</code></li>
+<li>Optionally flatten directory structure</li>
+</ol>
+<p>See <a href="../configuration/directory-structure.html">Directory Structure</a> for detailed migration guide.</p>
+<p><strong>Validation</strong>:</p>
+<ul>
+<li>Must be boolean</li>
+<li>Case-sensitive: <code>true</code> or <code>false</code> (lowercase)</li>
+</ul>
+<p><strong>Errors</strong>:</p>
+<p>Wrong type:</p>
+<pre><code class="language-toml">subfolders_are_namespaces = "yes"  # Wrong: string instead of boolean
+</code></pre>
+<pre><code>Error: Failed to parse config file: invalid type: string, expected a bool
+</code></pre>
 <h3 id="allow_invalid"><a class="header" href="#allow_invalid"><code>allow_invalid</code></a></h3>
 <p>Allow requirements with invalid YAML frontmatter or formatting.</p>
 <p><strong>Type</strong>: Boolean</p>
@@ -519,6 +618,7 @@ allow_invalid = true  # Temporarily allow invalid requirements
 <li><code>digits = 3</code></li>
 <li><code>allow_unrecognised = false</code></li>
 <li><code>allow_invalid = false</code></li>
+<li><code>subfolders_are_namespaces = false</code></li>
 </ul>
 <h2 id="default-configuration"><a class="header" href="#default-configuration">Default Configuration</a></h2>
 <p>If <code>config.toml</code> is absent, equivalent to:</p>
@@ -527,6 +627,7 @@ allowed_kinds = []
 digits = 3
 allow_unrecognised = false
 allow_invalid = false
+subfolders_are_namespaces = false
 </code></pre>
 <h2 id="configuration-examples"><a class="header" href="#configuration-examples">Configuration Examples</a></h2>
 <h3 id="small-project"><a class="header" href="#small-project">Small Project</a></h3>
@@ -617,6 +718,7 @@ unknown_field = "value"
 <li><code>digits</code> (optional)</li>
 <li><code>allow_unrecognised</code> (optional)</li>
 <li><code>allow_invalid</code> (optional)</li>
+<li><code>subfolders_are_namespaces</code> (optional)</li>
 </ul>
 <h3 id="future-versions"><a class="header" href="#future-versions">Future Versions</a></h3>
 <p>Planned fields (not yet implemented):</p>
@@ -702,6 +804,7 @@ python -c "import sys, toml; toml.load(open('config.toml'))"
 <li><code>digits</code>: HRID digit padding (default: <code>3</code>)</li>
 <li><code>allow_unrecognised</code>: Allow non-HRID files (default: <code>false</code>)</li>
 <li><code>allow_invalid</code>: Allow invalid requirements (default: <code>false</code>)</li>
+<li><code>subfolders_are_namespaces</code>: Use path-based structure (default: <code>false</code>)</li>
 </ul>
 <p><strong>Defaults</strong>:</p>
 <ul>
@@ -709,6 +812,7 @@ python -c "import sys, toml; toml.load(open('config.toml'))"
 <li>3-digit HRID padding</li>
 <li>Strict file validation</li>
 <li>Strict requirement validation</li>
+<li>Filename-based directory structure</li>
 </ul>
 <h2 id="next-steps"><a class="header" href="#next-steps">Next Steps</a></h2>
 <ul>
