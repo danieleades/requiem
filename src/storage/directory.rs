@@ -127,8 +127,19 @@ pub enum DirectoryLoadError {
 }
 
 impl fmt::Display for DirectoryLoadError {
-    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnrecognisedFiles(paths) => {
+                write!(f, "Unrecognised files: ")?;
+                for (i, path) in paths.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", path.display())?;
+                }
+                Ok(())
+            }
+        }
     }
 }
 
@@ -140,10 +151,55 @@ fn load_config(root: &Path) -> Config {
     })
 }
 
+/// Load a template for the given HRID from the `.req/templates/` directory.
+///
+/// This checks for templates in order of specificity:
+/// 1. Full HRID prefix with namespace (e.g., `.req/templates/AUTH-USR.md`)
+/// 2. KIND only (e.g., `.req/templates/USR.md`)
+///
+/// Returns an empty string if no template is found.
+fn load_template(root: &Path, hrid: &Hrid) -> String {
+    let templates_dir = root.join(".req").join("templates");
+
+    // Try full prefix first (e.g., "AUTH-USR.md")
+    let full_prefix = hrid.prefix();
+    let full_path = templates_dir.join(format!("{full_prefix}.md"));
+
+    if full_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&full_path) {
+            tracing::debug!("Loaded template from {}", full_path.display());
+            return content;
+        }
+    }
+
+    // Fall back to KIND only (e.g., "USR.md")
+    let kind = hrid.kind();
+    let kind_path = templates_dir.join(format!("{kind}.md"));
+
+    if kind_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&kind_path) {
+            tracing::debug!("Loaded template from {}", kind_path.display());
+            return content;
+        }
+    }
+
+    tracing::debug!(
+        "No template found for HRID {}, checked {} and {}",
+        hrid,
+        full_path.display(),
+        kind_path.display()
+    );
+    String::new()
+}
+
 fn collect_markdown_paths(root: &PathBuf) -> Vec<PathBuf> {
     WalkDir::new(root)
         .into_iter()
         .filter_map(Result::ok)
+        .filter(|entry| {
+            // Skip the .req directory (used for templates and other metadata)
+            !entry.path().components().any(|c| c.as_os_str() == ".req")
+        })
         .filter(|entry| entry.path().extension() == Some(OsStr::new("md")))
         .map(walkdir::DirEntry::into_path)
         .collect()
@@ -184,12 +240,24 @@ impl Directory<Loaded> {
     ///
     /// - the provided `kind` is an empty string
     /// - the requirement file cannot be written to
-    pub fn add_requirement(&mut self, kind: String) -> Result<Requirement, AddRequirementError> {
+    pub fn add_requirement(
+        &mut self,
+        kind: String,
+        content: String,
+    ) -> Result<Requirement, AddRequirementError> {
         let tree = &mut self.state.0;
 
         let id = tree.next_index(&kind);
+        let hrid = Hrid::new(kind, id)?;
 
-        let requirement = Requirement::new(Hrid::new(kind, id)?, String::new());
+        // If no content is provided via CLI, check for a template
+        let final_content = if content.is_empty() {
+            load_template(&self.root, &hrid)
+        } else {
+            content
+        };
+
+        let requirement = Requirement::new(hrid, final_content);
 
         requirement.save(&self.root)?;
         tree.insert(requirement.clone());
@@ -232,6 +300,101 @@ impl Directory<Loaded> {
 
         NonEmpty::from_vec(failures).map_or(Ok(()), |failures| Err(UpdateHridsError { failures }))
     }
+
+    /// Find all suspect links in the requirement graph.
+    ///
+    /// A link is suspect when the fingerprint stored in a child requirement
+    /// does not match the current fingerprint of the parent requirement.
+    #[must_use]
+    pub fn suspect_links(&self) -> Vec<crate::storage::SuspectLink> {
+        self.state.0.suspect_links()
+    }
+
+    /// Accept a specific suspect link by updating its fingerprint.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The child or parent requirement doesn't exist
+    /// - The parent link doesn't exist in the child
+    /// - The requirement file cannot be saved
+    pub fn accept_suspect_link(
+        &mut self,
+        child: Hrid,
+        parent: Hrid,
+    ) -> Result<AcceptResult, AcceptSuspectLinkError> {
+        let child_req = self.load_requirement(child.clone())?;
+        let parent_req = self.load_requirement(parent.clone())?;
+
+        let child_uuid = child_req.uuid();
+        let parent_uuid = parent_req.uuid();
+
+        // Check if the link exists
+        let has_link = child_req.parents().any(|(pid, _)| pid == parent_uuid);
+        if !has_link {
+            return Err(AcceptSuspectLinkError::LinkNotFound { child, parent });
+        }
+
+        let was_updated = self.state.0.accept_suspect_link(child_uuid, parent_uuid);
+
+        if !was_updated {
+            return Ok(AcceptResult::AlreadyUpToDate);
+        }
+
+        // Save the updated requirement
+        let updated_child = self
+            .state
+            .0
+            .requirement(child_uuid)
+            .ok_or_else(|| AcceptSuspectLinkError::ChildNotFound(child))?;
+        updated_child.save(&self.root)?;
+
+        Ok(AcceptResult::Updated)
+    }
+
+    /// Accept all suspect links by updating all fingerprints.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any requirement file cannot be saved.
+    /// This method does not fail fast - it will attempt to save all
+    /// requirements before returning the error.
+    pub fn accept_all_suspect_links(
+        &mut self,
+    ) -> Result<Vec<(Hrid, Hrid)>, UpdateSuspectLinksError> {
+        let updated = self.state.0.accept_all_suspect_links();
+
+        let failures: Vec<_> = updated
+            .iter()
+            .filter_map(|&(child_uuid, _parent_uuid)| {
+                let requirement = self.state.0.requirement(child_uuid)?;
+                requirement.save(&self.root).err().map(|e| {
+                    (
+                        self.root
+                            .join(requirement.hrid().to_string())
+                            .with_extension("md"),
+                        e,
+                    )
+                })
+            })
+            .collect();
+
+        if let Some(failures) = NonEmpty::from_vec(failures) {
+            return Err(UpdateSuspectLinksError { failures });
+        }
+
+        // Convert UUIDs to HRIDs for return value
+        let updated_hrids: Vec<_> = updated
+            .iter()
+            .filter_map(|&(child_uuid, parent_uuid)| {
+                let child = self.state.0.requirement(child_uuid)?;
+                let parent = self.state.0.requirement(parent_uuid)?;
+                Some((child.hrid().clone(), parent.hrid().clone()))
+            })
+            .collect();
+
+        Ok(updated_hrids)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -271,6 +434,54 @@ impl fmt::Display for UpdateHridsError {
     }
 }
 
+#[derive(Debug)]
+pub enum AcceptResult {
+    Updated,
+    AlreadyUpToDate,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum AcceptSuspectLinkError {
+    #[error("child requirement {0} not found")]
+    ChildNotFound(Hrid),
+    #[error("parent requirement not found")]
+    ParentNotFound(#[from] LoadError),
+    #[error("link from {child} to {parent} not found")]
+    LinkNotFound { child: Hrid, parent: Hrid },
+    #[error("failed to save requirement: {0}")]
+    Io(#[from] io::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub struct UpdateSuspectLinksError {
+    failures: NonEmpty<(PathBuf, io::Error)>,
+}
+
+impl fmt::Display for UpdateSuspectLinksError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        const MAX_DISPLAY: usize = 5;
+
+        write!(f, "failed to update suspect links: ")?;
+
+        let total = self.failures.len();
+
+        let displayed_paths: Vec<String> = self
+            .failures
+            .iter()
+            .take(MAX_DISPLAY)
+            .map(|(p, _e)| p.display().to_string())
+            .collect();
+
+        let msg = displayed_paths.join(", ");
+
+        if total <= MAX_DISPLAY {
+            write!(f, "{msg}")
+        } else {
+            write!(f, "{msg}... (and {} more)", total - MAX_DISPLAY)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
@@ -287,7 +498,9 @@ mod tests {
     #[test]
     fn can_add_requirement() {
         let (_tmp, mut dir) = setup_temp_directory();
-        let r1 = dir.add_requirement("REQ".to_string()).unwrap();
+        let r1 = dir
+            .add_requirement("REQ".to_string(), String::new())
+            .unwrap();
 
         assert_eq!(r1.hrid().to_string(), "REQ-001");
 
@@ -299,8 +512,12 @@ mod tests {
     #[test]
     fn can_add_multiple_requirements_with_incrementing_id() {
         let (_tmp, mut dir) = setup_temp_directory();
-        let r1 = dir.add_requirement("REQ".to_string()).unwrap();
-        let r2 = dir.add_requirement("REQ".to_string()).unwrap();
+        let r1 = dir
+            .add_requirement("REQ".to_string(), String::new())
+            .unwrap();
+        let r2 = dir
+            .add_requirement("REQ".to_string(), String::new())
+            .unwrap();
 
         assert_eq!(r1.hrid().to_string(), "REQ-001");
         assert_eq!(r2.hrid().to_string(), "REQ-002");
@@ -309,8 +526,12 @@ mod tests {
     #[test]
     fn can_link_two_requirements() {
         let (_tmp, mut dir) = setup_temp_directory();
-        let parent = dir.add_requirement("SYS".to_string()).unwrap();
-        let child = dir.add_requirement("USR".to_string()).unwrap();
+        let parent = dir
+            .add_requirement("SYS".to_string(), String::new())
+            .unwrap();
+        let child = dir
+            .add_requirement("USR".to_string(), String::new())
+            .unwrap();
 
         Directory::new(dir.root.clone())
             .link_requirement(child.hrid().clone(), parent.hrid().clone())
@@ -328,8 +549,8 @@ mod tests {
     #[test]
     fn update_hrids_corrects_outdated_parent_hrids() {
         let (_tmp, mut dir) = setup_temp_directory();
-        let parent = dir.add_requirement("P".to_string()).unwrap();
-        let mut child = dir.add_requirement("C".to_string()).unwrap();
+        let parent = dir.add_requirement("P".to_string(), String::new()).unwrap();
+        let mut child = dir.add_requirement("C".to_string(), String::new()).unwrap();
 
         // Manually corrupt HRID in child's parent info
         child.add_parent(
@@ -354,8 +575,8 @@ mod tests {
     #[test]
     fn load_all_reads_all_saved_requirements() {
         let (_tmp, mut dir) = setup_temp_directory();
-        let r1 = dir.add_requirement("X".to_string()).unwrap();
-        let r2 = dir.add_requirement("X".to_string()).unwrap();
+        let r1 = dir.add_requirement("X".to_string(), String::new()).unwrap();
+        let r2 = dir.add_requirement("X".to_string(), String::new()).unwrap();
 
         let loaded = Directory::new(dir.root.clone()).load_all().unwrap();
 

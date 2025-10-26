@@ -5,5 +5,5 @@
 mod domain;
 pub use domain::{EmptyStringError, Hrid, Requirement};
 
-mod storage;
-pub use storage::Directory;
+pub mod storage;
+pub use storage::{Directory, SuspectLink};

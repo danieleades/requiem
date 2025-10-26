@@ -87,6 +87,26 @@ impl Hrid {
     pub const fn id(&self) -> usize {
         self.id
     }
+
+    /// Returns the prefix (namespace + kind) without the numeric ID.
+    ///
+    /// For example:
+    /// - "USR" for a requirement with no namespace and kind "USR"
+    /// - "AUTH-USR" for a requirement with namespace `["AUTH"]` and kind "USR"
+    #[must_use]
+    pub fn prefix(&self) -> String {
+        if self.namespace.is_empty() {
+            self.kind.to_string()
+        } else {
+            let namespace_str = self
+                .namespace
+                .iter()
+                .map(NonEmptyString::as_str)
+                .collect::<Vec<_>>()
+                .join("-");
+            format!("{}-{}", namespace_str, self.kind)
+        }
+    }
 }
 
 impl fmt::Display for Hrid {

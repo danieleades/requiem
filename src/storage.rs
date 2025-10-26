@@ -1,5 +1,5 @@
-mod directory;
+pub mod directory;
 mod tree;
 
-pub use directory::Directory;
-pub use tree::Tree;
+pub use directory::{AcceptResult, Directory};
+pub use tree::{SuspectLink, Tree};
