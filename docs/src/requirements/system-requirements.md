@@ -1,6 +1,6 @@
 # System Requirements
 
-System requirements (SYS) define the technical implementation details for Requiem. While user requirements describe **what** users need, system requirements specify **how** the tool delivers those capabilities.
+System requirements (SYS) define the technical implementation details for Requiem. While user requirements describe **what** users need, system requirements specify **how** the tool delivers those capabilities. Some outcomes include dedicated specifications (SPC) that capture detailed interaction or visual design.
 
 ## Overview
 
@@ -20,9 +20,9 @@ Requiem has 20 system requirements organized by functional area:
 |----|-------|--------|---------|
 | [SYS-004](./SYS-004.md) | Cycle Detection in Requirement Graph | USR-004 | Tool validates requirements form a DAG with no cycles |
 | [SYS-005](./SYS-005.md) | Suspect Link Detection | USR-004 | Detects when parent fingerprint doesn't match stored value |
-| [SYS-008](./SYS-008.md) | Suspect Links CLI Command | USR-004 | `req suspect` command lists all suspect links |
-| [SYS-009](./SYS-009.md) | Accept Individual Suspect Links | USR-004 | `req accept <child> <parent>` updates one suspect link |
-| [SYS-010](./SYS-010.md) | Accept All Suspect Links in Bulk | USR-004 | `req accept --all` updates all suspect links with dry-run/force |
+| [SYS-008](./SYS-008.md) | Suspect Links CLI Command | USR-004 | `req suspect` command lists all suspect links — spec: [SPC-001](./SPC-001.md) |
+| [SYS-009](./SYS-009.md) | Accept Individual Suspect Links | USR-004 | `req accept <child> <parent>` updates one suspect link — spec: [SPC-001](./SPC-001.md) |
+| [SYS-010](./SYS-010.md) | Accept All Suspect Links in Bulk | USR-004 | `req accept --all` updates all suspect links with safeguards — spec: [SPC-001](./SPC-001.md) |
 
 ### Static Site Integration
 
@@ -41,14 +41,20 @@ Requiem has 20 system requirements organized by functional area:
 | [SYS-014](./SYS-014.md) | Template Format | USR-006 | Templates support full CommonMark markdown |
 | [SYS-015](./SYS-015.md) | Namespace-Specific Templates | USR-006 | Different templates for same KIND with different namespaces |
 
+### Repository Organisation
+
+| ID | Title | Parent | Summary |
+|----|-------|--------|---------|
+| [SYS-016](./SYS-016.md) | Directory Structure Modes | — | Toggle between filename and path-based HRID conventions — spec: [SPC-004](./SPC-004.md) |
+
 ### CLI Visibility & Navigation
 
 | ID | Title | Parent | Summary |
 |----|-------|--------|---------|
-| [SYS-017](./SYS-017.md) | Requirements Listing CLI Command | USR-007 | `req list` enumerates requirements with key metadata |
-| [SYS-018](./SYS-018.md) | Listing Filters and Scopes | USR-007 | Filters restrict results by kind, namespace, tags, text |
-| [SYS-019](./SYS-019.md) | Relationship Navigation Views | USR-007 | Options expose parents, children, ancestors, descendants |
-| [SYS-020](./SYS-020.md) | Status Dashboard CLI Command | USR-007 | `req status` shows counts by kind and suspect total |
+| [SYS-017](./SYS-017.md) | Requirements Listing CLI Command | USR-007 | `req list` enumerates requirements with key metadata — spec: [SPC-002](./SPC-002.md) |
+| [SYS-018](./SYS-018.md) | Listing Filters and Scopes | USR-007 | Filters restrict results by kind, namespace, tags, text — spec: [SPC-002](./SPC-002.md) |
+| [SYS-019](./SYS-019.md) | Relationship Navigation Views | USR-007 | Options expose parents, children, ancestors, descendants — spec: [SPC-002](./SPC-002.md) |
+| [SYS-020](./SYS-020.md) | Status Dashboard CLI Command | USR-007 | `req status` shows counts by kind and suspect total — spec: [SPC-003](./SPC-003.md) |
 ## Detailed Requirements
 
 ### File Format & Identifiers
@@ -100,6 +106,7 @@ When a parent's fingerprint doesn't match the stored value in a child's frontmat
 The `req suspect` command lists all suspect links in the graph, showing child HRID and suspect parent HRID. Exits with non-zero status if suspect links found (useful for CI).
 
 [Read full requirement →](./SYS-008.md)
+Specification: [SPC-001](./SPC-001.md)
 
 ---
 
@@ -108,6 +115,7 @@ The `req suspect` command lists all suspect links in the graph, showing child HR
 The `req accept <child-hrid> <parent-hrid>` command accepts a specific suspect link by updating the fingerprint in the child's frontmatter to match the parent's current content hash.
 
 [Read full requirement →](./SYS-009.md)
+Specification: [SPC-001](./SPC-001.md)
 
 ---
 
@@ -116,6 +124,7 @@ The `req accept <child-hrid> <parent-hrid>` command accepts a specific suspect l
 The `req accept --all` command accepts all suspect links in bulk. Supports `--dry-run` to preview changes and `--force` to bypass confirmation prompt.
 
 [Read full requirement →](./SYS-010.md)
+Specification: [SPC-001](./SPC-001.md)
 
 ---
 
@@ -179,6 +188,17 @@ Different templates can be configured for the same KIND with different namespace
 
 ---
 
+### Repository Organisation
+
+#### SYS-016: Directory Structure Modes
+
+Repositories can opt into filename-based or path-based HRID conventions, ensuring teams keep traceability intact while adopting folder structures that fit their workflow.
+
+[Read full requirement →](./SYS-016.md)
+Specification: [SPC-004](./SPC-004.md)
+
+---
+
 ### CLI Visibility & Navigation
 
 #### SYS-017: Requirements Listing CLI Command
@@ -186,6 +206,7 @@ Different templates can be configured for the same KIND with different namespace
 The `req list` command enumerates requirements with key metadata, supporting multiple output formats for human and machine consumption.
 
 [Read full requirement →](./SYS-017.md)
+Specification: [SPC-002](./SPC-002.md)
 
 ---
 
@@ -194,6 +215,7 @@ The `req list` command enumerates requirements with key metadata, supporting mul
 The listing command provides filters (kind, namespace, tag, text search) and pagination controls so users can focus on relevant subsets.
 
 [Read full requirement →](./SYS-018.md)
+Specification: [SPC-002](./SPC-002.md)
 
 ---
 
@@ -202,6 +224,7 @@ The listing command provides filters (kind, namespace, tag, text search) and pag
 Relationship-centric options expose parents, children, ancestors, descendants, and tree views to assist with impact analysis and reviews.
 
 [Read full requirement →](./SYS-019.md)
+Specification: [SPC-002](./SPC-002.md)
 
 ---
 
@@ -210,6 +233,7 @@ Relationship-centric options expose parents, children, ancestors, descendants, a
 The `req status` command prints requirement counts per kind, reports the overall total, and highlights the suspect link count with a non-zero exit when attention is required.
 
 [Read full requirement →](./SYS-020.md)
+Specification: [SPC-003](./SPC-003.md)
 
 ---
 

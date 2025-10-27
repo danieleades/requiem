@@ -84,6 +84,10 @@ pub struct List {
     /// Skip the first N rows.
     #[arg(long)]
     offset: Option<usize>,
+
+    /// Use ASCII characters instead of UTF-8 box drawing.
+    #[arg(long)]
+    ascii: bool,
 }
 
 /// Supported output formats.
@@ -247,6 +251,8 @@ struct SerializableRow<'a> {
 impl List {
     #[instrument(level = "debug", skip_all)]
     pub fn run(self, root: PathBuf) -> anyhow::Result<()> {
+        use crate::cli::terminal::Colorize;
+
         let directory = Directory::new(root).load_all()?;
 
         let mut entries = collect_entries(&directory);
@@ -302,6 +308,12 @@ impl List {
             }
         };
 
+        // Check for empty results
+        if rows.is_empty() && filters.any() {
+            println!("No requirements matched the filters provided.");
+            return Ok(());
+        }
+
         if self.view != View::Tree {
             rows = apply_sort(rows, &entries, self.sort);
         }
@@ -311,7 +323,70 @@ impl List {
             .and_then(|value| (value > 0).then_some(value))
             .or(Some(DEFAULT_LIMIT));
 
+        let total_rows = rows.len();
+        let truncated = total_rows > effective_limit.unwrap_or(usize::MAX);
+        let truncated_count = if truncated {
+            total_rows.saturating_sub(effective_limit.unwrap_or(0))
+        } else {
+            0
+        };
+
         rows = apply_offset_limit(rows, self.offset, effective_limit);
+
+        // Print header (unless quiet or json/csv)
+        if !self.quiet && self.output == OutputFormat::Table {
+            let view_name = match self.view {
+                View::Summary => "summary",
+                View::Parents => "parents",
+                View::Children => "children",
+                View::Ancestors => "ancestors",
+                View::Descendants => "descendants",
+                View::Tree => "tree",
+                View::Context => "context",
+            };
+
+            let filter_str = if filters.any() {
+                let mut parts = Vec::new();
+                if !filters.kinds.is_empty() {
+                    parts.push(format!("kind: {}", filters.kinds.join(", ")));
+                }
+                if !filters.namespaces.is_empty() {
+                    parts.push(format!("namespace: {}", filters.namespaces.join(", ")));
+                }
+                if !filters.tags.is_empty() {
+                    parts.push(format!("tag: {}", filters.tags.join(", ")));
+                }
+                if filters.orphans {
+                    parts.push("orphans".to_string());
+                }
+                if filters.leaves {
+                    parts.push("leaves".to_string());
+                }
+                if filters.contains.is_some() {
+                    parts.push("text-match".to_string());
+                }
+                if filters.regex.is_some() {
+                    parts.push("regex-match".to_string());
+                }
+                parts.join(", ")
+            } else {
+                "none".to_string()
+            };
+
+            let limit_str = self
+                .limit
+                .map(|l| l.to_string())
+                .unwrap_or_else(|| DEFAULT_LIMIT.to_string());
+
+            println!(
+                "{}",
+                format!(
+                    "Listing requirements (view: {}, filters: {}, limit: {})",
+                    view_name, filter_str, limit_str
+                )
+                .dim()
+            );
+        }
 
         render_rows(
             rows,
@@ -320,7 +395,20 @@ impl List {
             self.output,
             self.quiet,
             self.view == View::Tree,
-        )
+            self.ascii,
+            &filters,
+        )?;
+
+        // Print footer if truncated
+        if truncated && !self.quiet && self.output == OutputFormat::Table {
+            println!(
+                "\n{} +{} more (use --limit or --offset)",
+                "…".dim(),
+                truncated_count
+            );
+        }
+
+        Ok(())
     }
 
     fn resolve_targets(&self, entries: &[Entry]) -> anyhow::Result<Vec<usize>> {
@@ -804,15 +892,17 @@ fn render_rows(
     output: OutputFormat,
     quiet: bool,
     tree: bool,
+    ascii: bool,
+    filters: &Filters,
 ) -> anyhow::Result<()> {
     if tree {
-        render_tree(rows, entries);
+        render_tree(rows, entries, ascii);
         return Ok(());
     }
 
     match output {
         OutputFormat::Table => {
-            render_table(rows, entries, columns, quiet);
+            render_table(rows, entries, columns, quiet, filters);
             Ok(())
         }
         OutputFormat::Json => render_json(rows, entries, columns),
@@ -823,21 +913,72 @@ fn render_rows(
     }
 }
 
-fn render_tree(rows: Vec<Row>, entries: &[Entry]) {
-    for row in rows {
+fn render_tree(rows: Vec<Row>, entries: &[Entry], ascii: bool) {
+    // Group rows by parent to know if we're the last child
+    let mut parent_map: HashMap<Option<usize>, Vec<usize>> = HashMap::new();
+
+    for (idx, row) in rows.iter().enumerate() {
+        let parent_idx = if idx > 0 && rows[idx - 1].depth < row.depth {
+            Some(idx - 1)
+        } else if idx > 0 {
+            // Find parent by walking backward
+            let mut search_idx = idx - 1;
+            while search_idx > 0 && rows[search_idx].depth >= row.depth {
+                search_idx = search_idx.saturating_sub(1);
+            }
+            if rows[search_idx].depth < row.depth {
+                Some(search_idx)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        parent_map.entry(parent_idx).or_default().push(idx);
+    }
+
+    for (idx, row) in rows.iter().enumerate() {
         let entry = &entries[row.index];
-        let indent = "  ".repeat(row.depth);
+
+        // Build the tree prefix
+        let mut prefix = String::new();
+
+        if row.depth > 0 {
+            // Determine if this is the last child at this level
+            let is_last = parent_map.values().any(|siblings| {
+                siblings.last() == Some(&idx)
+            });
+
+            // Build prefix with proper tree connectors
+            for d in 0..row.depth {
+                if d == row.depth - 1 {
+                    // Last level
+                    if is_last {
+                        prefix.push_str(if ascii { "`- " } else { "└─ " });
+                    } else {
+                        prefix.push_str(if ascii { "|- " } else { "├─ " });
+                    }
+                } else {
+                    // Earlier levels
+                    prefix.push_str(if ascii { "|  " } else { "│  " });
+                }
+            }
+        }
+
+        // Add direction marker if present
         let marker = match row.direction {
             Direction::Up => "↑ ",
             Direction::Down => "↓ ",
             Direction::None => "",
         };
+
         let title = entry.title.as_deref().unwrap_or_default();
-        println!("{indent}{marker}{} {title}", entry.hrid);
+        println!("{prefix}{marker}{} {title}", entry.hrid);
     }
 }
 
-fn render_table(rows: Vec<Row>, entries: &[Entry], columns: &[ListColumn], quiet: bool) {
+fn render_table(rows: Vec<Row>, entries: &[Entry], columns: &[ListColumn], quiet: bool, filters: &Filters) {
     let selected_columns = if columns.is_empty() {
         if quiet {
             vec![ListColumn::Hrid]
@@ -875,6 +1016,13 @@ fn render_table(rows: Vec<Row>, entries: &[Entry], columns: &[ListColumn], quiet
                 value = prefix_value(value, row.direction, row.depth);
             }
 
+            // Apply match highlighting for Title column
+            if *column == ListColumn::Title {
+                if let Some(search) = &filters.contains {
+                    value = highlight_match(&value, search);
+                }
+            }
+
             row_data.push(value);
         }
         data.push(row_data);
@@ -893,7 +1041,7 @@ fn render_table(rows: Vec<Row>, entries: &[Entry], columns: &[ListColumn], quiet
         .enumerate()
         .map(|(idx, header)| {
             data.iter()
-                .map(|row| row[idx].len())
+                .map(|row| strip_ansi(&row[idx]).len())
                 .max()
                 .unwrap_or(0)
                 .max(header.len())
@@ -915,10 +1063,55 @@ fn render_table(rows: Vec<Row>, entries: &[Entry], columns: &[ListColumn], quiet
     for row in data {
         for (idx, value) in row.iter().enumerate() {
             let width = widths[idx];
-            print!("{value:<width$}  ");
+            let stripped_len = strip_ansi(&value).len();
+            let padding = width.saturating_sub(stripped_len);
+            print!("{value}{:padding$}  ", "");
         }
         println!();
     }
+}
+
+fn highlight_match(text: &str, search: &str) -> String {
+    use crate::cli::terminal::supports_color;
+
+    let lower_text = text.to_ascii_lowercase();
+    let lower_search = search.to_ascii_lowercase();
+
+    if let Some(pos) = lower_text.find(&lower_search) {
+        let before = &text[..pos];
+        let matched = &text[pos..pos + search.len()];
+        let after = &text[pos + search.len()..];
+
+        if supports_color() {
+            // Use underline for matches
+            format!("{before}\x1b[4m{matched}\x1b[24m{after}")
+        } else {
+            // Use << >> markers when no color support
+            format!("{before}<<{matched}>>{after}")
+        }
+    } else {
+        text.to_string()
+    }
+}
+
+fn strip_ansi(text: &str) -> String {
+    // Simple ANSI escape sequence stripper for width calculation
+    let mut result = String::new();
+    let mut in_escape = false;
+
+    for ch in text.chars() {
+        if ch == '\x1b' {
+            in_escape = true;
+        } else if in_escape {
+            if ch == 'm' {
+                in_escape = false;
+            }
+        } else if !in_escape {
+            result.push(ch);
+        }
+    }
+
+    result
 }
 
 fn render_json(rows: Vec<Row>, entries: &[Entry], columns: &[ListColumn]) -> anyhow::Result<()> {
@@ -1170,6 +1363,7 @@ mod tests {
             depth: None,
             limit: Some(10),
             offset: Some(0),
+            ascii: false,
         }
     }
 
@@ -1488,6 +1682,8 @@ mod tests {
             row(fixtures.child_index(), Direction::Down, 1),
         ];
 
+        let empty_filters = empty_filters();
+
         render_rows(
             rows.clone(),
             entries,
@@ -1495,6 +1691,8 @@ mod tests {
             OutputFormat::Table,
             false,
             false,
+            false,
+            &empty_filters,
         )
         .unwrap();
 
@@ -1505,6 +1703,8 @@ mod tests {
             OutputFormat::Table,
             true,
             false,
+            false,
+            &empty_filters,
         )
         .unwrap();
 
@@ -1520,6 +1720,8 @@ mod tests {
             OutputFormat::Json,
             false,
             false,
+            false,
+            &empty_filters,
         )
         .unwrap();
 
@@ -1530,6 +1732,8 @@ mod tests {
             OutputFormat::Csv,
             false,
             false,
+            false,
+            &empty_filters,
         )
         .unwrap();
 
@@ -1540,6 +1744,8 @@ mod tests {
             OutputFormat::Table,
             false,
             true,
+            false,
+            &empty_filters,
         )
         .unwrap();
     }

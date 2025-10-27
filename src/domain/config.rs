@@ -2,6 +2,10 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+/// Configuration for requirements management.
+///
+/// This struct holds settings that control how requirements are managed,
+/// including HRID formatting, directory structure modes, and validation rules.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(from = "Versions", into = "Versions")]
 pub struct Config {
@@ -63,6 +67,14 @@ impl Config {
         toml::from_str(&content).map_err(|e| format!("Failed to parse config file: {e}"))
     }
 
+    /// Saves the configuration to a TOML file at the given path.
+    pub fn save(&self, path: &Path) -> Result<(), String> {
+        let content = toml::to_string_pretty(self)
+            .map_err(|e| format!("Failed to serialize config: {e}"))?;
+        std::fs::write(path, content)
+            .map_err(|e| format!("Failed to write config file: {e}"))
+    }
+
     /// Returns the number of digits for padding HRID IDs.
     #[must_use]
     pub const fn digits(&self) -> usize {
@@ -73,6 +85,11 @@ impl Config {
     #[must_use]
     pub fn allowed_kinds(&self) -> &[String] {
         &self.allowed_kinds
+    }
+
+    /// Sets the subfolders_are_namespaces configuration option.
+    pub fn set_subfolders_are_namespaces(&mut self, value: bool) {
+        self.subfolders_are_namespaces = value;
     }
 }
 

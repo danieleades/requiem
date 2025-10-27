@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 mod list;
 mod status;
+mod terminal;
 
 use clap::ArgAction;
 use list::List;
@@ -29,7 +30,7 @@ impl Cli {
         Self::setup_logging(self.verbose);
 
         self.command
-            .unwrap_or(Command::Status(Status))
+            .unwrap_or(Command::Status(Status::default()))
             .run(self.root)
     }
 
@@ -78,7 +79,7 @@ pub enum Command {
     ///
     /// Suspect links are those where the parent requirement has changed
     /// since the link was created or last reviewed.
-    Suspect,
+    Suspect(Suspect),
 
     /// Accept suspect links after review
     ///
@@ -87,6 +88,9 @@ pub enum Command {
 
     /// List requirements with filters and relationship views
     List(List),
+
+    /// Show or modify configuration settings
+    Config(Config),
 }
 
 impl Command {
@@ -96,9 +100,10 @@ impl Command {
             Self::Add(command) => command.run(root)?,
             Self::Link(command) => command.run(root)?,
             Self::Clean => Clean::run(root)?,
-            Self::Suspect => Suspect::run(root)?,
+            Self::Suspect(command) => command.run(root)?,
             Self::Accept(command) => command.run(root)?,
             Self::List(command) => command.run(root)?,
+            Self::Config(command) => command.run(root)?,
         }
         Ok(())
     }
@@ -185,35 +190,118 @@ impl Clean {
 }
 
 #[derive(Debug, clap::Parser)]
-pub struct Suspect {}
+pub struct Suspect {
+    /// Show detailed information including fingerprints and paths
+    #[arg(long)]
+    detail: bool,
+
+    /// Output format (table, json, ndjson)
+    #[arg(long, value_name = "FORMAT", default_value = "table")]
+    format: SuspectFormat,
+}
+
+#[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
+enum SuspectFormat {
+    #[default]
+    Table,
+    Json,
+    Ndjson,
+}
 
 impl Suspect {
     #[instrument]
-    fn run(path: PathBuf) -> anyhow::Result<()> {
+    fn run(self, path: PathBuf) -> anyhow::Result<()> {
+        use terminal::Colorize;
+
         let directory = Directory::new(path).load_all()?;
         let suspect_links = directory.suspect_links();
 
         if suspect_links.is_empty() {
-            println!("No suspect links found.");
+            println!("{}", "✅ No suspect links detected.".success());
             return Ok(());
         }
 
-        println!("Found {} suspect link(s):\n", suspect_links.len());
-
-        for link in &suspect_links {
-            println!("  {} → {}", link.child_hrid, link.parent_hrid);
-            println!(
-                "    Stored fingerprint:  {}",
-                &link.stored_fingerprint[..16]
-            );
-            println!(
-                "    Current fingerprint: {}\n",
-                &link.current_fingerprint[..16]
-            );
+        match self.format {
+            SuspectFormat::Json => {
+                self.output_json(&suspect_links)?;
+            }
+            SuspectFormat::Ndjson => {
+                self.output_ndjson(&suspect_links)?;
+            }
+            SuspectFormat::Table => {
+                self.output_table(&suspect_links)?;
+            }
         }
 
-        // Exit with non-zero status to indicate suspect links exist (for CI)
-        std::process::exit(1);
+        // Exit with code 2 to indicate suspect links exist (for CI)
+        std::process::exit(2);
+    }
+
+    fn output_json(&self, suspect_links: &[requiem::storage::SuspectLink]) -> anyhow::Result<()> {
+        use serde_json::json;
+
+        let links: Vec<_> = suspect_links
+            .iter()
+            .map(|link| {
+                json!({
+                    "child": link.child_hrid.to_string(),
+                    "parent": link.parent_hrid.to_string(),
+                    "status": "fingerprint drift",
+                    "stored_fingerprint": &link.stored_fingerprint,
+                    "current_fingerprint": &link.current_fingerprint,
+                })
+            })
+            .collect();
+
+        println!("{}", serde_json::to_string_pretty(&links)?);
+        Ok(())
+    }
+
+    fn output_ndjson(
+        &self,
+        suspect_links: &[requiem::storage::SuspectLink],
+    ) -> anyhow::Result<()> {
+        use serde_json::json;
+
+        for link in suspect_links {
+            let obj = json!({
+                "child": link.child_hrid.to_string(),
+                "parent": link.parent_hrid.to_string(),
+                "status": "fingerprint drift",
+                "stored_fingerprint": &link.stored_fingerprint,
+                "current_fingerprint": &link.current_fingerprint,
+            });
+            println!("{}", serde_json::to_string(&obj)?);
+        }
+        Ok(())
+    }
+
+    fn output_table(&self, suspect_links: &[requiem::storage::SuspectLink]) -> anyhow::Result<()> {
+        use terminal::Colorize;
+
+        if self.detail {
+            // Detailed block format
+            for (i, link) in suspect_links.iter().enumerate() {
+                if i > 0 {
+                    println!("{}", "─────────────────────────────".dim());
+                }
+                println!("{} → {}", link.child_hrid, link.parent_hrid);
+                println!("  Status:  fingerprint drift");
+                println!("  Stored:  {}", link.stored_fingerprint);
+                println!("  Current: {}", link.current_fingerprint);
+            }
+        } else {
+            // Compact table format
+            println!("{:<12} {:<12} {}", "CHILD", "PARENT", "STATUS");
+            for link in suspect_links {
+                println!(
+                    "{:<12} {:<12} fingerprint drift",
+                    link.child_hrid, link.parent_hrid
+                );
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -222,6 +310,18 @@ pub struct Accept {
     /// Accept all suspect links
     #[arg(long)]
     all: bool,
+
+    /// Apply changes (write to disk). Without this flag, shows preview only.
+    #[arg(long, conflicts_with = "dry_run")]
+    apply: bool,
+
+    /// Preview changes without writing (default for --all)
+    #[arg(long)]
+    dry_run: bool,
+
+    /// Skip confirmation prompts
+    #[arg(long, alias = "force")]
+    yes: bool,
 
     /// Accept a specific link from child to parent
     #[arg(value_name = "CHILD", required_unless_present = "all")]
@@ -235,31 +335,224 @@ pub struct Accept {
 impl Accept {
     #[instrument]
     fn run(self, path: PathBuf) -> anyhow::Result<()> {
+        use dialoguer::Confirm;
+        use terminal::Colorize;
+
         let mut directory = Directory::new(path).load_all()?;
 
         if self.all {
-            let updated = directory.accept_all_suspect_links()?;
+            let suspect_links = directory.suspect_links();
 
-            if updated.is_empty() {
-                println!("No suspect links to accept.");
-            } else {
-                println!("Accepted {} suspect link(s):", updated.len());
-                for (child, parent) in &updated {
-                    println!("  {child} → {parent}");
+            if suspect_links.is_empty() {
+                println!("Nothing to update. All suspect links are already accepted.");
+                return Ok(());
+            }
+
+            let count = suspect_links.len();
+
+            // Count unique files (children that have suspect links)
+            let mut files = std::collections::HashSet::new();
+            for link in &suspect_links {
+                files.insert(link.child_hrid.to_string());
+            }
+            let file_count = files.len();
+
+            // Determine if we're in dry-run or apply mode
+            // Default is dry-run for --all unless --apply is specified
+            let is_dry_run = !self.apply;
+
+            if is_dry_run {
+                // Dry-run mode: show preview
+                println!("Pending updates: {} suspect links", count);
+                println!("\nPreview:");
+                for link in &suspect_links {
+                    println!("  {} ← {}", link.child_hrid, link.parent_hrid);
+                }
+                println!("\n{}", "Use --apply to write changes.".dim());
+                std::process::exit(2);
+            }
+
+            // Apply mode: confirm and execute
+            if !self.yes {
+                let prompt = format!(
+                    "Apply updates to {} suspect links across {} files? (y/N)",
+                    count, file_count
+                );
+
+                let confirmed = Confirm::new()
+                    .with_prompt(prompt)
+                    .default(false)
+                    .interact()?;
+
+                if !confirmed {
+                    println!("Cancelled.");
+                    std::process::exit(130);
                 }
             }
+
+            // Apply the updates
+            let start = std::time::Instant::now();
+            for link in &suspect_links {
+                println!("Updating {} ← {}", link.child_hrid, link.parent_hrid);
+            }
+
+            let updated = directory.accept_all_suspect_links()?;
+            let duration = start.elapsed();
+
+            println!(
+                "\n{} | Links updated: {} | Files touched: {} | Duration: {:.1}s",
+                "Complete".success(),
+                updated.len(),
+                file_count,
+                duration.as_secs_f64()
+            );
         } else {
             let child = self.child.expect("child is required when --all is not set");
             let parent = self
                 .parent
                 .expect("parent is required when --all is not set");
 
-            match directory.accept_suspect_link(child.clone(), parent.clone())? {
-                requiem::storage::AcceptResult::Updated => {
-                    println!("Accepted suspect link: {child} → {parent}");
+            // For single link, check if it's suspect
+            let suspect_links = directory.suspect_links();
+            let link = suspect_links.iter().find(|l| {
+                l.child_hrid == child && l.parent_hrid == parent
+            });
+
+            if let Some(link) = link {
+                // Show confirmation banner
+                if !self.yes {
+                    println!("Reviewing: {} → {}", child, parent);
+                    println!("Stored:    {}", link.stored_fingerprint);
+                    println!("Current:   {}", link.current_fingerprint);
+
+                    let confirmed = Confirm::new()
+                        .with_prompt("Accept this link? (y/N)")
+                        .default(false)
+                        .interact()?;
+
+                    if !confirmed {
+                        println!("Cancelled.");
+                        std::process::exit(130);
+                    }
                 }
-                requiem::storage::AcceptResult::AlreadyUpToDate => {
-                    println!("Link {child} → {parent} is already up to date (not suspect).");
+
+                match directory.accept_suspect_link(child.clone(), parent.clone())? {
+                    requiem::storage::AcceptResult::Updated => {
+                        println!("{}", format!("Accepted {} ← {}", child, parent).success());
+                    }
+                    requiem::storage::AcceptResult::AlreadyUpToDate => {
+                        println!("No changes: link already up-to-date.");
+                    }
+                }
+            } else {
+                // Check if link exists but is not suspect
+                match directory.accept_suspect_link(child.clone(), parent.clone())? {
+                    requiem::storage::AcceptResult::Updated => {
+                        println!("{}", format!("Accepted {} ← {}", child, parent).success());
+                    }
+                    requiem::storage::AcceptResult::AlreadyUpToDate => {
+                        println!("No changes: link already up-to-date.");
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, clap::Parser)]
+pub struct Config {
+    #[command(subcommand)]
+    command: ConfigCommand,
+}
+
+#[derive(Debug, clap::Parser)]
+enum ConfigCommand {
+    /// Show current configuration
+    Show,
+
+    /// Set a configuration value
+    Set {
+        /// Configuration key to set
+        key: String,
+
+        /// Value to set
+        value: String,
+    },
+}
+
+impl Config {
+    #[instrument]
+    fn run(self, root: PathBuf) -> anyhow::Result<()> {
+        use terminal::Colorize;
+
+        let config_path = root.join("config.toml");
+
+        match self.command {
+            ConfigCommand::Show => {
+                let config = if config_path.exists() {
+                    requiem::Config::load(&config_path)
+                        .map_err(|e| anyhow::anyhow!("{}", e))?
+                } else {
+                    requiem::Config::default()
+                };
+
+                println!("Configuration:");
+                println!("  subfolders_are_namespaces: {} ({})",
+                    config.subfolders_are_namespaces,
+                    if config.subfolders_are_namespaces {
+                        "path mode".dim()
+                    } else {
+                        "filename mode".dim()
+                    }
+                );
+                println!("  digits: {}", config.digits());
+                println!("  allow_unrecognised: {}", config.allow_unrecognised);
+                println!("  allow_invalid: {}", config.allow_invalid);
+                if !config.allowed_kinds().is_empty() {
+                    println!("  allowed_kinds: {:?}", config.allowed_kinds());
+                }
+            }
+            ConfigCommand::Set { key, value } => {
+                let mut config = if config_path.exists() {
+                    requiem::Config::load(&config_path)
+                        .map_err(|e| anyhow::anyhow!("{}", e))?
+                } else {
+                    requiem::Config::default()
+                };
+
+                match key.as_str() {
+                    "subfolders_are_namespaces" => {
+                        let bool_value = value.parse::<bool>()
+                            .map_err(|_| anyhow::anyhow!("Value must be 'true' or 'false'"))?;
+
+                        config.set_subfolders_are_namespaces(bool_value);
+                        config.save(&config_path)
+                            .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+                        println!("{}", format!("Directory mode: {}",
+                            if bool_value { "path-based" } else { "filename-based" }
+                        ).success());
+
+                        if bool_value {
+                            println!("\n{}", "Path-based mode:".info());
+                            println!("  • Filenames inside namespace folders should contain KIND-ID (e.g., USR/003.md).");
+                            println!("  • Existing files are unchanged until you run 'req normalise-paths'.");
+                        } else {
+                            println!("\n{}", "Filename-based mode:".info());
+                            println!("  • Namespaces will no longer be inferred from folders.");
+                            println!("  • Full HRID must be in filename (e.g., system-auth-USR-003.md).");
+                        }
+
+                        println!("\n{}", format!("See docs/src/requirements/SPC-004.md for migration guide").dim());
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!(
+                            "Unknown configuration key: '{}'\nSupported keys: subfolders_are_namespaces",
+                            key
+                        ));
+                    }
                 }
             }
         }
@@ -384,7 +677,14 @@ mod tests {
         let tmp = tempdir().unwrap();
         let root = tmp.path().to_path_buf();
 
-        Suspect::run(root).expect("suspect should succeed when no links");
+        let suspect = Suspect {
+            detail: false,
+            format: SuspectFormat::default(),
+        };
+
+        suspect
+            .run(root)
+            .expect("suspect should succeed when no links");
     }
 
     #[test]
@@ -394,6 +694,9 @@ mod tests {
 
         let accept = Accept {
             all: true,
+            apply: true,
+            dry_run: false,
+            yes: true,
             child: None,
             parent: None,
         };
@@ -422,6 +725,9 @@ mod tests {
 
         let accept = Accept {
             all: false,
+            apply: true,
+            dry_run: false,
+            yes: true,
             child: Some(child.hrid().clone()),
             parent: Some(parent.hrid().clone()),
         };
@@ -449,7 +755,7 @@ mod tests {
             .link_requirement(child.hrid().clone(), parent.hrid().clone())
             .unwrap();
 
-        Status
+        Status::default()
             .run(root)
             .expect("status should succeed when no suspect links exist");
     }
