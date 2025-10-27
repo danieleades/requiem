@@ -23,8 +23,6 @@ pub trait Colorize {
     fn success(&self) -> String;
     /// Color as warning (amber)
     fn warning(&self) -> String;
-    /// Color as error (red)
-    fn error(&self) -> String;
     /// Color as info (blue)
     fn info(&self) -> String;
     /// Dim the text
@@ -43,14 +41,6 @@ impl Colorize for str {
     fn warning(&self) -> String {
         if supports_color() {
             self.fg::<css::Orange>().to_string()
-        } else {
-            self.to_string()
-        }
-    }
-
-    fn error(&self) -> String {
-        if supports_color() {
-            self.fg::<css::Red>().to_string()
         } else {
             self.to_string()
         }
@@ -80,10 +70,6 @@ impl Colorize for String {
 
     fn warning(&self) -> String {
         self.as_str().warning()
-    }
-
-    fn error(&self) -> String {
-        self.as_str().error()
     }
 
     fn info(&self) -> String {

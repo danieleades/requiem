@@ -294,13 +294,22 @@ impl List {
                     self.depth,
                 )
             }
-            View::Tree => produce_tree_rows(
-                &entries,
-                &index_by_uuid,
-                &filters,
-                &target_indices,
-                self.depth,
-            ),
+            View::Tree => {
+                // For tree view, pass empty targets if no specific targets were requested
+                // This allows produce_tree_rows to automatically find and show roots
+                let tree_targets = if self.targets.is_empty() {
+                    Vec::new()
+                } else {
+                    target_indices.clone()
+                };
+                produce_tree_rows(
+                    &entries,
+                    &index_by_uuid,
+                    &filters,
+                    &tree_targets,
+                    self.depth,
+                )
+            }
             View::Context => {
                 let base = produce_base_rows(&entries, &filters, &target_indices);
                 let depth = resolve_depth(self.depth, 1);
@@ -678,36 +687,84 @@ fn produce_tree_rows(
     depth: Option<usize>,
 ) -> Vec<Row> {
     let seeds = if target_indices.is_empty() {
-        (0..entries.len()).collect::<Vec<_>>()
+        // Find all root requirements (those with no parents)
+        (0..entries.len())
+            .filter(|&idx| entries[idx].parents.is_empty())
+            .collect()
     } else {
         target_indices.to_vec()
     };
 
+    let limit = resolve_depth(depth, usize::MAX);
     let mut rows = Vec::new();
-    let mut seed_set = HashSet::new();
+    let mut seen = HashSet::new();
 
-    for &index in &seeds {
-        if seed_set.insert(index) {
-            rows.push(Row {
-                index,
-                direction: Direction::None,
-                depth: 0,
-            });
+    // Depth-first traversal for tree rendering
+    fn dfs(
+        index: usize,
+        depth: usize,
+        limit: usize,
+        direction: Direction,
+        entries: &[Entry],
+        index_by_uuid: &HashMap<Uuid, usize>,
+        seen: &mut HashSet<usize>,
+        rows: &mut Vec<Row>,
+        filters: &Filters,
+    ) {
+        if limit != usize::MAX && depth > limit {
+            return;
+        }
+        if !seen.insert(index) {
+            return;
+        }
+
+        rows.push(Row {
+            index,
+            direction,
+            depth,
+        });
+
+        if limit != usize::MAX && depth == limit {
+            return;
+        }
+
+        // Recursively visit children
+        for child in &entries[index].children {
+            if let Some(&child_idx) = index_by_uuid.get(&child.uuid) {
+                if filters.matches(&entries[child_idx]) || depth + 1 < limit {
+                    dfs(
+                        child_idx,
+                        depth + 1,
+                        limit,
+                        Direction::Down,
+                        entries,
+                        index_by_uuid,
+                        seen,
+                        rows,
+                        filters,
+                    );
+                }
+            }
         }
     }
 
-    let limit = resolve_depth(depth, usize::MAX);
-    let descendants = traverse(
-        seeds.iter().copied(),
-        entries,
-        index_by_uuid,
-        limit,
-        Direction::Down,
-    );
+    // Start DFS from each seed
+    for &seed in &seeds {
+        dfs(
+            seed,
+            0,
+            limit,
+            Direction::None,
+            entries,
+            index_by_uuid,
+            &mut seen,
+            &mut rows,
+            filters,
+        );
+    }
 
-    append_unique_rows(&mut rows, descendants);
-
-    rows.retain(|row| seed_set.contains(&row.index) || filters.matches(&entries[row.index]));
+    // Apply filters to the results
+    rows.retain(|row| filters.matches(&entries[row.index]) || row.depth == 0);
 
     rows
 }
@@ -823,6 +880,7 @@ where
     results
 }
 
+#[allow(dead_code)]
 fn append_unique_rows(rows: &mut Vec<Row>, new_rows: Vec<Row>) {
     let mut existing: HashSet<(usize, Direction)> =
         rows.iter().map(|row| (row.index, row.direction)).collect();
@@ -914,30 +972,30 @@ fn render_rows(
 }
 
 fn render_tree(rows: Vec<Row>, entries: &[Entry], ascii: bool) {
-    // Group rows by parent to know if we're the last child
-    let mut parent_map: HashMap<Option<usize>, Vec<usize>> = HashMap::new();
-
-    for (idx, row) in rows.iter().enumerate() {
-        let parent_idx = if idx > 0 && rows[idx - 1].depth < row.depth {
-            Some(idx - 1)
-        } else if idx > 0 {
-            // Find parent by walking backward
-            let mut search_idx = idx - 1;
-            while search_idx > 0 && rows[search_idx].depth >= row.depth {
-                search_idx = search_idx.saturating_sub(1);
-            }
-            if rows[search_idx].depth < row.depth {
-                Some(search_idx)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        parent_map.entry(parent_idx).or_default().push(idx);
+    if rows.is_empty() {
+        return;
     }
 
+    // Build parent-child relationships
+    let mut parent_map: HashMap<usize, Vec<usize>> = HashMap::new();
+    let mut parent_stack: Vec<usize> = Vec::new();
+
+    for (idx, row) in rows.iter().enumerate() {
+        // Adjust stack to current depth
+        while parent_stack.len() > row.depth {
+            parent_stack.pop();
+        }
+
+        // If we have a parent, record this relationship
+        if let Some(&parent_idx) = parent_stack.last() {
+            parent_map.entry(parent_idx).or_default().push(idx);
+        }
+
+        // This row becomes a potential parent for deeper rows
+        parent_stack.push(idx);
+    }
+
+    // Now render with proper tree structure
     for (idx, row) in rows.iter().enumerate() {
         let entry = &entries[row.index];
 
@@ -945,23 +1003,61 @@ fn render_tree(rows: Vec<Row>, entries: &[Entry], ascii: bool) {
         let mut prefix = String::new();
 
         if row.depth > 0 {
-            // Determine if this is the last child at this level
-            let is_last = parent_map.values().any(|siblings| {
-                siblings.last() == Some(&idx)
-            });
+            // Reconstruct parent chain to determine line drawing
+            let mut ancestor_chain: Vec<usize> = Vec::new();
+            let mut search_idx = idx;
 
-            // Build prefix with proper tree connectors
-            for d in 0..row.depth {
-                if d == row.depth - 1 {
-                    // Last level
-                    if is_last {
+            // Walk back to find all ancestors
+            for target_depth in (0..row.depth).rev() {
+                let mut found = false;
+                for search in (0..search_idx).rev() {
+                    if rows[search].depth == target_depth {
+                        ancestor_chain.push(search);
+                        search_idx = search;
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    break;
+                }
+            }
+
+            ancestor_chain.reverse();
+
+            // Draw prefix based on ancestor chain
+            for (d, &ancestor_idx) in ancestor_chain.iter().enumerate() {
+                if d == ancestor_chain.len() - 1 {
+                    // This is our immediate parent - check if we're the last child
+                    let is_last_child = parent_map
+                        .get(&ancestor_idx)
+                        .and_then(|children| children.last())
+                        .map_or(false, |&last| last == idx);
+
+                    if is_last_child {
                         prefix.push_str(if ascii { "`- " } else { "└─ " });
                     } else {
                         prefix.push_str(if ascii { "|- " } else { "├─ " });
                     }
                 } else {
-                    // Earlier levels
-                    prefix.push_str(if ascii { "|  " } else { "│  " });
+                    // Earlier ancestor - check if it has more siblings after
+                    let has_more_siblings = if d == 0 {
+                        // Root level - check if there are more roots after this ancestor
+                        rows.iter().skip(ancestor_idx + 1).any(|r| r.depth == rows[ancestor_idx].depth)
+                    } else {
+                        // Non-root - check if ancestor is last child of its parent
+                        let ancestor_parent_idx = ancestor_chain.get(d - 1).copied();
+                        ancestor_parent_idx
+                            .and_then(|parent_idx| parent_map.get(&parent_idx))
+                            .and_then(|children| children.last())
+                            .map_or(false, |&last| last != ancestor_idx)
+                    };
+
+                    if has_more_siblings {
+                        prefix.push_str(if ascii { "|  " } else { "│  " });
+                    } else {
+                        prefix.push_str("   ");
+                    }
                 }
             }
         }
