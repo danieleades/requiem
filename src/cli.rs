@@ -1,7 +1,12 @@
 use std::path::PathBuf;
 
+mod list;
+mod status;
+
 use clap::ArgAction;
+use list::List;
 use requiem::{Directory, Hrid};
+use status::Status;
 use tracing::instrument;
 
 #[derive(Debug, clap::Parser)]
@@ -16,14 +21,16 @@ pub struct Cli {
     root: PathBuf,
 
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 impl Cli {
     pub fn run(self) -> anyhow::Result<()> {
         Self::setup_logging(self.verbose);
 
-        self.command.run(self.root)
+        self.command
+            .unwrap_or(Command::Status(Status))
+            .run(self.root)
     }
 
     fn setup_logging(verbosity: u8) {
@@ -53,6 +60,9 @@ impl Cli {
 
 #[derive(Debug, clap::Parser)]
 pub enum Command {
+    /// Show repository status (default)
+    Status(Status),
+
     /// Add a new requirement
     Add(Add),
 
@@ -74,16 +84,21 @@ pub enum Command {
     ///
     /// Updates fingerprints to mark requirements as reviewed and valid.
     Accept(Accept),
+
+    /// List requirements with filters and relationship views
+    List(List),
 }
 
 impl Command {
     fn run(self, root: PathBuf) -> anyhow::Result<()> {
         match self {
+            Self::Status(command) => command.run(root)?,
             Self::Add(command) => command.run(root)?,
             Self::Link(command) => command.run(root)?,
             Self::Clean => Clean::run(root)?,
             Self::Suspect => Suspect::run(root)?,
             Self::Accept(command) => command.run(root)?,
+            Self::List(command) => command.run(root)?,
         }
         Ok(())
     }
@@ -250,5 +265,192 @@ impl Accept {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use requiem::{Directory, Requirement};
+    use tempfile::tempdir;
+
+    use super::*;
+
+    fn load_directory(path: &Path) -> Directory<requiem::storage::directory::Loaded> {
+        Directory::new(path.to_path_buf())
+            .load_all()
+            .expect("failed to load directory")
+    }
+
+    fn collect_child<'a>(
+        directory: &'a Directory<requiem::storage::directory::Loaded>,
+        kind: &str,
+    ) -> &'a Requirement {
+        directory
+            .requirements()
+            .find(|req| req.hrid().kind() == kind)
+            .expect("expected requirement for kind")
+    }
+
+    #[test]
+    fn add_run_creates_requirement_and_links_parents() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+
+        let mut directory = load_directory(&root);
+        let parent = directory
+            .add_requirement("SYS".to_string(), "# Parent".to_string())
+            .unwrap();
+
+        let add = Add {
+            kind: "USR".to_string(),
+            parent: vec![parent.hrid().clone()],
+            title: Some("Child".to_string()),
+            body: Some("body text".to_string()),
+        };
+
+        add.run(root.clone()).expect("add command should succeed");
+
+        let directory = load_directory(&root);
+        let child = collect_child(&directory, "USR");
+
+        assert!(child
+            .parents()
+            .any(|(_uuid, info)| info.hrid == *parent.hrid()));
+        assert_eq!(child.content(), "# Child\n\nbody text");
+    }
+
+    #[test]
+    fn add_run_uses_template_when_no_content_provided() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        let template_dir = root.join(".req").join("templates");
+        std::fs::create_dir_all(&template_dir).unwrap();
+        std::fs::write(template_dir.join("USR.md"), "## Template body").unwrap();
+
+        let add = Add {
+            kind: "USR".to_string(),
+            parent: Vec::new(),
+            title: None,
+            body: None,
+        };
+
+        add.run(root.to_path_buf())
+            .expect("add command should succeed");
+
+        let directory = load_directory(root);
+        let child = collect_child(&directory, "USR");
+        assert_eq!(child.content(), "## Template body");
+    }
+
+    #[test]
+    fn link_run_updates_child_parent_relationship() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+
+        let mut directory = load_directory(&root);
+        let parent = directory
+            .add_requirement("SYS".to_string(), "# Parent".to_string())
+            .unwrap();
+        let child = directory
+            .add_requirement("USR".to_string(), "# Child".to_string())
+            .unwrap();
+
+        let link = Link {
+            child: child.hrid().clone(),
+            parent: parent.hrid().clone(),
+        };
+
+        link.run(root.clone()).expect("link command should succeed");
+
+        let directory = load_directory(&root);
+        let reloaded_child = collect_child(&directory, "USR");
+        assert!(reloaded_child
+            .parents()
+            .any(|(_uuid, info)| info.hrid == *parent.hrid()));
+    }
+
+    #[test]
+    fn clean_run_succeeds_on_empty_directory() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+
+        Clean::run(root).expect("clean should succeed on empty directory");
+    }
+
+    #[test]
+    fn suspect_run_exits_early_when_no_suspect_links() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+
+        Suspect::run(root).expect("suspect should succeed when no links");
+    }
+
+    #[test]
+    fn accept_run_all_reports_when_no_links_found() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+
+        let accept = Accept {
+            all: true,
+            child: None,
+            parent: None,
+        };
+
+        accept
+            .run(root)
+            .expect("accept --all should succeed with no suspect links");
+    }
+
+    #[test]
+    fn accept_run_handles_already_up_to_date_link() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+
+        let mut directory = load_directory(&root);
+        let parent = directory
+            .add_requirement("SYS".to_string(), "# Parent".to_string())
+            .unwrap();
+        let child = directory
+            .add_requirement("USR".to_string(), "# Child".to_string())
+            .unwrap();
+
+        Directory::new(root.clone())
+            .link_requirement(child.hrid().clone(), parent.hrid().clone())
+            .unwrap();
+
+        let accept = Accept {
+            all: false,
+            child: Some(child.hrid().clone()),
+            parent: Some(parent.hrid().clone()),
+        };
+
+        accept
+            .run(root)
+            .expect("accept should treat up-to-date link as success");
+    }
+
+    #[test]
+    fn status_run_reports_counts_without_exit() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+
+        let mut directory = load_directory(&root);
+        let parent = directory
+            .add_requirement("SYS".to_string(), "# Parent".to_string())
+            .unwrap();
+        let child = directory
+            .add_requirement("USR".to_string(), "# Child".to_string())
+            .unwrap();
+
+        // Create a parent-child relationship to ensure we exercise counting logic.
+        Directory::new(root.clone())
+            .link_requirement(child.hrid().clone(), parent.hrid().clone())
+            .unwrap();
+
+        Status
+            .run(root)
+            .expect("status should succeed when no suspect links exist");
     }
 }

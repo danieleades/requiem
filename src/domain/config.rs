@@ -33,7 +33,8 @@ pub struct Config {
     ///
     /// When `false` (default): The full HRID is encoded in the filename.
     ///   Example: `system/auth/REQ-001.md` -> HRID is parsed as `REQ-001`
-    ///   Example: `custom/system-auth-REQ-001.md` -> HRID is `system-auth-REQ-001`
+    ///   Example: `custom/system-auth-REQ-001.md` -> HRID is
+    /// `system-auth-REQ-001`
     ///
     /// When `true`: Subfolders encode the namespace, filename contains KIND-ID.
     ///   Example: `system/auth/REQ-001.md` -> HRID is `system-auth-REQ-001`
@@ -144,7 +145,48 @@ impl From<super::Config> for Versions {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+
     use super::*;
+
+    #[test]
+    fn load_reads_valid_file() {
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(
+            b"_version = \"1\"\nallowed_kinds = [\"USR\", \"SYS\"]\ndigits = 4\nallow_unrecognised = true\nallow_invalid = true\nsubfolders_are_namespaces = true\n",
+        )
+        .unwrap();
+
+        let config = Config::load(file.path()).unwrap();
+
+        assert_eq!(
+            config.allowed_kinds(),
+            &["USR".to_string(), "SYS".to_string()]
+        );
+        assert_eq!(config.digits(), 4);
+        assert!(config.allow_unrecognised);
+        assert!(config.allow_invalid);
+        assert!(config.subfolders_are_namespaces);
+    }
+
+    #[test]
+    fn load_missing_file_returns_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = tmp.path().join("missing.toml");
+
+        let error = Config::load(&missing).unwrap_err();
+        assert!(error.starts_with("Failed to read config file:"));
+    }
+
+    #[test]
+    fn load_invalid_toml_returns_error() {
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(b"_version = \"1\"\ndigits = \"three\"\n")
+            .unwrap();
+
+        let error = Config::load(file.path()).unwrap_err();
+        assert!(error.starts_with("Failed to parse config file:"));
+    }
 
     #[test]
     fn empty_file_returns_default() {

@@ -4,7 +4,7 @@ User requirements (USR) define the high-level capabilities that Requiem must pro
 
 ## Overview
 
-Requiem has 6 user requirements that establish the core value proposition:
+Requiem has 7 user requirements that establish the core value proposition:
 
 | ID | Title | Summary |
 |----|-------|---------|
@@ -14,6 +14,7 @@ Requiem has 6 user requirements that establish the core value proposition:
 | [USR-004](./USR-004.md) | Graph Analysis and Validation | Cycle detection and change impact analysis |
 | [USR-005](./USR-005.md) | Static Site Generator Integration | Compatibility with MdBook and Sphinx |
 | [USR-006](./USR-006.md) | Requirement Templates | Support for templates when creating new requirements |
+| [USR-007](./USR-007.md) | Requirement Visibility and Navigation | CLI listing and graph exploration for working sets |
 
 ## Detailed Requirements
 
@@ -89,6 +90,18 @@ The tool shall support defining templates that provide default content and struc
 
 ---
 
+### USR-007: Requirement Visibility and Navigation
+
+The tool shall let users quickly locate, inspect, and summarize requirements from the command line without opening individual files.
+
+**Why this matters**: Reviewers and systems engineers need instant visibility into requirement sets during audits, change control, and release prep. Native listing and navigation commands eliminate manual grepping and ad-hoc spreadsheets.
+
+**Child requirements**: SYS-017, SYS-018, SYS-019
+
+[Read full requirement →](./USR-007.md)
+
+---
+
 ## Traceability
 
 Each USR requirement traces down to one or more SYS (system) requirements that provide technical implementation details:
@@ -121,6 +134,12 @@ USR-006 (Requirement Templates)
   ├── SYS-013 (Template Override via CLI)
   ├── SYS-014 (Template Format)
   └── SYS-015 (Namespace-Specific Templates)
+
+USR-007 (Requirement Visibility and Navigation)
+  ├── SYS-017 (Requirements Listing CLI Command)
+  ├── SYS-018 (Listing Filters and Scopes)
+  ├── SYS-019 (Relationship Navigation Views)
+  └── SYS-020 (Status Dashboard CLI Command)
 ```
 
 This hierarchy demonstrates requirement decomposition from user needs down to technical implementation.
