@@ -426,18 +426,23 @@ Total affected: 7 requirements
 <p><strong>Scenario</strong>: Preparing for a release.</p>
 <p><strong>Question</strong>: Are all requirements reviewed and current?</p>
 <p><strong>Workflow</strong>:</p>
-<pre><code class="language-bash">req status --summary
+<pre><code class="language-bash">req status
 </code></pre>
-<p>Output:</p>
-<pre><code>Requirement Status Summary:
+<p>Sample output:</p>
+<pre><code>Requirement Counts
+==================
+Kind       | Count
+-----------+-----
+SYS        | 118
+TST        | 24
+USR        | 6
+-----------+-----
+Total      | 148
 
-✓ Current: 142 requirements
-⚠ Needs Review: 3 requirements
-⏳ Under Review: 1 requirement
-
-Release ready: NO (reviews pending)
+Suspect links: 3
 </code></pre>
-<p>Fix issues before release:</p>
+<p>If the command exits with code <code>1</code>, use the suspect link total as your release checklist—clear
+them before shipping:</p>
 <pre><code class="language-bash">req check
 # Review each flagged requirement
 req review complete ...

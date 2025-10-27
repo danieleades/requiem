@@ -188,6 +188,8 @@
 <h3 id="global-synopsis"><a class="header" href="#global-synopsis">Global Synopsis</a></h3>
 <pre><code>req [OPTIONS] &lt;COMMAND&gt;
 </code></pre>
+<p>Running <code>req</code> with no subcommand defaults to <code>req status</code>, providing a quick health
+dashboard for the repository.</p>
 <h3 id="getting-help"><a class="header" href="#getting-help">Getting Help</a></h3>
 <pre><code class="language-bash"># General help
 req --help
@@ -237,16 +239,34 @@ req --root ~/project/requirements link SYS-001 USR-001
 <li>Directory should contain <code>config.toml</code> (optional) and <code>.md</code> requirement files</li>
 </ul>
 <h2 id="commands"><a class="header" href="#commands">Commands</a></h2>
+<h3 id="req-status"><a class="header" href="#req-status"><code>req status</code></a></h3>
+<p>Display a quick summary of requirement counts and suspect links.</p>
+<h4 id="synopsis"><a class="header" href="#synopsis">Synopsis</a></h4>
+<pre><code>req status [OPTIONS]
+</code></pre>
+<h4 id="options"><a class="header" href="#options">Options</a></h4>
+<p>None.</p>
+<h4 id="behavior"><a class="header" href="#behavior">Behavior</a></h4>
+<ol>
+<li>Loads all requirements in the repository.</li>
+<li>Prints a table listing each requirement kind with its count and the overall total.</li>
+<li>Displays the total number of suspect links.</li>
+<li>Exits with status code <code>1</code> when any suspect links are present, otherwise <code>0</code>.</li>
+</ol>
+<h4 id="examples"><a class="header" href="#examples">Examples</a></h4>
+<p><strong>Summary view</strong>:</p>
+<pre><code class="language-bash">req status
+</code></pre>
 <h3 id="req-add"><a class="header" href="#req-add"><code>req add</code></a></h3>
 <p>Create a new requirement.</p>
-<h4 id="synopsis"><a class="header" href="#synopsis">Synopsis</a></h4>
+<h4 id="synopsis-1"><a class="header" href="#synopsis-1">Synopsis</a></h4>
 <pre><code>req add [OPTIONS] &lt;KIND&gt;
 </code></pre>
 <h4 id="arguments"><a class="header" href="#arguments">Arguments</a></h4>
 <p><strong><code>&lt;KIND&gt;</code></strong> (required)</p>
 <p>The kind of requirement to create. This becomes the KIND component of the HRID.</p>
 <p>Examples: <code>USR</code>, <code>SYS</code>, <code>SWR</code>, <code>TST</code>, <code>AUTH-USR</code> (with namespace)</p>
-<h4 id="options"><a class="header" href="#options">Options</a></h4>
+<h4 id="options-1"><a class="header" href="#options-1">Options</a></h4>
 <p><strong><code>-p, --parent &lt;PARENT&gt;...</code></strong></p>
 <p>Specify parent requirement(s) by HRID. Can be specified multiple times or as comma-separated list.</p>
 <p><strong>Examples</strong>:</p>
@@ -284,7 +304,7 @@ req add USR -b "The system shall:
 - Sanitize data
 - Log attempts"
 </code></pre>
-<h4 id="behavior"><a class="header" href="#behavior">Behavior</a></h4>
+<h4 id="behavior-1"><a class="header" href="#behavior-1">Behavior</a></h4>
 <ol>
 <li>Determines next available ID for the given KIND</li>
 <li>Determines content:
@@ -311,7 +331,7 @@ req add USR -b "The system shall:
 <li>Template files are stored in <code>.req/templates/</code> directory</li>
 <li>See <a href="../working-with-requirements/templates.html">Templates Guide</a> for template setup</li>
 </ul>
-<h4 id="examples"><a class="header" href="#examples">Examples</a></h4>
+<h4 id="examples-1"><a class="header" href="#examples-1">Examples</a></h4>
 <p><strong>Create user requirement</strong>:</p>
 <pre><code class="language-bash">req add USR
 # Output: Added requirement USR-001
@@ -358,7 +378,7 @@ req add USR -b "The system shall:
 </code></pre>
 <h3 id="req-link"><a class="header" href="#req-link"><code>req link</code></a></h3>
 <p>Create a parent-child link between two existing requirements.</p>
-<h4 id="synopsis-1"><a class="header" href="#synopsis-1">Synopsis</a></h4>
+<h4 id="synopsis-2"><a class="header" href="#synopsis-2">Synopsis</a></h4>
 <pre><code>req link &lt;CHILD&gt; &lt;PARENT&gt;
 </code></pre>
 <h4 id="arguments-1"><a class="header" href="#arguments-1">Arguments</a></h4>
@@ -366,7 +386,7 @@ req add USR -b "The system shall:
 <p>HRID of the child requirement (the requirement gaining a parent).</p>
 <p><strong><code>&lt;PARENT&gt;</code></strong> (required)</p>
 <p>HRID of the parent requirement (the upstream requirement).</p>
-<h4 id="behavior-1"><a class="header" href="#behavior-1">Behavior</a></h4>
+<h4 id="behavior-2"><a class="header" href="#behavior-2">Behavior</a></h4>
 <ol>
 <li>Loads both child and parent requirements</li>
 <li>Adds parent reference to child's frontmatter:
@@ -379,7 +399,7 @@ req add USR -b "The system shall:
 <li>Saves updated child requirement</li>
 <li>Prints confirmation message</li>
 </ol>
-<h4 id="examples-1"><a class="header" href="#examples-1">Examples</a></h4>
+<h4 id="examples-2"><a class="header" href="#examples-2">Examples</a></h4>
 <p><strong>Link system to user requirement</strong>:</p>
 <pre><code class="language-bash">req link SYS-001 USR-001
 # Output: Linked SYS-001 to USR-001
@@ -408,14 +428,14 @@ req link SYS-001 USR-002  # Second parent
 </code></pre>
 <h3 id="req-suspect"><a class="header" href="#req-suspect"><code>req suspect</code></a></h3>
 <p>List all suspect links in the requirement graph.</p>
-<h4 id="synopsis-2"><a class="header" href="#synopsis-2">Synopsis</a></h4>
+<h4 id="synopsis-3"><a class="header" href="#synopsis-3">Synopsis</a></h4>
 <pre><code>req suspect
 </code></pre>
 <h4 id="arguments-2"><a class="header" href="#arguments-2">Arguments</a></h4>
 <p>None.</p>
-<h4 id="options-1"><a class="header" href="#options-1">Options</a></h4>
+<h4 id="options-2"><a class="header" href="#options-2">Options</a></h4>
 <p>None.</p>
-<h4 id="behavior-2"><a class="header" href="#behavior-2">Behavior</a></h4>
+<h4 id="behavior-3"><a class="header" href="#behavior-3">Behavior</a></h4>
 <ol>
 <li>Loads all requirements from the requirements directory</li>
 <li>Compares stored parent fingerprints with current parent fingerprints</li>
@@ -430,7 +450,7 @@ req link SYS-001 USR-002  # Second parent
 <li>Exits with code 1 if suspect links found (useful for CI/CD)</li>
 <li>Exits with code 0 if no suspect links found</li>
 </ol>
-<h4 id="examples-2"><a class="header" href="#examples-2">Examples</a></h4>
+<h4 id="examples-3"><a class="header" href="#examples-3">Examples</a></h4>
 <p><strong>Check for suspect links</strong>:</p>
 <pre><code class="language-bash">req suspect
 </code></pre>
@@ -477,7 +497,7 @@ fi
 </code></pre>
 <h3 id="req-accept"><a class="header" href="#req-accept"><code>req accept</code></a></h3>
 <p>Accept suspect links after review, updating fingerprints to current values.</p>
-<h4 id="synopsis-3"><a class="header" href="#synopsis-3">Synopsis</a></h4>
+<h4 id="synopsis-4"><a class="header" href="#synopsis-4">Synopsis</a></h4>
 <pre><code>req accept &lt;CHILD&gt; &lt;PARENT&gt;
 req accept --all
 </code></pre>
@@ -486,10 +506,10 @@ req accept --all
 <p>HRID of the child requirement containing the suspect link.</p>
 <p><strong><code>&lt;PARENT&gt;</code></strong> (required unless <code>--all</code>)</p>
 <p>HRID of the parent requirement referenced by the suspect link.</p>
-<h4 id="options-2"><a class="header" href="#options-2">Options</a></h4>
+<h4 id="options-3"><a class="header" href="#options-3">Options</a></h4>
 <p><strong><code>--all</code></strong></p>
 <p>Accept all suspect links in the requirements directory. Updates all fingerprints to match current parent values.</p>
-<h4 id="behavior-3"><a class="header" href="#behavior-3">Behavior</a></h4>
+<h4 id="behavior-4"><a class="header" href="#behavior-4">Behavior</a></h4>
 <p><strong>Single link mode</strong> (<code>req accept &lt;CHILD&gt; &lt;PARENT&gt;</code>):</p>
 <ol>
 <li>Loads the child and parent requirements</li>
@@ -505,7 +525,7 @@ req accept --all
 <li>Saves all affected requirements</li>
 <li>Prints summary of updated links</li>
 </ol>
-<h4 id="examples-3"><a class="header" href="#examples-3">Examples</a></h4>
+<h4 id="examples-4"><a class="header" href="#examples-4">Examples</a></h4>
 <p><strong>Accept a single suspect link</strong>:</p>
 <pre><code class="language-bash">req accept SYS-001 USR-001
 # Output: Accepted suspect link: SYS-001 → USR-001
@@ -563,16 +583,78 @@ req suspect
 <pre><code class="language-bash">req accept --all
 # Output: No suspect links to accept.
 </code></pre>
-<h3 id="req-clean"><a class="header" href="#req-clean"><code>req clean</code></a></h3>
-<p>Correct parent HRIDs in all requirements.</p>
-<h4 id="synopsis-4"><a class="header" href="#synopsis-4">Synopsis</a></h4>
-<pre><code>req clean
+<h3 id="req-list"><a class="header" href="#req-list"><code>req list</code></a></h3>
+<p>List requirements with optional filtering, traversal, and output formatting.</p>
+<h4 id="synopsis-5"><a class="header" href="#synopsis-5">Synopsis</a></h4>
+<pre><code>req list [OPTIONS] [HRID...]
 </code></pre>
 <h4 id="arguments-4"><a class="header" href="#arguments-4">Arguments</a></h4>
+<p><strong><code>&lt;HRID&gt;</code></strong> <em>(optional, repeats)</em></p>
+<p>Target requirements to anchor the listing. When omitted, the command starts from all
+requirements (with the default view limited to top-level, parentless requirements).</p>
+<h4 id="options-4"><a class="header" href="#options-4">Options</a></h4>
+<ul>
+<li><strong><code>--columns &lt;COL&gt;</code></strong>: Comma-separated list of columns (<code>hrid</code>, <code>title</code>, <code>kind</code>, <code>namespace</code>,
+<code>parents</code>, <code>children</code>, <code>tags</code>, <code>path</code>, <code>created</code>). Default columns show HRID, title, kind,
+parent count, child count, and tags. When <code>--quiet</code> is present without explicit columns, only
+HRIDs are emitted.</li>
+<li><strong><code>--sort &lt;FIELD&gt;</code></strong>: Sort output by <code>hrid</code> <em>(default)</em>, <code>kind</code>, <code>title</code>, or <code>created</code>.</li>
+<li><strong><code>--output &lt;FORMAT&gt;</code></strong>: Choose <code>table</code> <em>(default)</em>, <code>json</code>, or <code>csv</code>. Table output is human
+readable; JSON and CSV are machine friendly.</li>
+<li><strong><code>--quiet</code></strong>: Suppress headers and format rows for shell pipelines. Defaults to one HRID per
+line unless additional columns are requested.</li>
+<li><strong><code>--kind &lt;KIND&gt;</code></strong>, <strong><code>--namespace &lt;SEG&gt;</code></strong>, <strong><code>--tag &lt;TAG&gt;</code></strong>: Filter by kind, namespace
+segment, or tag (case-insensitive, commas or repeated flags allowed).</li>
+<li><strong><code>--orphans</code></strong>, <strong><code>--leaves</code></strong>: Limit to requirements with no parents or no children.</li>
+<li><strong><code>--contains &lt;TEXT&gt;</code></strong>, <strong><code>--regex &lt;PATTERN&gt;</code></strong>: Search requirement title/body with a
+case-insensitive substring or Rust regular expression (mutually exclusive).</li>
+<li><strong><code>--view &lt;MODE&gt;</code></strong>: Choose how to explore relationships. Options: <code>summary</code> <em>(default table)</em>,
+<code>parents</code>, <code>children</code>, <code>ancestors</code>, <code>descendants</code>, <code>tree</code> (indented descendant view), and
+<code>context</code> (base rows plus labelled neighbours).</li>
+<li><strong><code>--depth &lt;N&gt;</code></strong>: Depth limit for the selected view (default <code>1</code> for parents/children/context,
+unlimited for ancestors/descendants/tree). Use <code>0</code> for no limit.</li>
+<li><strong><code>--limit &lt;N&gt;</code></strong>, <strong><code>--offset &lt;N&gt;</code></strong>: Paginate large result sets by skipping <code>offset</code> rows and
+then truncating to <code>limit</code>. Defaults to 200 rows when omitted; pass <code>--limit 0</code> for no cap.</li>
+</ul>
+<h4 id="behavior-5"><a class="header" href="#behavior-5">Behavior</a></h4>
+<ol>
+<li>Loads all requirements and builds parent/child relationships.</li>
+<li>Determines the working set:
+<ul>
+<li>If HRIDs are provided, they anchor traversal; otherwise all requirements are considered.</li>
+<li>Without explicit filters or traversal flags, the default view lists every requirement sorted
+by HRID and capped at the default limit.</li>
+</ul>
+</li>
+<li>Applies requested filters and relationship traversal.</li>
+<li>Formats output according to the selected layout.</li>
+</ol>
+<h4 id="examples-5"><a class="header" href="#examples-5">Examples</a></h4>
+<p><strong>Top-level overview</strong>:</p>
+<pre><code class="language-bash">req list
+HRID     Title                              Kind  Parents  Children  Tags
+USR-001  Plain Text Storage                 USR   0        2         
+USR-004  Graph Analysis and Validation      USR   0        5         
+</code></pre>
+<p><strong>Filter by kind and tag</strong>:</p>
+<pre><code class="language-bash">req list --kind SYS --tag navigation --output csv
+</code></pre>
+<p><strong>Descendants of a user requirement</strong>:</p>
+<pre><code class="language-bash">req list USR-004 --view descendants --kind SYS
+</code></pre>
+<p><strong>Tree view</strong>:</p>
+<pre><code class="language-bash">req list USR-004 --view tree --depth 2
+</code></pre>
+<h3 id="req-clean"><a class="header" href="#req-clean"><code>req clean</code></a></h3>
+<p>Correct parent HRIDs in all requirements.</p>
+<h4 id="synopsis-6"><a class="header" href="#synopsis-6">Synopsis</a></h4>
+<pre><code>req clean
+</code></pre>
+<h4 id="arguments-5"><a class="header" href="#arguments-5">Arguments</a></h4>
 <p>None.</p>
-<h4 id="options-3"><a class="header" href="#options-3">Options</a></h4>
+<h4 id="options-5"><a class="header" href="#options-5">Options</a></h4>
 <p>None.</p>
-<h4 id="behavior-4"><a class="header" href="#behavior-4">Behavior</a></h4>
+<h4 id="behavior-6"><a class="header" href="#behavior-6">Behavior</a></h4>
 <ol>
 <li>Loads all requirements from the requirements directory</li>
 <li>For each requirement:
@@ -585,7 +667,7 @@ req suspect
 <li>Silent on success (no output if no corrections made)</li>
 <li>With <code>-v</code>, logs each correction</li>
 </ol>
-<h4 id="examples-4"><a class="header" href="#examples-4">Examples</a></h4>
+<h4 id="examples-6"><a class="header" href="#examples-6">Examples</a></h4>
 <p><strong>Validate/correct all requirements</strong>:</p>
 <pre><code class="language-bash">req clean
 # (no output = success, all HRIDs correct or corrected)

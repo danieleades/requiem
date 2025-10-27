@@ -184,7 +184,7 @@
                         <h1 id="system-requirements"><a class="header" href="#system-requirements">System Requirements</a></h1>
 <p>System requirements (SYS) define the technical implementation details for Requiem. While user requirements describe <strong>what</strong> users need, system requirements specify <strong>how</strong> the tool delivers those capabilities.</p>
 <h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
-<p>Requiem has 15 system requirements organized by functional area:</p>
+<p>Requiem has 20 system requirements organized by functional area:</p>
 <h3 id="file-format--identifiers"><a class="header" href="#file-format--identifiers">File Format &amp; Identifiers</a></h3>
 <div class="table-wrapper"><table><thead><tr><th>ID</th><th>Title</th><th>Parent</th><th>Summary</th></tr></thead><tbody>
 <tr><td><a href="./SYS-001.html">SYS-001</a></td><td>Markdown File Format with YAML Frontmatter</td><td>USR-001</td><td>Files contain YAML metadata block and Markdown body</td></tr>
@@ -214,6 +214,14 @@
 <tr><td><a href="./SYS-013.html">SYS-013</a></td><td>Template Override via CLI</td><td>USR-006</td><td><code>-t</code> and <code>-b</code> flags override template content</td></tr>
 <tr><td><a href="./SYS-014.html">SYS-014</a></td><td>Template Format</td><td>USR-006</td><td>Templates support full CommonMark markdown</td></tr>
 <tr><td><a href="./SYS-015.html">SYS-015</a></td><td>Namespace-Specific Templates</td><td>USR-006</td><td>Different templates for same KIND with different namespaces</td></tr>
+</tbody></table>
+</div>
+<h3 id="cli-visibility--navigation"><a class="header" href="#cli-visibility--navigation">CLI Visibility &amp; Navigation</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>ID</th><th>Title</th><th>Parent</th><th>Summary</th></tr></thead><tbody>
+<tr><td><a href="./SYS-017.html">SYS-017</a></td><td>Requirements Listing CLI Command</td><td>USR-007</td><td><code>req list</code> enumerates requirements with key metadata</td></tr>
+<tr><td><a href="./SYS-018.html">SYS-018</a></td><td>Listing Filters and Scopes</td><td>USR-007</td><td>Filters restrict results by kind, namespace, tags, text</td></tr>
+<tr><td><a href="./SYS-019.html">SYS-019</a></td><td>Relationship Navigation Views</td><td>USR-007</td><td>Options expose parents, children, ancestors, descendants</td></tr>
+<tr><td><a href="./SYS-020.html">SYS-020</a></td><td>Status Dashboard CLI Command</td><td>USR-007</td><td><code>req status</code> shows counts by kind and suspect total</td></tr>
 </tbody></table>
 </div>
 <h2 id="detailed-requirements"><a class="header" href="#detailed-requirements">Detailed Requirements</a></h2>
@@ -281,6 +289,23 @@
 <p>Different templates can be configured for the same KIND with different namespaces (e.g., <code>AUTH-USR.md</code> vs <code>USR.md</code>). Template lookup tries full prefix first, then falls back to KIND only.</p>
 <p><a href="./SYS-015.html">Read full requirement →</a></p>
 <hr />
+<h3 id="cli-visibility--navigation-1"><a class="header" href="#cli-visibility--navigation-1">CLI Visibility &amp; Navigation</a></h3>
+<h4 id="sys-017-requirements-listing-cli-command"><a class="header" href="#sys-017-requirements-listing-cli-command">SYS-017: Requirements Listing CLI Command</a></h4>
+<p>The <code>req list</code> command enumerates requirements with key metadata, supporting multiple output formats for human and machine consumption.</p>
+<p><a href="./SYS-017.html">Read full requirement →</a></p>
+<hr />
+<h4 id="sys-018-listing-filters-and-scopes"><a class="header" href="#sys-018-listing-filters-and-scopes">SYS-018: Listing Filters and Scopes</a></h4>
+<p>The listing command provides filters (kind, namespace, tag, text search) and pagination controls so users can focus on relevant subsets.</p>
+<p><a href="./SYS-018.html">Read full requirement →</a></p>
+<hr />
+<h4 id="sys-019-relationship-navigation-views"><a class="header" href="#sys-019-relationship-navigation-views">SYS-019: Relationship Navigation Views</a></h4>
+<p>Relationship-centric options expose parents, children, ancestors, descendants, and tree views to assist with impact analysis and reviews.</p>
+<p><a href="./SYS-019.html">Read full requirement →</a></p>
+<hr />
+<h4 id="sys-020-status-dashboard-cli-command"><a class="header" href="#sys-020-status-dashboard-cli-command">SYS-020: Status Dashboard CLI Command</a></h4>
+<p>The <code>req status</code> command prints requirement counts per kind, reports the overall total, and highlights the suspect link count with a non-zero exit when attention is required.</p>
+<p><a href="./SYS-020.html">Read full requirement →</a></p>
+<hr />
 <h2 id="implementation-status"><a class="header" href="#implementation-status">Implementation Status</a></h2>
 <p><strong>Implemented</strong> ✅:</p>
 <ul>
@@ -289,11 +314,16 @@
 <li>Static site integration (SYS-006, SYS-007)</li>
 <li>Complete template system (SYS-011 through SYS-015)</li>
 <li>Individual suspect link acceptance (SYS-009)</li>
+<li>Status dashboard command (SYS-020)</li>
 </ul>
 <p><strong>In Progress</strong> 🚧:</p>
 <ul>
 <li>Cycle detection (SYS-004)</li>
 <li>Bulk suspect link acceptance (SYS-010)</li>
+</ul>
+<p><strong>Planned</strong> 📝:</p>
+<ul>
+<li>Requirements listing and navigation (SYS-017, SYS-018, SYS-019)</li>
 </ul>
 <h2 id="traceability"><a class="header" href="#traceability">Traceability</a></h2>
 <p>Each system requirement traces back to one or more user requirements. See the "Parent" column in the tables above, or view the <a href="./user-requirements.html">User Requirements page</a> for the complete traceability tree.</p>
