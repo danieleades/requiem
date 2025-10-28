@@ -2,6 +2,10 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+/// Configuration for requirements management.
+///
+/// This struct holds settings that control how requirements are managed,
+/// including HRID formatting, directory structure modes, and validation rules.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(from = "Versions", into = "Versions")]
 pub struct Config {
@@ -57,10 +61,27 @@ impl Default for Config {
 
 impl Config {
     /// Loads the configuration from a TOML file at the given path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read or if the TOML content is
+    /// invalid.
     pub fn load(path: &Path) -> Result<Self, String> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| format!("Failed to read config file: {e}"))?;
         toml::from_str(&content).map_err(|e| format!("Failed to parse config file: {e}"))
+    }
+
+    /// Saves the configuration to a TOML file at the given path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the configuration cannot be serialized to TOML or if
+    /// the file cannot be written.
+    pub fn save(&self, path: &Path) -> Result<(), String> {
+        let content =
+            toml::to_string_pretty(self).map_err(|e| format!("Failed to serialize config: {e}"))?;
+        std::fs::write(path, content).map_err(|e| format!("Failed to write config file: {e}"))
     }
 
     /// Returns the number of digits for padding HRID IDs.
@@ -73,6 +94,11 @@ impl Config {
     #[must_use]
     pub fn allowed_kinds(&self) -> &[String] {
         &self.allowed_kinds
+    }
+
+    /// Sets the `subfolders_are_namespaces` configuration option.
+    pub const fn set_subfolders_are_namespaces(&mut self, value: bool) {
+        self.subfolders_are_namespaces = value;
     }
 }
 

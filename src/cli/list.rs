@@ -9,7 +9,7 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use clap::{Parser, ValueEnum};
 use regex::Regex;
-use requiem::{storage::directory::Loaded, Directory, Hrid, Requirement};
+use requiem::{Directory, Hrid, Requirement};
 use serde::Serialize;
 use tracing::instrument;
 use uuid::Uuid;
@@ -19,6 +19,7 @@ const DEFAULT_LIMIT: usize = 200;
 /// Command arguments for `req list`.
 #[derive(Debug, Parser)]
 #[command(about = "List requirements with filters and relationship views")]
+#[allow(clippy::struct_excessive_bools)]
 pub struct List {
     /// HRIDs to use as primary targets.
     #[arg(value_parser = parse_hrid)]
@@ -84,6 +85,10 @@ pub struct List {
     /// Skip the first N rows.
     #[arg(long)]
     offset: Option<usize>,
+
+    /// Use ASCII characters instead of UTF-8 box drawing.
+    #[arg(long)]
+    ascii: bool,
 }
 
 /// Supported output formats.
@@ -246,8 +251,11 @@ struct SerializableRow<'a> {
 
 impl List {
     #[instrument(level = "debug", skip_all)]
+    #[allow(clippy::too_many_lines)]
     pub fn run(self, root: PathBuf) -> anyhow::Result<()> {
-        let directory = Directory::new(root).load_all()?;
+        use crate::cli::terminal::Colorize;
+
+        let directory = Directory::new(root)?;
 
         let mut entries = collect_entries(&directory);
         let index_by_uuid: HashMap<Uuid, usize> = entries
@@ -288,19 +296,34 @@ impl List {
                     self.depth,
                 )
             }
-            View::Tree => produce_tree_rows(
-                &entries,
-                &index_by_uuid,
-                &filters,
-                &target_indices,
-                self.depth,
-            ),
+            View::Tree => {
+                // For tree view, pass empty targets if no specific targets were requested
+                // This allows produce_tree_rows to automatically find and show roots
+                let tree_targets = if self.targets.is_empty() {
+                    Vec::new()
+                } else {
+                    target_indices
+                };
+                produce_tree_rows(
+                    &entries,
+                    &index_by_uuid,
+                    &filters,
+                    &tree_targets,
+                    self.depth,
+                )
+            }
             View::Context => {
                 let base = produce_base_rows(&entries, &filters, &target_indices);
                 let depth = resolve_depth(self.depth, 1);
                 augment_with_context(&entries, &index_by_uuid, base, depth)
             }
         };
+
+        // Check for empty results
+        if rows.is_empty() && filters.any() {
+            println!("No requirements matched the filters provided.");
+            return Ok(());
+        }
 
         if self.view != View::Tree {
             rows = apply_sort(rows, &entries, self.sort);
@@ -311,7 +334,69 @@ impl List {
             .and_then(|value| (value > 0).then_some(value))
             .or(Some(DEFAULT_LIMIT));
 
+        let total_rows = rows.len();
+        let truncated = total_rows > effective_limit.unwrap_or(usize::MAX);
+        let truncated_count = if truncated {
+            total_rows.saturating_sub(effective_limit.unwrap_or(0))
+        } else {
+            0
+        };
+
         rows = apply_offset_limit(rows, self.offset, effective_limit);
+
+        // Print header (unless quiet or json/csv)
+        if !self.quiet && self.output == OutputFormat::Table {
+            let view_name = match self.view {
+                View::Summary => "summary",
+                View::Parents => "parents",
+                View::Children => "children",
+                View::Ancestors => "ancestors",
+                View::Descendants => "descendants",
+                View::Tree => "tree",
+                View::Context => "context",
+            };
+
+            let filter_str = if filters.any() {
+                let mut parts = Vec::new();
+                if !filters.kinds.is_empty() {
+                    parts.push(format!("kind: {}", filters.kinds.join(", ")));
+                }
+                if !filters.namespaces.is_empty() {
+                    parts.push(format!("namespace: {}", filters.namespaces.join(", ")));
+                }
+                if !filters.tags.is_empty() {
+                    parts.push(format!("tag: {}", filters.tags.join(", ")));
+                }
+                if filters.orphans {
+                    parts.push("orphans".to_string());
+                }
+                if filters.leaves {
+                    parts.push("leaves".to_string());
+                }
+                if filters.contains.is_some() {
+                    parts.push("text-match".to_string());
+                }
+                if filters.regex.is_some() {
+                    parts.push("regex-match".to_string());
+                }
+                parts.join(", ")
+            } else {
+                "none".to_string()
+            };
+
+            let limit_str = self
+                .limit
+                .map_or_else(|| DEFAULT_LIMIT.to_string(), |l| l.to_string());
+
+            println!(
+                "{}",
+                format!(
+                    "Listing requirements (view: {view_name}, filters: {filter_str}, limit: \
+                     {limit_str})"
+                )
+                .dim()
+            );
+        }
 
         render_rows(
             rows,
@@ -320,7 +405,20 @@ impl List {
             self.output,
             self.quiet,
             self.view == View::Tree,
-        )
+            self.ascii,
+            &filters,
+        )?;
+
+        // Print footer if truncated
+        if truncated && !self.quiet && self.output == OutputFormat::Table {
+            println!(
+                "\n{} +{} more (use --limit or --offset)",
+                "…".dim(),
+                truncated_count
+            );
+        }
+
+        Ok(())
     }
 
     fn resolve_targets(&self, entries: &[Entry]) -> anyhow::Result<Vec<usize>> {
@@ -466,7 +564,7 @@ impl LinkRef {
     }
 }
 
-fn collect_entries(directory: &Directory<Loaded>) -> Vec<Entry> {
+fn collect_entries(directory: &Directory) -> Vec<Entry> {
     let mut entries = Vec::new();
 
     for requirement in directory.requirements() {
@@ -476,7 +574,7 @@ fn collect_entries(directory: &Directory<Loaded>) -> Vec<Entry> {
     entries
 }
 
-fn entry_from_requirement(directory: &Directory<Loaded>, requirement: &Requirement) -> Entry {
+fn entry_from_requirement(directory: &Directory, requirement: &Requirement) -> Entry {
     let parents = requirement
         .parents()
         .map(|(uuid, parent)| LinkRef::new(uuid, parent.hrid.clone()))
@@ -589,37 +687,86 @@ fn produce_tree_rows(
     target_indices: &[usize],
     depth: Option<usize>,
 ) -> Vec<Row> {
+    // Depth-first traversal for tree rendering
+    #[allow(clippy::too_many_arguments)]
+    fn dfs(
+        index: usize,
+        depth: usize,
+        limit: usize,
+        direction: Direction,
+        entries: &[Entry],
+        index_by_uuid: &HashMap<Uuid, usize>,
+        seen: &mut HashSet<usize>,
+        rows: &mut Vec<Row>,
+        filters: &Filters,
+    ) {
+        if limit != usize::MAX && depth > limit {
+            return;
+        }
+        if !seen.insert(index) {
+            return;
+        }
+
+        rows.push(Row {
+            index,
+            direction,
+            depth,
+        });
+
+        if limit != usize::MAX && depth == limit {
+            return;
+        }
+
+        // Recursively visit children
+        for child in &entries[index].children {
+            if let Some(&child_idx) = index_by_uuid.get(&child.uuid) {
+                if filters.matches(&entries[child_idx]) || depth + 1 < limit {
+                    dfs(
+                        child_idx,
+                        depth + 1,
+                        limit,
+                        Direction::Down,
+                        entries,
+                        index_by_uuid,
+                        seen,
+                        rows,
+                        filters,
+                    );
+                }
+            }
+        }
+    }
+
     let seeds = if target_indices.is_empty() {
-        (0..entries.len()).collect::<Vec<_>>()
+        // Find all root requirements (those with no parents)
+        (0..entries.len())
+            .filter(|&idx| entries[idx].parents.is_empty())
+            .collect()
     } else {
         target_indices.to_vec()
     };
 
+    let limit = resolve_depth(depth, usize::MAX);
     let mut rows = Vec::new();
-    let mut seed_set = HashSet::new();
+    let mut seen = HashSet::new();
 
-    for &index in &seeds {
-        if seed_set.insert(index) {
-            rows.push(Row {
-                index,
-                direction: Direction::None,
-                depth: 0,
-            });
-        }
+    // Start DFS from each seed
+    for &seed in &seeds {
+        dfs(
+            seed,
+            0,
+            limit,
+            Direction::None,
+            entries,
+            index_by_uuid,
+            &mut seen,
+            &mut rows,
+            filters,
+        );
     }
 
-    let limit = resolve_depth(depth, usize::MAX);
-    let descendants = traverse(
-        seeds.iter().copied(),
-        entries,
-        index_by_uuid,
-        limit,
-        Direction::Down,
-    );
-
-    append_unique_rows(&mut rows, descendants);
-
-    rows.retain(|row| seed_set.contains(&row.index) || filters.matches(&entries[row.index]));
+    // Apply filters to the results
+    rows.retain(|row| filters.matches(&entries[row.index]) || row.depth == 0);
 
     rows
 }
@@ -735,6 +882,7 @@ where
     results
 }
 
+#[allow(dead_code)]
 fn append_unique_rows(rows: &mut Vec<Row>, new_rows: Vec<Row>) {
     let mut existing: HashSet<(usize, Direction)> =
         rows.iter().map(|row| (row.index, row.direction)).collect();
@@ -797,6 +945,7 @@ fn apply_offset_limit(mut rows: Vec<Row>, offset: Option<usize>, limit: Option<u
     rows
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_rows(
     rows: Vec<Row>,
     entries: &[Entry],
@@ -804,15 +953,17 @@ fn render_rows(
     output: OutputFormat,
     quiet: bool,
     tree: bool,
+    ascii: bool,
+    filters: &Filters,
 ) -> anyhow::Result<()> {
     if tree {
-        render_tree(rows, entries);
+        render_tree(&rows, entries, ascii);
         return Ok(());
     }
 
     match output {
         OutputFormat::Table => {
-            render_table(rows, entries, columns, quiet);
+            render_table(rows, entries, columns, quiet, filters);
             Ok(())
         }
         OutputFormat::Json => render_json(rows, entries, columns),
@@ -823,21 +974,118 @@ fn render_rows(
     }
 }
 
-fn render_tree(rows: Vec<Row>, entries: &[Entry]) {
-    for row in rows {
+fn render_tree(rows: &[Row], entries: &[Entry], ascii: bool) {
+    if rows.is_empty() {
+        return;
+    }
+
+    // Build parent-child relationships
+    let mut parent_map: HashMap<usize, Vec<usize>> = HashMap::new();
+    let mut parent_stack: Vec<usize> = Vec::new();
+
+    for (idx, row) in rows.iter().enumerate() {
+        // Adjust stack to current depth
+        while parent_stack.len() > row.depth {
+            parent_stack.pop();
+        }
+
+        // If we have a parent, record this relationship
+        if let Some(&parent_idx) = parent_stack.last() {
+            parent_map.entry(parent_idx).or_default().push(idx);
+        }
+
+        // This row becomes a potential parent for deeper rows
+        parent_stack.push(idx);
+    }
+
+    // Now render with proper tree structure
+    for (idx, row) in rows.iter().enumerate() {
         let entry = &entries[row.index];
-        let indent = "  ".repeat(row.depth);
+
+        // Build the tree prefix
+        let mut prefix = String::new();
+
+        if row.depth > 0 {
+            // Reconstruct parent chain to determine line drawing
+            let mut ancestor_chain: Vec<usize> = Vec::new();
+            let mut search_idx = idx;
+
+            // Walk back to find all ancestors
+            for target_depth in (0..row.depth).rev() {
+                let mut found = false;
+                for search in (0..search_idx).rev() {
+                    if rows[search].depth == target_depth {
+                        ancestor_chain.push(search);
+                        search_idx = search;
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    break;
+                }
+            }
+
+            ancestor_chain.reverse();
+
+            // Draw prefix based on ancestor chain
+            for (d, &ancestor_idx) in ancestor_chain.iter().enumerate() {
+                if d == ancestor_chain.len() - 1 {
+                    // This is our immediate parent - check if we're the last child
+                    let is_last_child = parent_map
+                        .get(&ancestor_idx)
+                        .and_then(|children| children.last())
+                        .is_some_and(|&last| last == idx);
+
+                    if is_last_child {
+                        prefix.push_str(if ascii { "`- " } else { "└─ " });
+                    } else {
+                        prefix.push_str(if ascii { "|- " } else { "├─ " });
+                    }
+                } else {
+                    // Earlier ancestor - check if it has more siblings after
+                    let has_more_siblings = if d == 0 {
+                        // Root level - check if there are more roots after this ancestor
+                        rows.iter()
+                            .skip(ancestor_idx + 1)
+                            .any(|r| r.depth == rows[ancestor_idx].depth)
+                    } else {
+                        // Non-root - check if ancestor is last child of its parent
+                        let ancestor_parent_idx = ancestor_chain.get(d - 1).copied();
+                        ancestor_parent_idx
+                            .and_then(|parent_idx| parent_map.get(&parent_idx))
+                            .and_then(|children| children.last())
+                            .is_some_and(|&last| last != ancestor_idx)
+                    };
+
+                    if has_more_siblings {
+                        prefix.push_str(if ascii { "|  " } else { "│  " });
+                    } else {
+                        prefix.push_str("   ");
+                    }
+                }
+            }
+        }
+
+        // Add direction marker if present
         let marker = match row.direction {
             Direction::Up => "↑ ",
             Direction::Down => "↓ ",
             Direction::None => "",
         };
+
         let title = entry.title.as_deref().unwrap_or_default();
-        println!("{indent}{marker}{} {title}", entry.hrid);
+        println!("{prefix}{marker}{} {title}", entry.hrid);
     }
 }
 
-fn render_table(rows: Vec<Row>, entries: &[Entry], columns: &[ListColumn], quiet: bool) {
+fn render_table(
+    rows: Vec<Row>,
+    entries: &[Entry],
+    columns: &[ListColumn],
+    quiet: bool,
+    filters: &Filters,
+) {
     let selected_columns = if columns.is_empty() {
         if quiet {
             vec![ListColumn::Hrid]
@@ -875,6 +1123,13 @@ fn render_table(rows: Vec<Row>, entries: &[Entry], columns: &[ListColumn], quiet
                 value = prefix_value(value, row.direction, row.depth);
             }
 
+            // Apply match highlighting for Title column
+            if *column == ListColumn::Title {
+                if let Some(search) = &filters.contains {
+                    value = highlight_match(&value, search);
+                }
+            }
+
             row_data.push(value);
         }
         data.push(row_data);
@@ -893,7 +1148,7 @@ fn render_table(rows: Vec<Row>, entries: &[Entry], columns: &[ListColumn], quiet
         .enumerate()
         .map(|(idx, header)| {
             data.iter()
-                .map(|row| row[idx].len())
+                .map(|row| strip_ansi(&row[idx]).len())
                 .max()
                 .unwrap_or(0)
                 .max(header.len())
@@ -915,10 +1170,56 @@ fn render_table(rows: Vec<Row>, entries: &[Entry], columns: &[ListColumn], quiet
     for row in data {
         for (idx, value) in row.iter().enumerate() {
             let width = widths[idx];
-            print!("{value:<width$}  ");
+            let stripped_len = strip_ansi(value).len();
+            let padding = width.saturating_sub(stripped_len);
+            print!("{value}{:padding$}  ", "");
         }
         println!();
     }
+}
+
+fn highlight_match(text: &str, search: &str) -> String {
+    use crate::cli::terminal::supports_color;
+
+    let lower_text = text.to_ascii_lowercase();
+    let lower_search = search.to_ascii_lowercase();
+
+    lower_text.find(&lower_search).map_or_else(
+        || text.to_string(),
+        |pos| {
+            let before = &text[..pos];
+            let matched = &text[pos..pos + search.len()];
+            let after = &text[pos + search.len()..];
+
+            if supports_color() {
+                // Use underline for matches
+                format!("{before}\x1b[4m{matched}\x1b[24m{after}")
+            } else {
+                // Use << >> markers when no color support
+                format!("{before}<<{matched}>>{after}")
+            }
+        },
+    )
+}
+
+fn strip_ansi(text: &str) -> String {
+    // Simple ANSI escape sequence stripper for width calculation
+    let mut result = String::new();
+    let mut in_escape = false;
+
+    for ch in text.chars() {
+        if ch == '\x1b' {
+            in_escape = true;
+        } else if in_escape {
+            if ch == 'm' {
+                in_escape = false;
+            }
+        } else if !in_escape {
+            result.push(ch);
+        }
+    }
+
+    result
 }
 
 fn render_json(rows: Vec<Row>, entries: &[Entry], columns: &[ListColumn]) -> anyhow::Result<()> {
@@ -1170,6 +1471,7 @@ mod tests {
             depth: None,
             limit: Some(10),
             offset: Some(0),
+            ascii: false,
         }
     }
 
@@ -1300,11 +1602,7 @@ mod tests {
         }
     }
 
-    fn add_requirement(
-        directory: &mut Directory<Loaded>,
-        kind: &str,
-        content: &str,
-    ) -> Requirement {
+    fn add_requirement(directory: &mut Directory, kind: &str, content: &str) -> Requirement {
         directory
             .add_requirement(kind.to_string(), content.to_string())
             .unwrap()
@@ -1488,6 +1786,8 @@ mod tests {
             row(fixtures.child_index(), Direction::Down, 1),
         ];
 
+        let empty_filters = empty_filters();
+
         render_rows(
             rows.clone(),
             entries,
@@ -1495,6 +1795,8 @@ mod tests {
             OutputFormat::Table,
             false,
             false,
+            false,
+            &empty_filters,
         )
         .unwrap();
 
@@ -1505,6 +1807,8 @@ mod tests {
             OutputFormat::Table,
             true,
             false,
+            false,
+            &empty_filters,
         )
         .unwrap();
 
@@ -1520,6 +1824,8 @@ mod tests {
             OutputFormat::Json,
             false,
             false,
+            false,
+            &empty_filters,
         )
         .unwrap();
 
@@ -1530,6 +1836,8 @@ mod tests {
             OutputFormat::Csv,
             false,
             false,
+            false,
+            &empty_filters,
         )
         .unwrap();
 
@@ -1540,6 +1848,8 @@ mod tests {
             OutputFormat::Table,
             false,
             true,
+            false,
+            &empty_filters,
         )
         .unwrap();
     }
@@ -1621,7 +1931,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let root = tmp.path().to_path_buf();
 
-        let mut directory = Directory::new(root.clone()).load_all().unwrap();
+        let mut directory = Directory::new(root.clone()).unwrap();
         let parent = add_requirement(&mut directory, "SYS", "# Parent");
         let child = add_requirement(&mut directory, "USR", "# Child\nImplements parent");
 
