@@ -92,9 +92,6 @@ pub enum Command {
     /// Show or modify configuration settings
     Config(Config),
 
-    /// Normalize file paths according to directory mode
-    NormalisePaths(NormalisePaths),
-
     /// Diagnose path-related issues
     Diagnose(Diagnose),
 }
@@ -110,7 +107,6 @@ impl Command {
             Self::Accept(command) => command.run(root)?,
             Self::List(command) => command.run(root)?,
             Self::Config(command) => command.run(&root)?,
-            Self::NormalisePaths(command) => command.run(&root)?,
             Self::Diagnose(command) => command.run(&root)?,
         }
         Ok(())
@@ -921,8 +917,8 @@ impl Config {
                                  (e.g., USR/003.md)."
                             );
                             println!(
-                                "  • Existing files are unchanged until you run 'req \
-                                 normalise-paths'."
+                                "  • You will need to manually reorganize existing files to match \
+                                 the new structure."
                             );
                         } else {
                             println!("\n{}", "Filename-based mode:".info());
@@ -948,140 +944,6 @@ impl Config {
                 }
             }
         }
-
-        Ok(())
-    }
-}
-
-#[derive(Debug, clap::Parser)]
-pub struct NormalisePaths {
-    /// Show planned changes without applying them
-    #[arg(long)]
-    plan: bool,
-
-    /// Apply the changes (write to filesystem)
-    #[arg(long, conflicts_with = "plan")]
-    apply: bool,
-
-    /// Skip confirmation prompts
-    #[arg(long)]
-    yes: bool,
-}
-
-impl NormalisePaths {
-    #[instrument]
-    fn run(self, root: &Path) -> anyhow::Result<()> {
-        use terminal::Colorize;
-
-        let config_path = root.join("config.toml");
-        let config = if config_path.exists() {
-            requiem::Config::load(&config_path).map_err(|e| anyhow::anyhow!("{e}"))?
-        } else {
-            requiem::Config::default()
-        };
-
-        if !config.subfolders_are_namespaces {
-            println!(
-                "{}",
-                "Current mode is filename-based. Nothing to normalise.".dim()
-            );
-            println!("Set subfolders_are_namespaces=true to use path-based mode.");
-            return Ok(());
-        }
-
-        // Load all requirements to analyze paths
-        let directory = Directory::new(root.to_path_buf())?;
-        let mut moves: Vec<(PathBuf, PathBuf, String)> = Vec::new();
-
-        for req in directory.requirements() {
-            let current_path = directory.path_for(req.hrid());
-            let expected_path = compute_path_based_location(root, req.hrid(), config.digits());
-
-            if current_path != expected_path {
-                moves.push((current_path, expected_path, {
-                    let hrid = req.hrid();
-                    format!("HRID format mismatch for {hrid}")
-                }));
-            }
-        }
-
-        if moves.is_empty() {
-            println!("{}", "✅ All paths are already normalized.".success());
-            return Ok(());
-        }
-
-        // Display plan
-        println!("Proposed moves: {} files\n", moves.len());
-        println!("{:<40} {:<40} {}", "From", "To", "Reason");
-        println!("{}", "─".repeat(120).dim());
-
-        for (from, to, reason) in &moves {
-            println!(
-                "{:<40} {:<40} {}",
-                from.display().to_string(),
-                to.display().to_string(),
-                reason.dim()
-            );
-        }
-
-        // Default is plan mode
-        if !self.apply {
-            println!("\n{}", "Use --apply to execute these changes.".dim());
-            return Ok(());
-        }
-
-        // Apply mode: confirm and execute
-        if !self.yes {
-            use dialoguer::Confirm;
-
-            let move_count = moves.len();
-            let confirmed = Confirm::new()
-                .with_prompt(format!("Apply {move_count} file moves? (y/N)"))
-                .default(false)
-                .interact()?;
-
-            if !confirmed {
-                println!("Cancelled.");
-                return Ok(());
-            }
-        }
-
-        // Execute moves
-        let mut folders_created = 0;
-        let mut files_moved = 0;
-        let mut conflicts = 0;
-
-        for (from, to, _reason) in &moves {
-            // Create parent directory if needed
-            if let Some(parent) = to.parent() {
-                if !parent.exists() {
-                    std::fs::create_dir_all(parent)?;
-                    folders_created += 1;
-                }
-            }
-
-            // Check for conflicts
-            if to.exists() {
-                let backup = to.with_extension("md.bak");
-                std::fs::rename(to, &backup)?;
-                conflicts += 1;
-                let to_display = to.display();
-                let backup_display = backup.display();
-                println!(
-                    "{}",
-                    format!("Conflict: backed up {to_display} to {backup_display}").warning()
-                );
-            }
-
-            // Move file
-            std::fs::rename(from, to)?;
-            files_moved += 1;
-        }
-
-        println!("\n{}", "Complete".success());
-        println!("  Folders created: {}", folders_created);
-        println!("  Files moved: {}", files_moved);
-        println!("  Conflicts: {}", conflicts);
 
         Ok(())
     }
@@ -1165,7 +1027,7 @@ impl Diagnose {
                     }
                     println!(
                         "\n{}",
-                        "Run 'req normalise-paths --plan' to see proposed fixes.".dim()
+                        "Review the issues above and fix them manually.".dim()
                     );
                 }
 
