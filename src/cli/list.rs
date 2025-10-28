@@ -9,7 +9,7 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use clap::{Parser, ValueEnum};
 use regex::Regex;
-use requiem::{storage::directory::Loaded, Directory, Hrid, Requirement};
+use requiem::{Directory, Hrid, Requirement};
 use serde::Serialize;
 use tracing::instrument;
 use uuid::Uuid;
@@ -19,6 +19,7 @@ const DEFAULT_LIMIT: usize = 200;
 /// Command arguments for `req list`.
 #[derive(Debug, Parser)]
 #[command(about = "List requirements with filters and relationship views")]
+#[allow(clippy::struct_excessive_bools)]
 pub struct List {
     /// HRIDs to use as primary targets.
     #[arg(value_parser = parse_hrid)]
@@ -250,10 +251,11 @@ struct SerializableRow<'a> {
 
 impl List {
     #[instrument(level = "debug", skip_all)]
+    #[allow(clippy::too_many_lines)]
     pub fn run(self, root: PathBuf) -> anyhow::Result<()> {
         use crate::cli::terminal::Colorize;
 
-        let directory = Directory::new(root).load_all()?;
+        let directory = Directory::new(root)?;
 
         let mut entries = collect_entries(&directory);
         let index_by_uuid: HashMap<Uuid, usize> = entries
@@ -300,7 +302,7 @@ impl List {
                 let tree_targets = if self.targets.is_empty() {
                     Vec::new()
                 } else {
-                    target_indices.clone()
+                    target_indices
                 };
                 produce_tree_rows(
                     &entries,
@@ -384,14 +386,13 @@ impl List {
 
             let limit_str = self
                 .limit
-                .map(|l| l.to_string())
-                .unwrap_or_else(|| DEFAULT_LIMIT.to_string());
+                .map_or_else(|| DEFAULT_LIMIT.to_string(), |l| l.to_string());
 
             println!(
                 "{}",
                 format!(
-                    "Listing requirements (view: {}, filters: {}, limit: {})",
-                    view_name, filter_str, limit_str
+                    "Listing requirements (view: {view_name}, filters: {filter_str}, limit: \
+                     {limit_str})"
                 )
                 .dim()
             );
@@ -563,7 +564,7 @@ impl LinkRef {
     }
 }
 
-fn collect_entries(directory: &Directory<Loaded>) -> Vec<Entry> {
+fn collect_entries(directory: &Directory) -> Vec<Entry> {
     let mut entries = Vec::new();
 
     for requirement in directory.requirements() {
@@ -573,7 +574,7 @@ fn collect_entries(directory: &Directory<Loaded>) -> Vec<Entry> {
     entries
 }
 
-fn entry_from_requirement(directory: &Directory<Loaded>, requirement: &Requirement) -> Entry {
+fn entry_from_requirement(directory: &Directory, requirement: &Requirement) -> Entry {
     let parents = requirement
         .parents()
         .map(|(uuid, parent)| LinkRef::new(uuid, parent.hrid.clone()))
@@ -686,20 +687,8 @@ fn produce_tree_rows(
     target_indices: &[usize],
     depth: Option<usize>,
 ) -> Vec<Row> {
-    let seeds = if target_indices.is_empty() {
-        // Find all root requirements (those with no parents)
-        (0..entries.len())
-            .filter(|&idx| entries[idx].parents.is_empty())
-            .collect()
-    } else {
-        target_indices.to_vec()
-    };
-
-    let limit = resolve_depth(depth, usize::MAX);
-    let mut rows = Vec::new();
-    let mut seen = HashSet::new();
-
     // Depth-first traversal for tree rendering
+    #[allow(clippy::too_many_arguments)]
     fn dfs(
         index: usize,
         depth: usize,
@@ -747,6 +736,19 @@ fn produce_tree_rows(
             }
         }
     }
+
+    let seeds = if target_indices.is_empty() {
+        // Find all root requirements (those with no parents)
+        (0..entries.len())
+            .filter(|&idx| entries[idx].parents.is_empty())
+            .collect()
+    } else {
+        target_indices.to_vec()
+    };
+
+    let limit = resolve_depth(depth, usize::MAX);
+    let mut rows = Vec::new();
+    let mut seen = HashSet::new();
 
     // Start DFS from each seed
     for &seed in &seeds {
@@ -943,6 +945,7 @@ fn apply_offset_limit(mut rows: Vec<Row>, offset: Option<usize>, limit: Option<u
     rows
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_rows(
     rows: Vec<Row>,
     entries: &[Entry],
@@ -954,7 +957,7 @@ fn render_rows(
     filters: &Filters,
 ) -> anyhow::Result<()> {
     if tree {
-        render_tree(rows, entries, ascii);
+        render_tree(&rows, entries, ascii);
         return Ok(());
     }
 
@@ -971,7 +974,7 @@ fn render_rows(
     }
 }
 
-fn render_tree(rows: Vec<Row>, entries: &[Entry], ascii: bool) {
+fn render_tree(rows: &[Row], entries: &[Entry], ascii: bool) {
     if rows.is_empty() {
         return;
     }
@@ -1032,7 +1035,7 @@ fn render_tree(rows: Vec<Row>, entries: &[Entry], ascii: bool) {
                     let is_last_child = parent_map
                         .get(&ancestor_idx)
                         .and_then(|children| children.last())
-                        .map_or(false, |&last| last == idx);
+                        .is_some_and(|&last| last == idx);
 
                     if is_last_child {
                         prefix.push_str(if ascii { "`- " } else { "└─ " });
@@ -1043,14 +1046,16 @@ fn render_tree(rows: Vec<Row>, entries: &[Entry], ascii: bool) {
                     // Earlier ancestor - check if it has more siblings after
                     let has_more_siblings = if d == 0 {
                         // Root level - check if there are more roots after this ancestor
-                        rows.iter().skip(ancestor_idx + 1).any(|r| r.depth == rows[ancestor_idx].depth)
+                        rows.iter()
+                            .skip(ancestor_idx + 1)
+                            .any(|r| r.depth == rows[ancestor_idx].depth)
                     } else {
                         // Non-root - check if ancestor is last child of its parent
                         let ancestor_parent_idx = ancestor_chain.get(d - 1).copied();
                         ancestor_parent_idx
                             .and_then(|parent_idx| parent_map.get(&parent_idx))
                             .and_then(|children| children.last())
-                            .map_or(false, |&last| last != ancestor_idx)
+                            .is_some_and(|&last| last != ancestor_idx)
                     };
 
                     if has_more_siblings {
@@ -1074,7 +1079,13 @@ fn render_tree(rows: Vec<Row>, entries: &[Entry], ascii: bool) {
     }
 }
 
-fn render_table(rows: Vec<Row>, entries: &[Entry], columns: &[ListColumn], quiet: bool, filters: &Filters) {
+fn render_table(
+    rows: Vec<Row>,
+    entries: &[Entry],
+    columns: &[ListColumn],
+    quiet: bool,
+    filters: &Filters,
+) {
     let selected_columns = if columns.is_empty() {
         if quiet {
             vec![ListColumn::Hrid]
@@ -1159,7 +1170,7 @@ fn render_table(rows: Vec<Row>, entries: &[Entry], columns: &[ListColumn], quiet
     for row in data {
         for (idx, value) in row.iter().enumerate() {
             let width = widths[idx];
-            let stripped_len = strip_ansi(&value).len();
+            let stripped_len = strip_ansi(value).len();
             let padding = width.saturating_sub(stripped_len);
             print!("{value}{:padding$}  ", "");
         }
@@ -1173,21 +1184,22 @@ fn highlight_match(text: &str, search: &str) -> String {
     let lower_text = text.to_ascii_lowercase();
     let lower_search = search.to_ascii_lowercase();
 
-    if let Some(pos) = lower_text.find(&lower_search) {
-        let before = &text[..pos];
-        let matched = &text[pos..pos + search.len()];
-        let after = &text[pos + search.len()..];
+    lower_text.find(&lower_search).map_or_else(
+        || text.to_string(),
+        |pos| {
+            let before = &text[..pos];
+            let matched = &text[pos..pos + search.len()];
+            let after = &text[pos + search.len()..];
 
-        if supports_color() {
-            // Use underline for matches
-            format!("{before}\x1b[4m{matched}\x1b[24m{after}")
-        } else {
-            // Use << >> markers when no color support
-            format!("{before}<<{matched}>>{after}")
-        }
-    } else {
-        text.to_string()
-    }
+            if supports_color() {
+                // Use underline for matches
+                format!("{before}\x1b[4m{matched}\x1b[24m{after}")
+            } else {
+                // Use << >> markers when no color support
+                format!("{before}<<{matched}>>{after}")
+            }
+        },
+    )
 }
 
 fn strip_ansi(text: &str) -> String {
@@ -1590,11 +1602,7 @@ mod tests {
         }
     }
 
-    fn add_requirement(
-        directory: &mut Directory<Loaded>,
-        kind: &str,
-        content: &str,
-    ) -> Requirement {
+    fn add_requirement(directory: &mut Directory, kind: &str, content: &str) -> Requirement {
         directory
             .add_requirement(kind.to_string(), content.to_string())
             .unwrap()
@@ -1923,7 +1931,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let root = tmp.path().to_path_buf();
 
-        let mut directory = Directory::new(root.clone()).load_all().unwrap();
+        let mut directory = Directory::new(root.clone()).unwrap();
         let parent = add_requirement(&mut directory, "SYS", "# Parent");
         let child = add_requirement(&mut directory, "USR", "# Child\nImplements parent");
 

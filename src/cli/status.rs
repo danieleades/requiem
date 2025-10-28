@@ -4,7 +4,7 @@ use clap::Parser;
 use requiem::Directory;
 use tracing::instrument;
 
-use super::terminal::{Colorize, is_narrow};
+use super::terminal::{is_narrow, Colorize};
 
 #[derive(Debug, Parser, Default)]
 #[command(about = "Show requirement counts and suspect link totals")]
@@ -26,9 +26,9 @@ enum OutputFormat {
 }
 
 impl Status {
-    #[instrument(level = "debug", skip_all)]
+    #[instrument(level = "debug", skip(self))]
     pub fn run(self, root: PathBuf) -> anyhow::Result<()> {
-        let directory = Directory::new(root).load_all()?;
+        let directory = Directory::new(root)?;
 
         let mut counts: BTreeMap<String, usize> = BTreeMap::new();
         for requirement in directory.requirements() {
@@ -48,13 +48,13 @@ impl Status {
 
         match self.output {
             OutputFormat::Json => {
-                self.output_json(&counts, total, suspect_count)?;
+                Self::output_json(&counts, total, suspect_count)?;
             }
             OutputFormat::Table => {
                 if self.quiet {
-                    self.output_quiet(&counts, total, suspect_count)?;
+                    Self::output_quiet(&counts, total, suspect_count);
                 } else {
-                    self.output_table(&counts, total, suspect_count)?;
+                    Self::output_table(&counts, total, suspect_count);
                 }
             }
         }
@@ -68,7 +68,6 @@ impl Status {
     }
 
     fn output_json(
-        &self,
         counts: &BTreeMap<String, usize>,
         total: usize,
         suspect_count: usize,
@@ -99,37 +98,25 @@ impl Status {
         Ok(())
     }
 
-    fn output_quiet(
-        &self,
-        _counts: &BTreeMap<String, usize>,
-        total: usize,
-        suspect_count: usize,
-    ) -> anyhow::Result<()> {
+    fn output_quiet(_counts: &BTreeMap<String, usize>, total: usize, suspect_count: usize) {
         println!("total={total} suspect={suspect_count}");
-        Ok(())
     }
 
-    fn output_table(
-        &self,
-        counts: &BTreeMap<String, usize>,
-        total: usize,
-        suspect_count: usize,
-    ) -> anyhow::Result<()> {
+    fn output_table(counts: &BTreeMap<String, usize>, total: usize, suspect_count: usize) {
         let narrow = is_narrow();
+
+        println!("Requirement counts");
+        println!("{}", "──────────────────".dim());
 
         if narrow {
             // Stacked output for narrow terminals
-            println!("Requirement counts");
-            println!("{}", "──────────────────".dim());
             for (kind, count) in counts {
                 println!("{}: {} (Δ {})", kind, count, "–".dim());
             }
             println!("Total: {total}");
         } else {
             // Table layout
-            println!("Requirement counts");
-            println!("{}", "──────────────────".dim());
-            println!("{:<10} {:<6} {}", "Kind", "Count", "Δ");
+            println!("{:<10} {:<6} Δ", "Kind", "Count");
             for (kind, count) in counts {
                 println!("{kind:<10} {count:<6} {}", "–".dim());
             }
@@ -140,12 +127,10 @@ impl Status {
 
         // Suspect links summary with emoji
         if suspect_count == 0 {
-            println!("Suspect links: {} {}", "0".success(), "✅");
+            println!("Suspect links: {} ✅", "0".success());
         } else {
-            println!("Suspect links: {} {}", suspect_count.to_string().warning(), "⚠️");
+            println!("Suspect links: {} ⚠️", suspect_count.to_string().warning());
             println!("{}", "Run 'req suspect' to investigate.".dim());
         }
-
-        Ok(())
     }
 }

@@ -14,7 +14,7 @@ pub fn terminal_width() -> Option<u16> {
 
 /// Check if terminal is narrow (< 60 columns)
 pub fn is_narrow() -> bool {
-    terminal_width().map_or(false, |w| w < 60)
+    terminal_width().is_some_and(|w| w < 60)
 }
 
 /// Extension trait for colorizing output

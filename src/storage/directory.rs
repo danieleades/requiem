@@ -25,25 +25,15 @@ use crate::{
     EmptyStringError, Requirement,
 };
 
-/// State indicating a directory has been loaded with its requirements.
-#[derive(Debug, PartialEq)]
-pub struct Loaded {
+/// A filesystem backed store of requirements.
+pub struct Directory {
+    /// The root of the directory requirements are stored in.
+    root: PathBuf,
     tree: Tree,
     config: Config,
 }
 
-/// State indicating a directory has not yet been loaded.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Unloaded;
-
-/// A filesystem backed store of requirements.
-pub struct Directory<S> {
-    /// The root of the directory requirements are stored in.
-    root: PathBuf,
-    state: S,
-}
-
-impl<S> Directory<S> {
+impl Directory {
     /// Link two requirements together with a parent-child relationship.
     ///
     /// # Errors
@@ -77,35 +67,20 @@ impl<S> Directory<S> {
         let config = load_config(&self.root);
         Requirement::load(&self.root, hrid, &config)
     }
-}
 
-impl Directory<Unloaded> {
     /// Opens a directory at the given path.
-    #[must_use]
-    pub const fn new(root: PathBuf) -> Self {
-        Self {
-            root,
-            state: Unloaded,
-        }
-    }
-
-    /// Load all requirements from disk
     ///
     /// # Errors
     ///
-    /// This method has different behaviour depending on the configuration file
-    /// in the requirements root. If `allow_unrecognised` is `true`, then
-    /// any files with names that are not valid HRIDs, or any files that cannot
-    /// be parsed as requirements, are skipped. if `allow_unrecognised` is
-    /// `false` (the default), then any unrecognised or invalid markdown files
-    /// in the directory will return an error.
-    pub fn load_all(self) -> Result<Directory<Loaded>, DirectoryLoadError> {
-        let config = load_config(&self.root);
-        let md_paths = collect_markdown_paths(&self.root);
+    /// Returns an error if unrecognised files are found when
+    /// `allow_unrecognised` is false in the configuration.
+    pub fn new(root: PathBuf) -> Result<Self, DirectoryLoadError> {
+        let config = load_config(&root);
+        let md_paths = collect_markdown_paths(&root);
 
         let (requirements, unrecognised_paths): (Vec<_>, Vec<_>) = md_paths
             .par_iter()
-            .map(|path| try_load_requirement(path, &self.root, &config))
+            .map(|path| try_load_requirement(path, &root, &config))
             .partition(Result::is_ok);
 
         let requirements: Vec<_> = requirements.into_iter().map(Result::unwrap).collect();
@@ -123,10 +98,7 @@ impl Directory<Unloaded> {
             tree.insert(req);
         }
 
-        Ok(Directory {
-            root: self.root,
-            state: Loaded { tree, config },
-        })
+        Ok(Self { root, tree, config })
     }
 }
 
@@ -267,7 +239,7 @@ fn load_requirement_from_file(
     Ok(md_req.try_into()?)
 }
 
-impl Directory<Loaded> {
+impl Directory {
     /// Returns the filesystem root backing this directory.
     #[must_use]
     pub fn root(&self) -> &Path {
@@ -281,26 +253,26 @@ impl Directory<Loaded> {
         crate::storage::construct_path_from_hrid(
             &self.root,
             hrid,
-            self.state.config.subfolders_are_namespaces,
-            self.state.config.digits(),
+            self.config.subfolders_are_namespaces,
+            self.config.digits(),
         )
     }
 
     /// Returns an iterator over all requirements stored in the directory.
     pub fn requirements(&self) -> impl Iterator<Item = &Requirement> {
-        self.state.tree.iter()
+        self.tree.iter()
     }
 
     /// Returns the configuration used when loading this directory.
     #[must_use]
     pub const fn config(&self) -> &Config {
-        &self.state.config
+        &self.config
     }
 
     /// Retrieves a requirement by its human-readable identifier.
     #[must_use]
     pub fn requirement_by_hrid(&self, hrid: &Hrid) -> Option<&Requirement> {
-        self.state.tree.find_by_hrid(hrid)
+        self.tree.find_by_hrid(hrid)
     }
 
     /// Add a new requirement to the directory.
@@ -316,7 +288,7 @@ impl Directory<Loaded> {
         kind: String,
         content: String,
     ) -> Result<Requirement, AddRequirementError> {
-        let tree = &mut self.state.tree;
+        let tree = &mut self.tree;
 
         let id = tree.next_index(&kind);
         let hrid = Hrid::new(kind, id)?;
@@ -330,7 +302,7 @@ impl Directory<Loaded> {
 
         let requirement = Requirement::new(hrid, final_content);
 
-        requirement.save(&self.root, &self.state.config)?;
+        requirement.save(&self.root, &self.config)?;
         tree.insert(requirement.clone());
 
         tracing::info!("Added requirement: {}", requirement.hrid());
@@ -349,27 +321,24 @@ impl Directory<Loaded> {
     /// to disk. This method does *not* fail fast. That is, it will attempt
     /// to save all the requirements before returning the error.
     pub fn update_hrids(&mut self) -> Result<(), UpdateHridsError> {
-        let tree = &mut self.state.tree;
+        let tree = &mut self.tree;
         let updated: Vec<_> = tree.update_hrids().collect();
 
         let failures = updated
             .iter()
             .filter_map(|&id| {
                 let requirement = tree.requirement(id)?;
-                requirement
-                    .save(&self.root, &self.state.config)
-                    .err()
-                    .map(|e| {
-                        // Construct the path using the same logic as save_with_config
-                        use crate::storage::path_parser::construct_path_from_hrid;
-                        let path = construct_path_from_hrid(
-                            &self.root,
-                            requirement.hrid(),
-                            self.state.config.subfolders_are_namespaces,
-                            self.state.config.digits(),
-                        );
-                        (path, e)
-                    })
+                requirement.save(&self.root, &self.config).err().map(|e| {
+                    // Construct the path using the same logic as save_with_config
+                    use crate::storage::path_parser::construct_path_from_hrid;
+                    let path = construct_path_from_hrid(
+                        &self.root,
+                        requirement.hrid(),
+                        self.config.subfolders_are_namespaces,
+                        self.config.digits(),
+                    );
+                    (path, e)
+                })
             })
             .collect();
 
@@ -382,7 +351,7 @@ impl Directory<Loaded> {
     /// does not match the current fingerprint of the parent requirement.
     #[must_use]
     pub fn suspect_links(&self) -> Vec<crate::storage::SuspectLink> {
-        self.state.tree.suspect_links()
+        self.tree.suspect_links()
     }
 
     /// Accept a specific suspect link by updating its fingerprint.
@@ -410,7 +379,7 @@ impl Directory<Loaded> {
             return Err(AcceptSuspectLinkError::LinkNotFound { child, parent });
         }
 
-        let was_updated = self.state.tree.accept_suspect_link(child_uuid, parent_uuid);
+        let was_updated = self.tree.accept_suspect_link(child_uuid, parent_uuid);
 
         if !was_updated {
             return Ok(AcceptResult::AlreadyUpToDate);
@@ -418,11 +387,10 @@ impl Directory<Loaded> {
 
         // Save the updated requirement
         let updated_child = self
-            .state
             .tree
             .requirement(child_uuid)
             .ok_or(AcceptSuspectLinkError::ChildNotFound(child))?;
-        updated_child.save(&self.root, &self.state.config)?;
+        updated_child.save(&self.root, &self.config)?;
 
         Ok(AcceptResult::Updated)
     }
@@ -437,26 +405,23 @@ impl Directory<Loaded> {
     pub fn accept_all_suspect_links(
         &mut self,
     ) -> Result<Vec<(Hrid, Hrid)>, UpdateSuspectLinksError> {
-        let updated = self.state.tree.accept_all_suspect_links();
+        let updated = self.tree.accept_all_suspect_links();
 
         let failures: Vec<_> = updated
             .iter()
             .filter_map(|&(child_uuid, _parent_uuid)| {
-                let requirement = self.state.tree.requirement(child_uuid)?;
-                requirement
-                    .save(&self.root, &self.state.config)
-                    .err()
-                    .map(|e| {
-                        // Construct the path using the same logic as save_with_config
-                        use crate::storage::path_parser::construct_path_from_hrid;
-                        let path = construct_path_from_hrid(
-                            &self.root,
-                            requirement.hrid(),
-                            self.state.config.subfolders_are_namespaces,
-                            self.state.config.digits(),
-                        );
-                        (path, e)
-                    })
+                let requirement = self.tree.requirement(child_uuid)?;
+                requirement.save(&self.root, &self.config).err().map(|e| {
+                    // Construct the path using the same logic as save_with_config
+                    use crate::storage::path_parser::construct_path_from_hrid;
+                    let path = construct_path_from_hrid(
+                        &self.root,
+                        requirement.hrid(),
+                        self.config.subfolders_are_namespaces,
+                        self.config.digits(),
+                    );
+                    (path, e)
+                })
             })
             .collect();
 
@@ -468,8 +433,8 @@ impl Directory<Loaded> {
         let updated_hrids: Vec<_> = updated
             .iter()
             .filter_map(|&(child_uuid, parent_uuid)| {
-                let child = self.state.tree.requirement(child_uuid)?;
-                let parent = self.state.tree.requirement(parent_uuid)?;
+                let child = self.tree.requirement(child_uuid)?;
+                let parent = self.tree.requirement(parent_uuid)?;
                 Some((child.hrid().clone(), parent.hrid().clone()))
             })
             .collect();
@@ -588,10 +553,10 @@ mod tests {
     use super::*;
     use crate::Requirement;
 
-    fn setup_temp_directory() -> (TempDir, Directory<Loaded>) {
+    fn setup_temp_directory() -> (TempDir, Directory) {
         let tmp = TempDir::new().expect("failed to create temp dir");
         let path = tmp.path().to_path_buf();
-        (tmp, Directory::new(path).load_all().unwrap())
+        (tmp, Directory::new(path).unwrap())
     }
 
     #[test]
@@ -603,7 +568,7 @@ mod tests {
 
         assert_eq!(r1.hrid().to_string(), "REQ-001");
 
-        let loaded = Requirement::load(&dir.root, r1.hrid().clone(), &dir.state.config)
+        let loaded = Requirement::load(&dir.root, r1.hrid().clone(), &dir.config)
             .expect("should load saved requirement");
         assert_eq!(loaded.uuid(), r1.uuid());
     }
@@ -633,6 +598,7 @@ mod tests {
             .unwrap();
 
         Directory::new(dir.root.clone())
+            .unwrap()
             .link_requirement(child.hrid().clone(), parent.hrid().clone())
             .unwrap();
 
@@ -660,17 +626,13 @@ mod tests {
                 fingerprint: parent.fingerprint(),
             },
         );
-        child.save(&dir.root, &dir.state.config).unwrap();
+        child.save(&dir.root, &dir.config).unwrap();
 
-        let mut loaded_dir = Directory::new(dir.root.clone()).load_all().unwrap();
+        let mut loaded_dir = Directory::new(dir.root.clone()).unwrap();
         loaded_dir.update_hrids().unwrap();
 
-        let updated = Requirement::load(
-            &loaded_dir.root,
-            child.hrid().clone(),
-            &loaded_dir.state.config,
-        )
-        .expect("should load updated child");
+        let updated = Requirement::load(&loaded_dir.root, child.hrid().clone(), &loaded_dir.config)
+            .expect("should load updated child");
         let (_, parent_ref) = updated.parents().next().unwrap();
 
         assert_eq!(&parent_ref.hrid, parent.hrid());
@@ -683,12 +645,12 @@ mod tests {
         let r1 = dir.add_requirement("X".to_string(), String::new()).unwrap();
         let r2 = dir.add_requirement("X".to_string(), String::new()).unwrap();
 
-        let loaded = Directory::new(dir.root.clone()).load_all().unwrap();
+        let loaded = Directory::new(dir.root.clone()).unwrap();
 
         let mut found = 0;
         for i in 1..=2 {
             let hrid = Hrid::from_str(&format!("X-00{i}")).unwrap();
-            let req = Requirement::load(&loaded.root, hrid, &loaded.state.config).unwrap();
+            let req = Requirement::load(&loaded.root, hrid, &loaded.config).unwrap();
             if req.uuid() == r1.uuid() || req.uuid() == r2.uuid() {
                 found += 1;
             }
@@ -726,11 +688,11 @@ Test requirement
         .unwrap();
 
         // Load all requirements
-        let dir = Directory::new(root.to_path_buf()).load_all().unwrap();
+        let dir = Directory::new(root.to_path_buf()).unwrap();
 
         // Should be able to load the requirement with the correct HRID using config
         let hrid = Hrid::try_from("system-auth-REQ-001").unwrap();
-        let req = Requirement::load(root, hrid.clone(), &dir.state.config).unwrap();
+        let req = Requirement::load(root, hrid.clone(), &dir.config).unwrap();
         assert_eq!(req.hrid(), &hrid);
     }
 
@@ -763,7 +725,7 @@ Test requirement
         .unwrap();
 
         // Load all requirements
-        let _dir = Directory::new(root.to_path_buf()).load_all().unwrap();
+        let _dir = Directory::new(root.to_path_buf()).unwrap();
 
         // Verify the requirement was loaded with correct HRID (KIND from parent folder)
         let hrid = Hrid::try_from("system-auth-USR-001").unwrap();
@@ -798,7 +760,7 @@ Test requirement
         .unwrap();
 
         // Load directory
-        let dir = Directory::new(root.to_path_buf()).load_all().unwrap();
+        let dir = Directory::new(root.to_path_buf()).unwrap();
 
         // Add a requirement with namespace
         let hrid = Hrid::new_with_namespace(
@@ -810,13 +772,13 @@ Test requirement
         let req = Requirement::new(hrid.clone(), "Test content".to_string());
 
         // Save using config
-        req.save(root, &dir.state.config).unwrap();
+        req.save(root, &dir.config).unwrap();
 
         // File should be created at system/auth/REQ-001.md
         assert!(root.join("system/auth/REQ-001.md").exists());
 
         // Should be able to reload it using config
-        let loaded = Requirement::load(root, hrid.clone(), &dir.state.config).unwrap();
+        let loaded = Requirement::load(root, hrid.clone(), &dir.config).unwrap();
         assert_eq!(loaded.hrid(), &hrid);
     }
 
@@ -845,7 +807,7 @@ Test requirement
         .unwrap();
 
         // Load all requirements
-        let _dir = Directory::new(root.to_path_buf()).load_all().unwrap();
+        let _dir = Directory::new(root.to_path_buf()).unwrap();
 
         // Verify the requirement was loaded with HRID from filename, not path
         // (The file is in some/random/path/ but the HRID comes from the filename)
@@ -877,7 +839,7 @@ Test requirement
         std::fs::write(root.join("config.toml"), "_version = \"1\"\n").unwrap();
 
         // Load directory
-        let dir = Directory::new(root.to_path_buf()).load_all().unwrap();
+        let dir = Directory::new(root.to_path_buf()).unwrap();
 
         // Add a requirement with namespace
         let hrid = Hrid::new_with_namespace(
@@ -889,7 +851,7 @@ Test requirement
         let req = Requirement::new(hrid, "Test content".to_string());
 
         // Save using config
-        req.save(root, &dir.state.config).unwrap();
+        req.save(root, &dir.config).unwrap();
 
         // File should be created in root with full HRID
         assert!(root.join("system-auth-REQ-001.md").exists());

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 mod list;
 mod status;
@@ -6,7 +6,7 @@ mod terminal;
 
 use clap::ArgAction;
 use list::List;
-use requiem::{storage::directory::Loaded, Directory, Hrid};
+use requiem::{Directory, Hrid};
 use status::Status;
 use tracing::instrument;
 
@@ -30,7 +30,7 @@ impl Cli {
         Self::setup_logging(self.verbose);
 
         self.command
-            .unwrap_or(Command::Status(Status::default()))
+            .unwrap_or_else(|| Command::Status(Status::default()))
             .run(self.root)
     }
 
@@ -109,9 +109,9 @@ impl Command {
             Self::Suspect(command) => command.run(root)?,
             Self::Accept(command) => command.run(root)?,
             Self::List(command) => command.run(root)?,
-            Self::Config(command) => command.run(root)?,
-            Self::NormalisePaths(command) => command.run(root)?,
-            Self::Diagnose(command) => command.run(root)?,
+            Self::Config(command) => command.run(&root)?,
+            Self::NormalisePaths(command) => command.run(&root)?,
+            Self::Diagnose(command) => command.run(&root)?,
         }
         Ok(())
     }
@@ -140,7 +140,7 @@ pub struct Add {
 impl Add {
     #[instrument]
     fn run(self, root: PathBuf) -> anyhow::Result<()> {
-        let mut directory = Directory::new(root).load_all()?;
+        let mut directory = Directory::new(root)?;
 
         // Construct content from title and body
         let content = match (&self.title, &self.body) {
@@ -175,8 +175,10 @@ pub struct Link {
 impl Link {
     #[instrument]
     fn run(self, root: PathBuf) -> anyhow::Result<()> {
-        let directory = Directory::new(root);
-        let msg = format!("Linked {} to {}", self.child, self.parent);
+        let directory = Directory::new(root)?;
+        let child = &self.child;
+        let parent = &self.parent;
+        let msg = format!("Linked {child} to {parent}");
 
         directory.link_requirement(self.child, self.parent)?;
 
@@ -192,7 +194,7 @@ pub struct Clean {}
 impl Clean {
     #[instrument]
     fn run(path: PathBuf) -> anyhow::Result<()> {
-        Directory::new(path).load_all()?.update_hrids()?;
+        Directory::new(path)?.update_hrids()?;
         Ok(())
     }
 }
@@ -252,7 +254,7 @@ impl Suspect {
     fn run(self, path: PathBuf) -> anyhow::Result<()> {
         use terminal::Colorize;
 
-        let directory = Directory::new(path).load_all()?;
+        let directory = Directory::new(path)?;
         let mut suspect_links = directory.suspect_links();
 
         // Apply filters
@@ -287,16 +289,16 @@ impl Suspect {
 
         // Show stats if requested
         if self.stats {
-            self.output_stats(&suspect_links, &directory)?;
+            Self::output_stats(&suspect_links, &directory);
             println!();
         }
 
         match self.format {
             SuspectFormat::Json => {
-                self.output_json(&suspect_links, &directory)?;
+                Self::output_json(&suspect_links, &directory)?;
             }
             SuspectFormat::Ndjson => {
-                self.output_ndjson(&suspect_links, &directory)?;
+                Self::output_ndjson(&suspect_links, &directory)?;
             }
             SuspectFormat::Table => {
                 self.output_table(&suspect_links, &directory)?;
@@ -331,11 +333,7 @@ impl Suspect {
         None
     }
 
-    fn output_stats(
-        &self,
-        suspect_links: &[requiem::storage::SuspectLink],
-        _directory: &Directory<Loaded>,
-    ) -> anyhow::Result<()> {
+    fn output_stats(suspect_links: &[requiem::storage::SuspectLink], _directory: &Directory) {
         use std::collections::{HashMap, HashSet};
 
         let unique_parents: HashSet<_> = suspect_links
@@ -357,7 +355,9 @@ impl Suspect {
         // Count by child kind
         let mut by_kind: HashMap<String, usize> = HashMap::new();
         for link in suspect_links {
-            *by_kind.entry(link.child_hrid.kind().to_string()).or_insert(0) += 1;
+            *by_kind
+                .entry(link.child_hrid.kind().to_string())
+                .or_insert(0) += 1;
         }
 
         if !by_kind.is_empty() {
@@ -365,7 +365,7 @@ impl Suspect {
             let mut kinds: Vec<_> = by_kind.iter().collect();
             kinds.sort_by_key(|(k, _)| *k);
             for (kind, count) in kinds {
-                println!("  {}  →  *     {} links", kind, count);
+                println!("  {kind}  →  *     {count} links");
             }
             println!();
         }
@@ -384,20 +384,18 @@ impl Suspect {
 
             println!("Most affected parents:");
             for (hrid, count) in parent_list.iter().take(3) {
-                println!("  {}  ({} children)", hrid, count);
+                println!("  {hrid}  ({count} children)");
             }
         }
-
-        Ok(())
     }
 
     fn output_json(
-        &self,
         suspect_links: &[requiem::storage::SuspectLink],
-        directory: &Directory<Loaded>,
+        directory: &Directory,
     ) -> anyhow::Result<()> {
-        use serde_json::json;
         use std::collections::{HashMap, HashSet};
+
+        use serde_json::json;
 
         let unique_parents: HashSet<_> = suspect_links
             .iter()
@@ -410,7 +408,9 @@ impl Suspect {
 
         let mut by_kind: HashMap<String, usize> = HashMap::new();
         for link in suspect_links {
-            *by_kind.entry(link.child_hrid.kind().to_string()).or_insert(0) += 1;
+            *by_kind
+                .entry(link.child_hrid.kind().to_string())
+                .or_insert(0) += 1;
         }
 
         let links: Vec<_> = suspect_links
@@ -454,9 +454,8 @@ impl Suspect {
     }
 
     fn output_ndjson(
-        &self,
         suspect_links: &[requiem::storage::SuspectLink],
-        directory: &Directory<Loaded>,
+        directory: &Directory,
     ) -> anyhow::Result<()> {
         use serde_json::json;
 
@@ -489,7 +488,7 @@ impl Suspect {
     fn output_table(
         &self,
         suspect_links: &[requiem::storage::SuspectLink],
-        directory: &Directory<Loaded>,
+        directory: &Directory,
     ) -> anyhow::Result<()> {
         use terminal::Colorize;
 
@@ -543,7 +542,12 @@ impl Suspect {
             // Enhanced table format with titles
             println!("Suspect Links Found: {}", suspect_links.len());
             println!();
-            println!("{:<12} {} {:<12}     TITLE (CHILD → PARENT)", "CHILD", "→".dim(), "PARENT");
+            println!(
+                "{:<12} {} {:<12}     TITLE (CHILD → PARENT)",
+                "CHILD",
+                "→".dim(),
+                "PARENT"
+            );
             println!("{}", "─".repeat(70).dim());
 
             for link in suspect_links {
@@ -569,8 +573,14 @@ impl Suspect {
             }
 
             println!();
-            println!("{}", "Run 'req suspect --detail' for paths and fingerprints".dim());
-            println!("{}", "Run 'req accept --all --apply' to accept all changes".dim());
+            println!(
+                "{}",
+                "Run 'req suspect --detail' for paths and fingerprints".dim()
+            );
+            println!(
+                "{}",
+                "Run 'req accept --all --apply' to accept all changes".dim()
+            );
         }
 
         Ok(())
@@ -579,10 +589,9 @@ impl Suspect {
     fn output_grouped(
         &self,
         suspect_links: &[requiem::storage::SuspectLink],
-        directory: &Directory<Loaded>,
+        directory: &Directory,
     ) -> anyhow::Result<()> {
         use std::collections::HashMap;
-        
 
         match self.group_by {
             Some(GroupBy::Parent) => {
@@ -602,13 +611,13 @@ impl Suspect {
                 );
                 println!();
 
-                for (parent_hrid_str, links) in by_parent.iter() {
+                for (parent_hrid_str, links) in &by_parent {
                     let parent_req = directory.requirement_by_hrid(&links[0].parent_hrid);
                     let parent_title = parent_req
                         .and_then(|r| Self::extract_title(r.content()))
                         .unwrap_or_default();
 
-                    println!("{} ({})", parent_hrid_str, parent_title);
+                    println!("{parent_hrid_str} ({parent_title})");
                     for (idx, link) in links.iter().enumerate() {
                         let child_req = directory.requirement_by_hrid(&link.child_hrid);
                         let child_title = child_req
@@ -642,13 +651,13 @@ impl Suspect {
                 );
                 println!();
 
-                for (child_hrid_str, links) in by_child.iter() {
+                for (child_hrid_str, links) in &by_child {
                     let child_req = directory.requirement_by_hrid(&links[0].child_hrid);
                     let child_title = child_req
                         .and_then(|r| Self::extract_title(r.content()))
                         .unwrap_or_default();
 
-                    println!("{} ({})", child_hrid_str, child_title);
+                    println!("{child_hrid_str} ({child_title})");
                     for (idx, link) in links.iter().enumerate() {
                         let parent_req = directory.requirement_by_hrid(&link.parent_hrid);
                         let parent_title = parent_req
@@ -676,6 +685,7 @@ impl Suspect {
 }
 
 #[derive(Debug, clap::Parser)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Accept {
     /// Accept all suspect links
     #[arg(long)]
@@ -708,7 +718,7 @@ impl Accept {
         use dialoguer::Confirm;
         use terminal::Colorize;
 
-        let mut directory = Directory::new(path).load_all()?;
+        let mut directory = Directory::new(path)?;
 
         if self.all {
             let suspect_links = directory.suspect_links();
@@ -733,7 +743,7 @@ impl Accept {
 
             if is_dry_run {
                 // Dry-run mode: show preview
-                println!("Pending updates: {} suspect links", count);
+                println!("Pending updates: {count} suspect links");
                 println!("\nPreview:");
                 for link in &suspect_links {
                     println!("  {} ← {}", link.child_hrid, link.parent_hrid);
@@ -745,8 +755,7 @@ impl Accept {
             // Apply mode: confirm and execute
             if !self.yes {
                 let prompt = format!(
-                    "Apply updates to {} suspect links across {} files? (y/N)",
-                    count, file_count
+                    "Apply updates to {count} suspect links across {file_count} files? (y/N)"
                 );
 
                 let confirmed = Confirm::new()
@@ -784,14 +793,14 @@ impl Accept {
 
             // For single link, check if it's suspect
             let suspect_links = directory.suspect_links();
-            let link = suspect_links.iter().find(|l| {
-                l.child_hrid == child && l.parent_hrid == parent
-            });
+            let link = suspect_links
+                .iter()
+                .find(|l| l.child_hrid == child && l.parent_hrid == parent);
 
             if let Some(link) = link {
-                // Show confirmation banner
+                // Show confirmation banner if link is suspect
                 if !self.yes {
-                    println!("Reviewing: {} → {}", child, parent);
+                    println!("Reviewing: {child} → {parent}");
                     println!("Stored:    {}", link.stored_fingerprint);
                     println!("Current:   {}", link.current_fingerprint);
 
@@ -805,24 +814,14 @@ impl Accept {
                         std::process::exit(130);
                     }
                 }
+            }
 
-                match directory.accept_suspect_link(child.clone(), parent.clone())? {
-                    requiem::storage::AcceptResult::Updated => {
-                        println!("{}", format!("Accepted {} ← {}", child, parent).success());
-                    }
-                    requiem::storage::AcceptResult::AlreadyUpToDate => {
-                        println!("No changes: link already up-to-date.");
-                    }
+            match directory.accept_suspect_link(child.clone(), parent.clone())? {
+                requiem::storage::AcceptResult::Updated => {
+                    println!("{}", format!("Accepted {child} ← {parent}").success());
                 }
-            } else {
-                // Check if link exists but is not suspect
-                match directory.accept_suspect_link(child.clone(), parent.clone())? {
-                    requiem::storage::AcceptResult::Updated => {
-                        println!("{}", format!("Accepted {} ← {}", child, parent).success());
-                    }
-                    requiem::storage::AcceptResult::AlreadyUpToDate => {
-                        println!("No changes: link already up-to-date.");
-                    }
+                requiem::storage::AcceptResult::AlreadyUpToDate => {
+                    println!("No changes: link already up-to-date.");
                 }
             }
         }
@@ -854,7 +853,7 @@ enum ConfigCommand {
 
 impl Config {
     #[instrument]
-    fn run(self, root: PathBuf) -> anyhow::Result<()> {
+    fn run(self, root: &Path) -> anyhow::Result<()> {
         use terminal::Colorize;
 
         let config_path = root.join("config.toml");
@@ -862,14 +861,14 @@ impl Config {
         match self.command {
             ConfigCommand::Show => {
                 let config = if config_path.exists() {
-                    requiem::Config::load(&config_path)
-                        .map_err(|e| anyhow::anyhow!("{}", e))?
+                    requiem::Config::load(&config_path).map_err(|e| anyhow::anyhow!("{e}"))?
                 } else {
                     requiem::Config::default()
                 };
 
                 println!("Configuration:");
-                println!("  subfolders_are_namespaces: {} ({})",
+                println!(
+                    "  subfolders_are_namespaces: {} ({})",
                     config.subfolders_are_namespaces,
                     if config.subfolders_are_namespaces {
                         "path mode".dim()
@@ -886,41 +885,64 @@ impl Config {
             }
             ConfigCommand::Set { key, value } => {
                 let mut config = if config_path.exists() {
-                    requiem::Config::load(&config_path)
-                        .map_err(|e| anyhow::anyhow!("{}", e))?
+                    requiem::Config::load(&config_path).map_err(|e| anyhow::anyhow!("{e}"))?
                 } else {
                     requiem::Config::default()
                 };
 
                 match key.as_str() {
                     "subfolders_are_namespaces" => {
-                        let bool_value = value.parse::<bool>()
+                        let bool_value = value
+                            .parse::<bool>()
                             .map_err(|_| anyhow::anyhow!("Value must be 'true' or 'false'"))?;
 
                         config.set_subfolders_are_namespaces(bool_value);
-                        config.save(&config_path)
-                            .map_err(|e| anyhow::anyhow!("{}", e))?;
+                        config
+                            .save(&config_path)
+                            .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-                        println!("{}", format!("Directory mode: {}",
-                            if bool_value { "path-based" } else { "filename-based" }
-                        ).success());
+                        println!(
+                            "{}",
+                            format!(
+                                "Directory mode: {}",
+                                if bool_value {
+                                    "path-based"
+                                } else {
+                                    "filename-based"
+                                }
+                            )
+                            .success()
+                        );
 
                         if bool_value {
                             println!("\n{}", "Path-based mode:".info());
-                            println!("  • Filenames inside namespace folders should contain KIND-ID (e.g., USR/003.md).");
-                            println!("  • Existing files are unchanged until you run 'req normalise-paths'.");
+                            println!(
+                                "  • Filenames inside namespace folders should contain KIND-ID \
+                                 (e.g., USR/003.md)."
+                            );
+                            println!(
+                                "  • Existing files are unchanged until you run 'req \
+                                 normalise-paths'."
+                            );
                         } else {
                             println!("\n{}", "Filename-based mode:".info());
                             println!("  • Namespaces will no longer be inferred from folders.");
-                            println!("  • Full HRID must be in filename (e.g., system-auth-USR-003.md).");
+                            println!(
+                                "  • Full HRID must be in filename (e.g., system-auth-USR-003.md)."
+                            );
                         }
 
-                        println!("\n{}", format!("See docs/src/requirements/SPC-004.md for migration guide").dim());
+                        println!(
+                            "\n{}",
+                            "See docs/src/requirements/SPC-004.md for migration guide"
+                                .to_string()
+                                .dim()
+                        );
                     }
                     _ => {
                         return Err(anyhow::anyhow!(
-                            "Unknown configuration key: '{}'\nSupported keys: subfolders_are_namespaces",
-                            key
+                            "Unknown configuration key: '{key}'\nSupported keys: \
+                             subfolders_are_namespaces",
                         ));
                     }
                 }
@@ -948,37 +970,38 @@ pub struct NormalisePaths {
 
 impl NormalisePaths {
     #[instrument]
-    fn run(self, root: PathBuf) -> anyhow::Result<()> {
+    fn run(self, root: &Path) -> anyhow::Result<()> {
         use terminal::Colorize;
 
         let config_path = root.join("config.toml");
         let config = if config_path.exists() {
-            requiem::Config::load(&config_path)
-                .map_err(|e| anyhow::anyhow!("{}", e))?
+            requiem::Config::load(&config_path).map_err(|e| anyhow::anyhow!("{e}"))?
         } else {
             requiem::Config::default()
         };
 
         if !config.subfolders_are_namespaces {
-            println!("{}", "Current mode is filename-based. Nothing to normalise.".dim());
+            println!(
+                "{}",
+                "Current mode is filename-based. Nothing to normalise.".dim()
+            );
             println!("Set subfolders_are_namespaces=true to use path-based mode.");
             return Ok(());
         }
 
         // Load all requirements to analyze paths
-        let directory = Directory::new(root.clone()).load_all()?;
+        let directory = Directory::new(root.to_path_buf())?;
         let mut moves: Vec<(PathBuf, PathBuf, String)> = Vec::new();
 
         for req in directory.requirements() {
             let current_path = directory.path_for(req.hrid());
-            let expected_path = compute_path_based_location(&root, req.hrid(), config.digits());
+            let expected_path = compute_path_based_location(root, req.hrid(), config.digits());
 
             if current_path != expected_path {
-                moves.push((
-                    current_path,
-                    expected_path,
-                    format!("HRID format mismatch for {}", req.hrid()),
-                ));
+                moves.push((current_path, expected_path, {
+                    let hrid = req.hrid();
+                    format!("HRID format mismatch for {hrid}")
+                }));
             }
         }
 
@@ -1011,8 +1034,9 @@ impl NormalisePaths {
         if !self.yes {
             use dialoguer::Confirm;
 
+            let move_count = moves.len();
             let confirmed = Confirm::new()
-                .with_prompt(format!("Apply {} file moves? (y/N)", moves.len()))
+                .with_prompt(format!("Apply {move_count} file moves? (y/N)"))
                 .default(false)
                 .interact()?;
 
@@ -1041,7 +1065,12 @@ impl NormalisePaths {
                 let backup = to.with_extension("md.bak");
                 std::fs::rename(to, &backup)?;
                 conflicts += 1;
-                println!("{}", format!("Conflict: backed up {} to {}", to.display(), backup.display()).warning());
+                let to_display = to.display();
+                let backup_display = backup.display();
+                println!(
+                    "{}",
+                    format!("Conflict: backed up {to_display} to {backup_display}").warning()
+                );
             }
 
             // Move file
@@ -1072,34 +1101,40 @@ enum DiagnoseCommand {
 
 impl Diagnose {
     #[instrument]
-    fn run(self, root: PathBuf) -> anyhow::Result<()> {
+    fn run(self, root: &Path) -> anyhow::Result<()> {
         use terminal::Colorize;
 
         match self.command {
             DiagnoseCommand::Paths => {
                 let config_path = root.join("config.toml");
                 let config = if config_path.exists() {
-                    requiem::Config::load(&config_path)
-                        .map_err(|e| anyhow::anyhow!("{}", e))?
+                    requiem::Config::load(&config_path).map_err(|e| anyhow::anyhow!("{e}"))?
                 } else {
                     requiem::Config::default()
                 };
 
-                let directory = Directory::new(root.clone()).load_all()?;
+                let directory = Directory::new(root.to_path_buf())?;
                 let mut issues: Vec<String> = Vec::new();
 
                 for req in directory.requirements() {
                     let current_path = directory.path_for(req.hrid());
 
                     if config.subfolders_are_namespaces {
-                        let expected_path = compute_path_based_location(&root, req.hrid(), config.digits());
+                        let expected_path =
+                            compute_path_based_location(root, req.hrid(), config.digits());
 
                         if current_path != expected_path {
+                            let hrid = req.hrid();
+                            let expected_display = expected_path
+                                .strip_prefix(root)
+                                .unwrap_or(&expected_path)
+                                .display();
+                            let current_display = current_path
+                                .strip_prefix(root)
+                                .unwrap_or(&current_path)
+                                .display();
                             issues.push(format!(
-                                "{}: Expected '{}', found '{}'",
-                                req.hrid(),
-                                expected_path.strip_prefix(&root).unwrap_or(&expected_path).display(),
-                                current_path.strip_prefix(&root).unwrap_or(&current_path).display()
+                                "{hrid}: Expected '{expected_display}', found '{current_display}'"
                             ));
                         }
                     } else {
@@ -1107,10 +1142,9 @@ impl Diagnose {
                         if let Some(filename) = current_path.file_name() {
                             let filename_str = filename.to_string_lossy();
                             if !filename_str.contains(req.hrid().kind()) {
+                                let hrid = req.hrid();
                                 issues.push(format!(
-                                    "{}: Filename '{}' should contain full HRID",
-                                    req.hrid(),
-                                    filename_str
+                                    "{hrid}: Filename '{filename_str}' should contain full HRID"
                                 ));
                             }
                         }
@@ -1120,12 +1154,19 @@ impl Diagnose {
                 if issues.is_empty() {
                     println!("{}", "✅ No path issues detected.".success());
                 } else {
-                    println!("{}", format!("⚠️  {} path issues found:", issues.len()).warning());
+                    let issue_count = issues.len();
+                    println!(
+                        "{}",
+                        format!("⚠️  {issue_count} path issues found:").warning()
+                    );
                     println!();
                     for (i, issue) in issues.iter().enumerate() {
                         println!("{}. {}", i + 1, issue);
                     }
-                    println!("\n{}", "Run 'req normalise-paths --plan' to see proposed fixes.".dim());
+                    println!(
+                        "\n{}",
+                        "Run 'req normalise-paths --plan' to see proposed fixes.".dim()
+                    );
                 }
 
                 Ok(())
@@ -1134,8 +1175,8 @@ impl Diagnose {
     }
 }
 
-fn compute_path_based_location(root: &PathBuf, hrid: &requiem::Hrid, digits: usize) -> PathBuf {
-    let mut path = root.clone();
+fn compute_path_based_location(root: &Path, hrid: &requiem::Hrid, digits: usize) -> PathBuf {
+    let mut path = root.to_path_buf();
 
     // Add namespace folders
     for segment in hrid.namespace() {
@@ -1154,23 +1195,12 @@ fn compute_path_based_location(root: &PathBuf, hrid: &requiem::Hrid, digits: usi
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use requiem::{Directory, Requirement};
     use tempfile::tempdir;
 
     use super::*;
 
-    fn load_directory(path: &Path) -> Directory<requiem::storage::directory::Loaded> {
-        Directory::new(path.to_path_buf())
-            .load_all()
-            .expect("failed to load directory")
-    }
-
-    fn collect_child<'a>(
-        directory: &'a Directory<requiem::storage::directory::Loaded>,
-        kind: &str,
-    ) -> &'a Requirement {
+    fn collect_child<'a>(directory: &'a Directory, kind: &str) -> &'a Requirement {
         directory
             .requirements()
             .find(|req| req.hrid().kind() == kind)
@@ -1182,7 +1212,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let root = tmp.path().to_path_buf();
 
-        let mut directory = load_directory(&root);
+        let mut directory = Directory::new(root.clone()).expect("failed to load directory");
         let parent = directory
             .add_requirement("SYS".to_string(), "# Parent".to_string())
             .unwrap();
@@ -1196,7 +1226,7 @@ mod tests {
 
         add.run(root.clone()).expect("add command should succeed");
 
-        let directory = load_directory(&root);
+        let directory = Directory::new(root).expect("failed to load directory");
         let child = collect_child(&directory, "USR");
 
         assert!(child
@@ -1208,7 +1238,7 @@ mod tests {
     #[test]
     fn add_run_uses_template_when_no_content_provided() {
         let tmp = tempdir().unwrap();
-        let root = tmp.path();
+        let root = tmp.path().to_path_buf();
         let template_dir = root.join(".req").join("templates");
         std::fs::create_dir_all(&template_dir).unwrap();
         std::fs::write(template_dir.join("USR.md"), "## Template body").unwrap();
@@ -1220,10 +1250,9 @@ mod tests {
             body: None,
         };
 
-        add.run(root.to_path_buf())
-            .expect("add command should succeed");
+        add.run(root.clone()).expect("add command should succeed");
 
-        let directory = load_directory(root);
+        let directory = Directory::new(root).expect("failed to load directory");
         let child = collect_child(&directory, "USR");
         assert_eq!(child.content(), "## Template body");
     }
@@ -1233,7 +1262,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let root = tmp.path().to_path_buf();
 
-        let mut directory = load_directory(&root);
+        let mut directory = Directory::new(root.clone()).expect("failed to load directory");
         let parent = directory
             .add_requirement("SYS".to_string(), "# Parent".to_string())
             .unwrap();
@@ -1248,7 +1277,7 @@ mod tests {
 
         link.run(root.clone()).expect("link command should succeed");
 
-        let directory = load_directory(&root);
+        let directory = Directory::new(root).expect("failed to load directory");
         let reloaded_child = collect_child(&directory, "USR");
         assert!(reloaded_child
             .parents()
@@ -1308,7 +1337,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let root = tmp.path().to_path_buf();
 
-        let mut directory = load_directory(&root);
+        let mut directory = Directory::new(root.clone()).expect("failed to load directory");
         let parent = directory
             .add_requirement("SYS".to_string(), "# Parent".to_string())
             .unwrap();
@@ -1317,6 +1346,7 @@ mod tests {
             .unwrap();
 
         Directory::new(root.clone())
+            .unwrap()
             .link_requirement(child.hrid().clone(), parent.hrid().clone())
             .unwrap();
 
@@ -1339,7 +1369,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let root = tmp.path().to_path_buf();
 
-        let mut directory = load_directory(&root);
+        let mut directory = Directory::new(root.clone()).expect("failed to load directory");
         let parent = directory
             .add_requirement("SYS".to_string(), "# Parent".to_string())
             .unwrap();
@@ -1349,6 +1379,7 @@ mod tests {
 
         // Create a parent-child relationship to ensure we exercise counting logic.
         Directory::new(root.clone())
+            .unwrap()
             .link_requirement(child.hrid().clone(), parent.hrid().clone())
             .unwrap();
 
