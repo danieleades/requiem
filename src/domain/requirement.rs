@@ -9,35 +9,84 @@ use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-pub use crate::domain::requirement::storage::LoadError;
-use crate::domain::{requirement::storage::MarkdownRequirement, Hrid};
-
-pub mod storage;
+pub use crate::storage::markdown::LoadError;
+use crate::{domain::Hrid, storage::markdown::MarkdownRequirement};
 
 /// A requirement is a document used to describe a system.
 ///
 /// It can represent a user requirement, a specification, etc.
 /// Requirements can have dependencies between them, such that one requirement
 /// satisfies, fulfils, verifies (etc.) another requirement.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Requirement {
-    content: Content,
-    metadata: Metadata,
+    /// The requirement's content (markdown text and tags).
+    pub content: Content,
+    /// The requirement's metadata (UUID, HRID, creation time, parents).
+    pub metadata: Metadata,
 }
 
 /// The semantically important content of the requirement.
 ///
 /// This contributes to the 'fingerprint' of the requirement
-#[derive(Debug, BorshSerialize, Clone, PartialEq)]
-struct Content {
-    content: String,
-    tags: BTreeSet<String>,
+#[derive(Debug, BorshSerialize, Clone, PartialEq, Eq)]
+pub struct Content {
+    pub content: String,
+    pub tags: BTreeSet<String>,
 }
 
 impl Content {
+    /// Creates a borrowed reference to this content.
+    ///
+    /// This is useful for computing fingerprints without cloning data.
+    #[must_use]
+    pub fn as_ref(&self) -> ContentRef<'_> {
+        ContentRef {
+            content: &self.content,
+            tags: &self.tags,
+        }
+    }
+
     fn fingerprint(&self) -> String {
+        self.as_ref().fingerprint()
+    }
+}
+
+/// A borrowed reference to requirement content.
+///
+/// This type represents the semantically important content of a requirement
+/// using borrowed data. It is used for computing fingerprints without cloning.
+#[derive(Debug, Clone, Copy)]
+pub struct ContentRef<'a> {
+    /// The markdown content of the requirement.
+    pub content: &'a str,
+    /// Tags associated with the requirement.
+    pub tags: &'a BTreeSet<String>,
+}
+
+impl ContentRef<'_> {
+    /// Calculate the fingerprint of this content.
+    ///
+    /// The fingerprint is a SHA256 hash of the Borsh-serialized content and tags.
+    /// This is used to detect when requirement content has changed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if borsh serialization fails (which should never happen for this data structure).
+    #[must_use]
+    pub fn fingerprint(&self) -> String {
+        #[derive(BorshSerialize)]
+        struct FingerprintData<'a> {
+            content: &'a str,
+            tags: &'a BTreeSet<String>,
+        }
+
+        let data = FingerprintData {
+            content: self.content,
+            tags: self.tags,
+        };
+
         // encode using [borsh](https://borsh.io/)
-        let encoded = borsh::to_vec(self).expect("this should never fail");
+        let encoded = borsh::to_vec(&data).expect("this should never fail");
 
         // generate a SHA256 hash
         let hash = Sha256::digest(encoded);
@@ -50,18 +99,18 @@ impl Content {
 /// Requirement metadata.
 ///
 /// Does not contribute to the requirement fingerprint.
-#[derive(Debug, Clone, PartialEq)]
-struct Metadata {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Metadata {
     /// Globally unique, perpetually stable identifier
-    uuid: Uuid,
+    pub uuid: Uuid,
 
     /// Globally unique, human readable identifier.
     ///
     /// This should in general change, however it is possible to
     /// change it if needed.
-    hrid: Hrid,
-    created: DateTime<Utc>,
-    parents: HashMap<Uuid, Parent>,
+    pub hrid: Hrid,
+    pub created: DateTime<Utc>,
+    pub parents: HashMap<Uuid, Parent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

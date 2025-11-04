@@ -98,6 +98,10 @@ impl Directory {
             tree.insert(req);
         }
 
+        // Note: No need to rebuild edges - DiGraphMap::add_edge() automatically
+        // creates nodes if they don't exist, so edges are created correctly even
+        // when children are inserted before their parents.
+
         Ok(Self { root, tree, config })
     }
 }
@@ -227,7 +231,7 @@ fn load_requirement_from_file(
     // Load directly from the file path we found during directory scanning
     use std::{fs::File, io::BufReader};
 
-    use crate::domain::requirement::storage::MarkdownRequirement;
+    use crate::storage::markdown::MarkdownRequirement;
 
     let file = File::open(path).map_err(|io_error| match io_error.kind() {
         std::io::ErrorKind::NotFound => LoadError::NotFound,
@@ -259,8 +263,8 @@ impl Directory {
     }
 
     /// Returns an iterator over all requirements stored in the directory.
-    pub fn requirements(&self) -> impl Iterator<Item = &Requirement> {
-        self.tree.iter()
+    pub fn requirements(&self) -> impl Iterator<Item = Requirement> + '_ {
+        self.tree.iter().map(|view| view.to_requirement())
     }
 
     /// Returns the configuration used when loading this directory.
@@ -271,8 +275,8 @@ impl Directory {
 
     /// Retrieves a requirement by its human-readable identifier.
     #[must_use]
-    pub fn requirement_by_hrid(&self, hrid: &Hrid) -> Option<&Requirement> {
-        self.tree.find_by_hrid(hrid)
+    pub fn requirement_by_hrid(&self, hrid: &Hrid) -> Option<Requirement> {
+        self.tree.find_by_hrid(hrid).map(|view| view.to_requirement())
     }
 
     /// Add a new requirement to the directory.
@@ -327,7 +331,8 @@ impl Directory {
         let failures = updated
             .iter()
             .filter_map(|&id| {
-                let requirement = tree.requirement(id)?;
+                let view = tree.requirement(id)?;
+                let requirement = view.to_requirement();
                 requirement.save(&self.root, &self.config).err().map(|e| {
                     // Construct the path using the same logic as save_with_config
                     use crate::storage::path_parser::construct_path_from_hrid;
@@ -386,10 +391,11 @@ impl Directory {
         }
 
         // Save the updated requirement
-        let updated_child = self
+        let view = self
             .tree
             .requirement(child_uuid)
             .ok_or(AcceptSuspectLinkError::ChildNotFound(child))?;
+        let updated_child = view.to_requirement();
         updated_child.save(&self.root, &self.config)?;
 
         Ok(AcceptResult::Updated)
@@ -410,7 +416,8 @@ impl Directory {
         let failures: Vec<_> = updated
             .iter()
             .filter_map(|&(child_uuid, _parent_uuid)| {
-                let requirement = self.tree.requirement(child_uuid)?;
+                let view = self.tree.requirement(child_uuid)?;
+                let requirement = view.to_requirement();
                 requirement.save(&self.root, &self.config).err().map(|e| {
                     // Construct the path using the same logic as save_with_config
                     use crate::storage::path_parser::construct_path_from_hrid;
@@ -435,7 +442,7 @@ impl Directory {
             .filter_map(|&(child_uuid, parent_uuid)| {
                 let child = self.tree.requirement(child_uuid)?;
                 let parent = self.tree.requirement(parent_uuid)?;
-                Some((child.hrid().clone(), parent.hrid().clone()))
+                Some((child.hrid.clone(), parent.hrid.clone()))
             })
             .collect();
 
@@ -738,7 +745,7 @@ Test requirement
         {
             use std::{fs::File, io::BufReader};
 
-            use crate::domain::requirement::storage::MarkdownRequirement;
+            use crate::storage::markdown::MarkdownRequirement;
             let file = File::open(&loaded_path).unwrap();
             let mut reader = BufReader::new(file);
             let md_req = MarkdownRequirement::read(&mut reader, hrid.clone()).unwrap();
@@ -821,7 +828,7 @@ Test requirement
         {
             use std::{fs::File, io::BufReader};
 
-            use crate::domain::requirement::storage::MarkdownRequirement;
+            use crate::storage::markdown::MarkdownRequirement;
             let file = File::open(&loaded_path).unwrap();
             let mut reader = BufReader::new(file);
             let md_req = MarkdownRequirement::read(&mut reader, hrid.clone()).unwrap();

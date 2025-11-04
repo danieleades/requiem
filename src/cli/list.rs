@@ -568,7 +568,7 @@ fn collect_entries(directory: &Directory) -> Vec<Entry> {
     let mut entries = Vec::new();
 
     for requirement in directory.requirements() {
-        entries.push(entry_from_requirement(directory, requirement));
+        entries.push(entry_from_requirement(directory, &requirement));
     }
 
     entries

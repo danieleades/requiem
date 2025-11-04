@@ -9,13 +9,15 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::Requirement;
-use crate::domain::{
-    hrid,
-    requirement::{Content, Metadata},
-    Hrid,
+use crate::{
+    domain::{
+        requirement::{Content, Metadata, Parent as DomainParent},
+        Hrid, HridError,
+    },
+    Requirement,
 };
 
+/// A requirement serialized in markdown format with YAML frontmatter.
 #[derive(Debug, Clone)]
 pub struct MarkdownRequirement {
     frontmatter: FrontMatter,
@@ -78,6 +80,10 @@ impl MarkdownRequirement {
     /// - If `true`: file is saved as `root/namespace/folders/KIND-ID.md`
     ///
     /// Parent directories are created automatically if they don't exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be created or written to.
     pub fn save(&self, root: &Path, config: &crate::domain::Config) -> io::Result<()> {
         use crate::storage::construct_path_from_hrid;
 
@@ -103,6 +109,10 @@ impl MarkdownRequirement {
     /// The path construction respects the `subfolders_are_namespaces` setting:
     /// - If `false`: loads from `root/FULL-HRID.md`
     /// - If `true`: loads from `root/namespace/folders/KIND-ID.md`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read or parsed.
     pub fn load(
         root: &Path,
         hrid: Hrid,
@@ -127,13 +137,18 @@ impl MarkdownRequirement {
     }
 }
 
+/// Errors that can occur when loading a requirement from markdown.
 #[derive(Debug, thiserror::Error)]
 #[error("failed to read from markdown")]
 pub enum LoadError {
+    /// The requirement file was not found.
     NotFound,
+    /// An I/O error occurred.
     Io(#[from] io::Error),
+    /// The YAML frontmatter could not be parsed.
     Yaml(#[from] serde_yaml::Error),
-    Hrid(#[from] hrid::Error),
+    /// The HRID could not be parsed.
+    Hrid(#[from] HridError),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -146,6 +161,7 @@ struct FrontMatter {
     parents: Vec<Parent>,
 }
 
+/// A parent requirement reference in the serialized format.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct Parent {
     uuid: Uuid,
@@ -157,6 +173,11 @@ pub struct Parent {
     hrid: Hrid,
 }
 
+/// Serialize an HRID as a string.
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
 pub fn hrid_as_string<S>(hrid: &Hrid, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
@@ -164,6 +185,11 @@ where
     serializer.serialize_str(&hrid.to_string())
 }
 
+/// Deserialize an HRID from a string.
+///
+/// # Errors
+///
+/// Returns an error if the string cannot be parsed as a valid HRID.
 pub fn hrid_from_string<'de, D>(deserializer: D) -> Result<Hrid, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -240,7 +266,7 @@ impl From<Requirement> for MarkdownRequirement {
             tags,
             parents: parents
                 .into_iter()
-                .map(|(uuid, super::Parent { hrid, fingerprint })| Parent {
+                .map(|(uuid, DomainParent { hrid, fingerprint })| Parent {
                     uuid,
                     fingerprint,
                     hrid,
@@ -257,7 +283,7 @@ impl From<Requirement> for MarkdownRequirement {
 }
 
 impl TryFrom<MarkdownRequirement> for Requirement {
-    type Error = hrid::Error;
+    type Error = HridError;
 
     fn try_from(req: MarkdownRequirement) -> Result<Self, Self::Error> {
         let MarkdownRequirement {
@@ -282,7 +308,7 @@ impl TryFrom<MarkdownRequirement> for Requirement {
                 } = parent;
                 Ok((
                     uuid,
-                    super::Parent {
+                    DomainParent {
                         hrid: parent_hrid,
                         fingerprint,
                     },

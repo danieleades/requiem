@@ -1062,7 +1062,7 @@ mod tests {
 
     use super::*;
 
-    fn collect_child<'a>(directory: &'a Directory, kind: &str) -> &'a Requirement {
+    fn collect_child(directory: &Directory, kind: &str) -> Requirement {
         directory
             .requirements()
             .find(|req| req.hrid().kind() == kind)
