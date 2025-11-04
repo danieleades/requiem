@@ -23,7 +23,6 @@ pub struct RequirementData {
     pub created: DateTime<Utc>,
 }
 
-
 impl From<Requirement> for RequirementData {
     fn from(req: Requirement) -> Self {
         Self {

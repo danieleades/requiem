@@ -4,17 +4,24 @@
 //! directory structure. It is a wrapper around the filesystem agnostic
 //! [`Tree`].
 
-use std::{ffi::OsStr, fmt::{self}, io, path::{Path, PathBuf}};
+use std::{
+    collections::HashSet,
+    ffi::OsStr,
+    fmt::{self},
+    io,
+    path::{Path, PathBuf},
+};
 
 use nonempty::NonEmpty;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use uuid::Uuid;
 use walkdir::WalkDir;
 
 pub use crate::storage::Tree;
 use crate::{
-    Requirement, domain::{
-        Config, Hrid, hrid::KindString, requirement::{LoadError, Parent}
-    }, storage::{RequirementView, path_parser::parse_hrid_from_path}
+    domain::{hrid::KindString, requirement::LoadError, Config, Hrid},
+    storage::{path_parser::parse_hrid_from_path, RequirementView},
+    Requirement,
 };
 
 /// A filesystem backed store of requirements.
@@ -23,9 +30,15 @@ pub struct Directory {
     root: PathBuf,
     tree: Tree,
     config: Config,
+    dirty: HashSet<Uuid>,
 }
 
 impl Directory {
+    /// Mark a requirement as needing to be flushed to disk.
+    fn mark_dirty(&mut self, uuid: Uuid) {
+        self.dirty.insert(uuid);
+    }
+
     /// Link two requirements together with a parent-child relationship.
     ///
     /// # Errors
@@ -35,29 +48,21 @@ impl Directory {
     /// - either the child or parent requirement file cannot be found
     /// - either the child or parent requirement file cannot be parsed
     /// - the child requirement file cannot be written to
-    pub fn link_requirement(&self, child: Hrid, parent: Hrid) -> Result<Requirement, LoadError> {
-        let mut child = self.load_requirement(child)?;
-        let parent = self.load_requirement(parent)?;
+    pub fn link_requirement(
+        &mut self,
+        child: &Hrid,
+        parent: &Hrid,
+    ) -> Result<RequirementView<'_>, LoadError> {
+        let outcome = self.tree.link_requirement(child, parent)?;
+        self.mark_dirty(outcome.child_uuid);
 
-        child.add_parent(
-            parent.uuid(),
-            Parent {
-                hrid: parent.hrid().clone(),
-                fingerprint: parent.fingerprint(),
-            },
-        );
+        if !outcome.already_linked {
+            tracing::info!("Linked {} ← {}", outcome.child_hrid, outcome.parent_hrid);
+        }
 
-        // Load config to use for saving
-        let config = load_config(&self.root);
-        child.save(&self.root, &config)?;
-
-        Ok(child)
-    }
-
-    fn load_requirement(&self, hrid: Hrid) -> Result<Requirement, LoadError> {
-        // Load config to use config-aware loading
-        let config = load_config(&self.root);
-        Requirement::load(&self.root, hrid, &config)
+        self.tree
+            .requirement(outcome.child_uuid)
+            .ok_or(LoadError::NotFound)
     }
 
     /// Opens a directory at the given path.
@@ -94,7 +99,12 @@ impl Directory {
         // creates nodes if they don't exist, so edges are created correctly even
         // when children are inserted before their parents.
 
-        Ok(Self { root, tree, config })
+        Ok(Self {
+            root,
+            tree,
+            config,
+            dirty: HashSet::new(),
+        })
     }
 }
 
@@ -268,7 +278,9 @@ impl Directory {
     /// Retrieves a requirement by its human-readable identifier.
     #[must_use]
     pub fn requirement_by_hrid(&self, hrid: &Hrid) -> Option<Requirement> {
-        self.tree.find_by_hrid(hrid).map(|view| view.to_requirement())
+        self.tree
+            .find_by_hrid(hrid)
+            .map(|view| view.to_requirement())
     }
 
     /// Add a new requirement to the directory.
@@ -291,7 +303,8 @@ impl Directory {
         let tree = &mut self.tree;
 
         // Validate kind (CLI already normalized to uppercase)
-        let kind_string = KindString::new(kind.to_string()).map_err(crate::domain::hrid::Error::from)?;
+        let kind_string =
+            KindString::new(kind.to_string()).map_err(crate::domain::hrid::Error::from)?;
 
         let id = tree.next_index(&kind_string);
         let hrid = Hrid::new(kind_string, id);
@@ -305,8 +318,8 @@ impl Directory {
 
         let requirement = Requirement::new(hrid, final_content);
 
-        requirement.save(&self.root, &self.config)?;
         tree.insert(requirement.clone());
+        self.mark_dirty(requirement.uuid());
 
         tracing::info!("Added requirement: {}", requirement.hrid());
 
@@ -323,30 +336,19 @@ impl Directory {
     /// This method returns an error if some of the requirements cannot be saved
     /// to disk. This method does *not* fail fast. That is, it will attempt
     /// to save all the requirements before returning the error.
-    pub fn update_hrids(&mut self) -> Result<(), UpdateHridsError> {
+    pub fn update_hrids(&mut self) -> Vec<Hrid> {
         let tree = &mut self.tree;
         let updated: Vec<_> = tree.update_hrids().collect();
 
-        let failures = updated
-            .iter()
-            .filter_map(|&id| {
-                let view = tree.requirement(id)?;
-                let requirement = view.to_requirement();
-                requirement.save(&self.root, &self.config).err().map(|e| {
-                    // Construct the path using the same logic as save_with_config
-                    use crate::storage::path_parser::construct_path_from_hrid;
-                    let path = construct_path_from_hrid(
-                        &self.root,
-                        requirement.hrid(),
-                        self.config.subfolders_are_namespaces,
-                        self.config.digits(),
-                    );
-                    (path, e)
-                })
-            })
-            .collect();
+        for &uuid in &updated {
+            self.mark_dirty(uuid);
+        }
 
-        NonEmpty::from_vec(failures).map_or(Ok(()), |failures| Err(UpdateHridsError { failures }))
+        updated
+            .into_iter()
+            .filter_map(|uuid| self.tree.requirement(uuid))
+            .map(|view| view.hrid.clone())
+            .collect()
     }
 
     /// Find all suspect links in the requirement graph.
@@ -371,14 +373,22 @@ impl Directory {
         child: Hrid,
         parent: Hrid,
     ) -> Result<AcceptResult, AcceptSuspectLinkError> {
-        let child_req = self.load_requirement(child.clone())?;
-        let parent_req = self.load_requirement(parent.clone())?;
+        let (child_uuid, child_hrid) = match self.tree.find_by_hrid(&child) {
+            Some(view) => (*view.uuid, view.hrid.clone()),
+            None => return Err(AcceptSuspectLinkError::ChildNotFound(child)),
+        };
 
-        let child_uuid = child_req.uuid();
-        let parent_uuid = parent_req.uuid();
+        let (parent_uuid, parent_hrid) = match self.tree.find_by_hrid(&parent) {
+            Some(view) => (*view.uuid, view.hrid.clone()),
+            None => return Err(AcceptSuspectLinkError::ParentNotFound(LoadError::NotFound)),
+        };
 
-        // Check if the link exists
-        let has_link = child_req.parents().any(|(pid, _)| pid == parent_uuid);
+        let has_link = self
+            .tree
+            .parents(child_uuid)
+            .into_iter()
+            .any(|(uuid, _)| uuid == parent_uuid);
+
         if !has_link {
             return Err(AcceptSuspectLinkError::LinkNotFound { child, parent });
         }
@@ -389,13 +399,8 @@ impl Directory {
             return Ok(AcceptResult::AlreadyUpToDate);
         }
 
-        // Save the updated requirement
-        let view = self
-            .tree
-            .requirement(child_uuid)
-            .ok_or(AcceptSuspectLinkError::ChildNotFound(child))?;
-        let updated_child = view.to_requirement();
-        updated_child.save(&self.root, &self.config)?;
+        self.mark_dirty(child_uuid);
+        tracing::info!("Accepted suspect link {} ← {}", child_hrid, parent_hrid);
 
         Ok(AcceptResult::Updated)
     }
@@ -407,69 +412,95 @@ impl Directory {
     /// Returns an error if any requirement file cannot be saved.
     /// This method does not fail fast - it will attempt to save all
     /// requirements before returning the error.
-    pub fn accept_all_suspect_links(
-        &mut self,
-    ) -> Result<Vec<(Hrid, Hrid)>, UpdateSuspectLinksError> {
+    pub fn accept_all_suspect_links(&mut self) -> Vec<(Hrid, Hrid)> {
         let updated = self.tree.accept_all_suspect_links();
 
-        let failures: Vec<_> = updated
-            .iter()
-            .filter_map(|&(child_uuid, _parent_uuid)| {
-                let view = self.tree.requirement(child_uuid)?;
-                let requirement = view.to_requirement();
-                requirement.save(&self.root, &self.config).err().map(|e| {
-                    // Construct the path using the same logic as save_with_config
-                    use crate::storage::path_parser::construct_path_from_hrid;
+        let mut collected = Vec::new();
+        for &(child_uuid, parent_uuid) in &updated {
+            if let (Some(child), Some(parent)) = (
+                self.tree.requirement(child_uuid),
+                self.tree.requirement(parent_uuid),
+            ) {
+                collected.push((child_uuid, child.hrid.clone(), parent.hrid.clone()));
+            }
+        }
+
+        for (child_uuid, _, _) in &collected {
+            self.mark_dirty(*child_uuid);
+        }
+
+        collected
+            .into_iter()
+            .map(|(_, child_hrid, parent_hrid)| (child_hrid, parent_hrid))
+            .collect()
+    }
+
+    /// Persist all dirty requirements to disk.
+    ///
+    /// Returns the HRIDs of the requirements that were written.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error containing the paths that failed to flush alongside the underlying IO error.
+    pub fn flush(&mut self) -> Result<Vec<Hrid>, FlushError> {
+        use crate::storage::path_parser::construct_path_from_hrid;
+
+        let dirty: Vec<_> = self.dirty.iter().copied().collect();
+        let mut flushed = Vec::new();
+        let mut failures = Vec::new();
+
+        for uuid in dirty {
+            let Some(view) = self.tree.requirement(uuid) else {
+                // Requirement may have been removed; drop from dirty set.
+                self.dirty.remove(&uuid);
+                continue;
+            };
+
+            let requirement = view.to_requirement();
+            match requirement.save(&self.root, &self.config) {
+                Ok(()) => {
+                    self.dirty.remove(&uuid);
+                    flushed.push(view.hrid.clone());
+                }
+                Err(err) => {
                     let path = construct_path_from_hrid(
                         &self.root,
-                        requirement.hrid(),
+                        view.hrid,
                         self.config.subfolders_are_namespaces,
                         self.config.digits(),
                     );
-                    (path, e)
-                })
-            })
-            .collect();
-
-        if let Some(failures) = NonEmpty::from_vec(failures) {
-            return Err(UpdateSuspectLinksError { failures });
+                    failures.push((path, err));
+                }
+            }
         }
 
-        // Convert UUIDs to HRIDs for return value
-        let updated_hrids: Vec<_> = updated
-            .iter()
-            .filter_map(|&(child_uuid, parent_uuid)| {
-                let child = self.tree.requirement(child_uuid)?;
-                let parent = self.tree.requirement(parent_uuid)?;
-                Some((child.hrid.clone(), parent.hrid.clone()))
-            })
-            .collect();
+        if let Some(failures) = NonEmpty::from_vec(failures) {
+            return Err(FlushError { failures });
+        }
 
-        Ok(updated_hrids)
+        Ok(flushed)
     }
 }
 
 /// Error type for adding requirements.
 #[derive(Debug, thiserror::Error)]
-#[error("failed to add requirement: {0}")]
 pub enum AddRequirementError {
     /// The requirement kind or ID was invalid.
+    #[error("failed to add requirement: {0}")]
     Hrid(#[from] crate::domain::HridError),
-    /// An I/O error occurred while saving the requirement.
-    Io(#[from] io::Error),
 }
 
-/// Error type for HRID update operations.
+/// Error type for flush failures.
 #[derive(Debug, thiserror::Error)]
-pub struct UpdateHridsError {
+pub struct FlushError {
     failures: NonEmpty<(PathBuf, io::Error)>,
 }
 
-impl fmt::Display for UpdateHridsError {
+impl fmt::Display for FlushError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         const MAX_DISPLAY: usize = 5;
 
-        write!(f, "failed to update HRIDS: ")?;
+        write!(f, "failed to flush requirements: ")?;
 
         let total = self.failures.len();
 
@@ -516,40 +547,6 @@ pub enum AcceptSuspectLinkError {
         /// The parent requirement HRID.
         parent: Hrid,
     },
-    /// An I/O error occurred while saving the updated requirement.
-    #[error("failed to save requirement: {0}")]
-    Io(#[from] io::Error),
-}
-
-/// Error type for updating suspect links.
-#[derive(Debug, thiserror::Error)]
-pub struct UpdateSuspectLinksError {
-    failures: NonEmpty<(PathBuf, io::Error)>,
-}
-
-impl fmt::Display for UpdateSuspectLinksError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        const MAX_DISPLAY: usize = 5;
-
-        write!(f, "failed to update suspect links: ")?;
-
-        let total = self.failures.len();
-
-        let displayed_paths: Vec<String> = self
-            .failures
-            .iter()
-            .take(MAX_DISPLAY)
-            .map(|(p, _e)| p.display().to_string())
-            .collect();
-
-        let msg = displayed_paths.join(", ");
-
-        if total <= MAX_DISPLAY {
-            write!(f, "{msg}")
-        } else {
-            write!(f, "{msg}... (and {} more)", total - MAX_DISPLAY)
-        }
-    }
 }
 
 #[cfg(test)]
@@ -557,7 +554,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::Requirement;
+    use crate::{domain::requirement::Parent, Requirement};
 
     fn setup_temp_directory() -> (TempDir, Directory) {
         let tmp = TempDir::new().expect("failed to create temp dir");
@@ -568,9 +565,9 @@ mod tests {
     #[test]
     fn can_add_requirement() {
         let (_tmp, mut dir) = setup_temp_directory();
-        let r1 = dir
-            .add_requirement("REQ", String::new())
-            .unwrap();
+        let r1 = dir.add_requirement("REQ", String::new()).unwrap();
+
+        dir.flush().expect("flush should succeed");
 
         assert_eq!(r1.hrid().to_string(), "REQ-001");
 
@@ -582,12 +579,10 @@ mod tests {
     #[test]
     fn can_add_multiple_requirements_with_incrementing_id() {
         let (_tmp, mut dir) = setup_temp_directory();
-        let r1 = dir
-            .add_requirement("REQ", String::new())
-            .unwrap();
-        let r2 = dir
-            .add_requirement("REQ", String::new())
-            .unwrap();
+        let r1 = dir.add_requirement("REQ", String::new()).unwrap();
+        let r2 = dir.add_requirement("REQ", String::new()).unwrap();
+
+        dir.flush().expect("flush should succeed");
 
         assert_eq!(r1.hrid().to_string(), "REQ-001");
         assert_eq!(r2.hrid().to_string(), "REQ-002");
@@ -596,15 +591,15 @@ mod tests {
     #[test]
     fn can_link_two_requirements() {
         let (_tmp, mut dir) = setup_temp_directory();
-        let parent = dir
-            .add_requirement("SYS", String::new())
-            .unwrap();
+        let parent = dir.add_requirement("SYS", String::new()).unwrap();
         let child = dir.add_requirement("USR", String::new()).unwrap();
+        dir.flush().expect("flush should succeed");
 
-        Directory::new(dir.root.clone())
-            .unwrap()
-            .link_requirement(child.hrid().clone(), parent.hrid().clone())
+        let mut reloaded = Directory::new(dir.root.clone()).unwrap();
+        reloaded
+            .link_requirement(child.hrid(), parent.hrid())
             .unwrap();
+        reloaded.flush().unwrap();
 
         let config = load_config(&dir.root);
         let updated =
@@ -622,6 +617,8 @@ mod tests {
         let parent = dir.add_requirement("P", String::new()).unwrap();
         let mut child = dir.add_requirement("C", String::new()).unwrap();
 
+        dir.flush().expect("flush should succeed");
+
         // Manually corrupt HRID in child's parent info
         child.add_parent(
             parent.uuid(),
@@ -633,7 +630,8 @@ mod tests {
         child.save(&dir.root, &dir.config).unwrap();
 
         let mut loaded_dir = Directory::new(dir.root.clone()).unwrap();
-        loaded_dir.update_hrids().unwrap();
+        loaded_dir.update_hrids();
+        loaded_dir.flush().unwrap();
 
         let updated = Requirement::load(&loaded_dir.root, child.hrid().clone(), &loaded_dir.config)
             .expect("should load updated child");
@@ -648,6 +646,8 @@ mod tests {
         let (_tmp, mut dir) = setup_temp_directory();
         let r1 = dir.add_requirement("X", String::new()).unwrap();
         let r2 = dir.add_requirement("X", String::new()).unwrap();
+
+        dir.flush().expect("flush should succeed");
 
         let loaded = Directory::new(dir.root.clone()).unwrap();
 
@@ -679,8 +679,10 @@ mod tests {
         std::fs::create_dir_all(root.join("system/auth")).unwrap();
 
         // Create a requirement file in path-based format
+        std::fs::create_dir_all(root.join("SYSTEM/AUTH")).unwrap();
+
         std::fs::write(
-            root.join("system/auth/REQ-001.md"),
+            root.join("SYSTEM/AUTH/REQ-001.md"),
             r"---
 _version: '1'
 uuid: 12345678-1234-1234-1234-123456789012
@@ -695,7 +697,7 @@ Test requirement
         let dir = Directory::new(root.to_path_buf()).unwrap();
 
         // Should be able to load the requirement with the correct HRID using config
-        let hrid = Hrid::try_from("system-auth-REQ-001").unwrap();
+        let hrid = Hrid::try_from("SYSTEM-AUTH-REQ-001").unwrap();
         let req = Requirement::load(root, hrid.clone(), &dir.config).unwrap();
         assert_eq!(req.hrid(), &hrid);
     }
@@ -713,11 +715,11 @@ Test requirement
         .unwrap();
 
         // Create directory structure with KIND as parent folder
-        std::fs::create_dir_all(root.join("system/auth/USR")).unwrap();
+        std::fs::create_dir_all(root.join("SYSTEM/AUTH/USR")).unwrap();
 
         // Create a requirement file with numeric filename
         std::fs::write(
-            root.join("system/auth/USR/001.md"),
+            root.join("SYSTEM/AUTH/USR/001.md"),
             r"---
 _version: '1'
 uuid: 12345678-1234-1234-1234-123456789013
@@ -732,10 +734,10 @@ Test requirement
         let _dir = Directory::new(root.to_path_buf()).unwrap();
 
         // Verify the requirement was loaded with correct HRID (KIND from parent folder)
-        let hrid = Hrid::try_from("system-auth-USR-001").unwrap();
+        let hrid = Hrid::try_from("SYSTEM-AUTH-USR-001").unwrap();
         // The requirement should have been loaded from system/auth/USR/001.md during
         // load_all We verify it exists by checking the file was found
-        let loaded_path = root.join("system/auth/USR/001.md");
+        let loaded_path = root.join("SYSTEM/AUTH/USR/001.md");
         assert!(loaded_path.exists());
 
         // Verify the requirement can be read directly from the file
@@ -753,8 +755,8 @@ Test requirement
 
     #[test]
     fn path_based_mode_saves_in_subdirectories() {
-        use std::num::NonZeroUsize;
         use crate::domain::hrid::KindString;
+        use std::num::NonZeroUsize;
 
         let tmp = TempDir::new().expect("failed to create temp dir");
         let root = tmp.path();
@@ -784,7 +786,7 @@ Test requirement
         req.save(root, &dir.config).unwrap();
 
         // File should be created at system/auth/REQ-001.md
-        assert!(root.join("system/auth/REQ-001.md").exists());
+        assert!(root.join("SYSTEM/AUTH/REQ-001.md").exists());
 
         // Should be able to reload it using config
         let loaded = Requirement::load(root, hrid.clone(), &dir.config).unwrap();
@@ -820,7 +822,7 @@ Test requirement
 
         // Verify the requirement was loaded with HRID from filename, not path
         // (The file is in some/random/path/ but the HRID comes from the filename)
-        let hrid = Hrid::try_from("system-auth-REQ-001").unwrap();
+        let hrid = Hrid::try_from("SYSTEM-AUTH-REQ-001").unwrap();
         // The requirement should have been loaded from the nested path during load_all
         // We verify it exists by checking it can be found in the directory structure
         let loaded_path = root.join("some/random/path/system-auth-REQ-001.md");
@@ -841,8 +843,8 @@ Test requirement
 
     #[test]
     fn filename_based_mode_saves_in_root() {
-        use std::num::NonZeroUsize;
         use crate::domain::hrid::KindString;
+        use std::num::NonZeroUsize;
 
         let tmp = TempDir::new().expect("failed to create temp dir");
         let root = tmp.path();
@@ -868,7 +870,7 @@ Test requirement
         req.save(root, &dir.config).unwrap();
 
         // File should be created in root with full HRID
-        assert!(root.join("system-auth-REQ-001.md").exists());
+        assert!(root.join("SYSTEM-AUTH-REQ-001.md").exists());
         assert!(!root.join("system/auth/REQ-001.md").exists());
     }
 }

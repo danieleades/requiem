@@ -11,7 +11,10 @@
 //!    - Example: `system/auth/USR/001.md` → `system-auth-USR-001`
 //!    - Format is inferred: numeric filename → KIND in parent folder
 
-use std::{path::{Component, Path, PathBuf}, str::FromStr};
+use std::{
+    path::{Component, Path, PathBuf},
+    str::FromStr,
+};
 
 use crate::domain::{Hrid, HridError};
 
@@ -135,8 +138,8 @@ fn parse_with_namespace_from_path(
 ///
 /// Example: `system/auth/REQ/001.md` → `system-auth-REQ-001`
 fn parse_kind_in_parent(components: &[String], id_str: &str) -> Result<Hrid, ParseError> {
-    use std::num::NonZeroUsize;
     use crate::domain::hrid::KindString;
+    use std::num::NonZeroUsize;
 
     if components.is_empty() {
         return Err(ParseError::MissingKind);
@@ -144,8 +147,7 @@ fn parse_kind_in_parent(components: &[String], id_str: &str) -> Result<Hrid, Par
 
     // Last component is KIND - normalize to uppercase
     let kind_str = components.last().unwrap().to_uppercase();
-    let kind = KindString::new(kind_str)
-        .map_err(|_| ParseError::InvalidKind)?;
+    let kind = KindString::new(kind_str).map_err(|_| ParseError::InvalidKind)?;
 
     // Remaining components are namespace - normalize to uppercase
     let namespace: Result<Vec<_>, _> = components[..components.len() - 1]
@@ -161,8 +163,7 @@ fn parse_kind_in_parent(components: &[String], id_str: &str) -> Result<Hrid, Par
     let id_usize = id_str
         .parse::<usize>()
         .map_err(|_| ParseError::InvalidId(id_str.into()))?;
-    let id = NonZeroUsize::new(id_usize)
-        .ok_or_else(|| ParseError::InvalidId(id_str.into()))?;
+    let id = NonZeroUsize::new(id_usize).ok_or_else(|| ParseError::InvalidId(id_str.into()))?;
 
     Ok(Hrid::new_with_namespace(namespace, kind, id))
 }
@@ -171,8 +172,8 @@ fn parse_kind_in_parent(components: &[String], id_str: &str) -> Result<Hrid, Par
 ///
 /// Example: `system/auth/REQ-001.md` → `system-auth-REQ-001`
 fn parse_kind_in_filename(components: &[String], filename_stem: &str) -> Result<Hrid, ParseError> {
-    use std::num::NonZeroUsize;
     use crate::domain::hrid::KindString;
+    use std::num::NonZeroUsize;
 
     // Split on last dash to handle multi-dash patterns
     let dash_pos = filename_stem
@@ -190,8 +191,7 @@ fn parse_kind_in_filename(components: &[String], filename_stem: &str) -> Result<
     let id_usize = id_str
         .parse::<usize>()
         .map_err(|_| ParseError::InvalidId(id_str.into()))?;
-    let id = NonZeroUsize::new(id_usize)
-        .ok_or_else(|| ParseError::InvalidId(id_str.into()))?;
+    let id = NonZeroUsize::new(id_usize).ok_or_else(|| ParseError::InvalidId(id_str.into()))?;
 
     // All components are namespace - normalize to uppercase
     let namespace: Result<Vec<_>, _> = components
@@ -259,7 +259,7 @@ mod tests {
         let path = root.join("system-auth-REQ-001.md");
 
         let hrid = parse_hrid_from_path(&path, &root, false).unwrap();
-        assert_eq!(hrid.to_string(), "system-auth-REQ-001");
+        assert_eq!(hrid.to_string(), "SYSTEM-AUTH-REQ-001");
     }
 
     #[test]
@@ -268,7 +268,7 @@ mod tests {
         let path = root.join("custom/folder/system-auth-REQ-001.md");
 
         let hrid = parse_hrid_from_path(&path, &root, false).unwrap();
-        assert_eq!(hrid.to_string(), "system-auth-REQ-001");
+        assert_eq!(hrid.to_string(), "SYSTEM-AUTH-REQ-001");
     }
 
     #[test]
@@ -277,8 +277,8 @@ mod tests {
         let path = root.join("system/auth/REQ-001.md");
 
         let hrid = parse_hrid_from_path(&path, &root, true).unwrap();
-        assert_eq!(hrid.to_string(), "system-auth-REQ-001");
-        assert_eq!(hrid.namespace(), vec!["system", "auth"]);
+        assert_eq!(hrid.to_string(), "SYSTEM-AUTH-REQ-001");
+        assert_eq!(hrid.namespace(), vec!["SYSTEM", "AUTH"]);
         assert_eq!(hrid.kind(), "REQ");
         assert_eq!(hrid.id().get(), 1);
     }
@@ -289,8 +289,8 @@ mod tests {
         let path = root.join("system/auth/REQ/001.md");
 
         let hrid = parse_hrid_from_path(&path, &root, true).unwrap();
-        assert_eq!(hrid.to_string(), "system-auth-REQ-001");
-        assert_eq!(hrid.namespace(), vec!["system", "auth"]);
+        assert_eq!(hrid.to_string(), "SYSTEM-AUTH-REQ-001");
+        assert_eq!(hrid.namespace(), vec!["SYSTEM", "AUTH"]);
         assert_eq!(hrid.kind(), "REQ");
         assert_eq!(hrid.id().get(), 1);
     }
@@ -322,19 +322,19 @@ mod tests {
     #[test]
     fn construct_path_filename_based() {
         let root = PathBuf::from("/root");
-        let hrid = Hrid::try_from("system-auth-REQ-001").unwrap();
+        let hrid = Hrid::try_from("SYSTEM-AUTH-REQ-001").unwrap();
 
         let path = construct_path_from_hrid(&root, &hrid, false, 3);
-        assert_eq!(path, root.join("system-auth-REQ-001.md"));
+        assert_eq!(path, root.join("SYSTEM-AUTH-REQ-001.md"));
     }
 
     #[test]
     fn construct_path_path_based() {
         let root = PathBuf::from("/root");
-        let hrid = Hrid::try_from("system-auth-REQ-001").unwrap();
+        let hrid = Hrid::try_from("SYSTEM-AUTH-REQ-001").unwrap();
 
         let path = construct_path_from_hrid(&root, &hrid, true, 3);
-        assert_eq!(path, root.join("system/auth/REQ-001.md"));
+        assert_eq!(path, root.join("SYSTEM/AUTH/REQ-001.md"));
     }
 
     #[test]

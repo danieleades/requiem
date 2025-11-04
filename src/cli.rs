@@ -161,11 +161,12 @@ impl Add {
         let kind = self.kind.to_uppercase();
         let requirement = directory.add_requirement(&kind, content)?;
 
-        for parent in self.parent {
+        for parent in &self.parent {
             // TODO: the linkage should be done before the requirement is saved by the
             // 'add_requirement' method to avoid unnecessary IO.
-            directory.link_requirement(requirement.hrid().clone(), parent)?;
+            directory.link_requirement(requirement.hrid(), parent)?;
         }
+        directory.flush()?;
 
         println!("Added requirement {}", requirement.hrid());
         Ok(())
@@ -186,12 +187,13 @@ pub struct Link {
 impl Link {
     #[instrument]
     fn run(self, root: PathBuf) -> anyhow::Result<()> {
-        let directory = Directory::new(root)?;
+        let mut directory = Directory::new(root)?;
         let child = &self.child;
         let parent = &self.parent;
         let msg = format!("Linked {child} to {parent}");
 
-        directory.link_requirement(self.child, self.parent)?;
+        directory.link_requirement(&self.child, &self.parent)?;
+        directory.flush()?;
 
         println!("{msg}");
 
@@ -205,7 +207,9 @@ pub struct Clean {}
 impl Clean {
     #[instrument]
     fn run(path: PathBuf) -> anyhow::Result<()> {
-        Directory::new(path)?.update_hrids()?;
+        let mut directory = Directory::new(path)?;
+        directory.update_hrids();
+        directory.flush()?;
         Ok(())
     }
 }
@@ -787,7 +791,8 @@ impl Accept {
                 println!("Updating {} ← {}", link.child_hrid, link.parent_hrid);
             }
 
-            let updated = directory.accept_all_suspect_links()?;
+            let updated = directory.accept_all_suspect_links();
+            directory.flush()?;
             let duration = start.elapsed();
 
             println!(
@@ -830,6 +835,7 @@ impl Accept {
 
             match directory.accept_suspect_link(child.clone(), parent.clone())? {
                 requiem::storage::AcceptResult::Updated => {
+                    directory.flush()?;
                     println!("{}", format!("Accepted {child} ← {parent}").success());
                 }
                 requiem::storage::AcceptResult::AlreadyUpToDate => {
@@ -1073,7 +1079,7 @@ fn compute_path_based_location(root: &Path, hrid: &requiem::Hrid, digits: usize)
 
 #[cfg(test)]
 mod tests {
-    use requiem::{Directory, storage::RequirementView};
+    use requiem::{storage::RequirementView, Directory};
     use tempfile::tempdir;
 
     use super::*;
@@ -1094,6 +1100,9 @@ mod tests {
         let parent = directory
             .add_requirement("SYS", "# Parent".to_string())
             .unwrap();
+        directory
+            .flush()
+            .expect("failed to flush parent requirement");
 
         let add = Add {
             kind: "USR".to_string(),
@@ -1108,7 +1117,8 @@ mod tests {
         let child = collect_child(&directory, "USR");
 
         assert!(child
-            .parents.iter()
+            .parents
+            .iter()
             .any(|(_uuid, info)| info.hrid == *parent.hrid()));
         assert_eq!(child.content, "# Child\n\nbody text");
     }
@@ -1147,6 +1157,9 @@ mod tests {
         let child = directory
             .add_requirement("USR", "# Child".to_string())
             .unwrap();
+        directory
+            .flush()
+            .expect("failed to flush initial requirements");
 
         let link = Link {
             child: child.hrid().clone(),
@@ -1158,7 +1171,8 @@ mod tests {
         let directory = Directory::new(root).expect("failed to load directory");
         let reloaded_child = collect_child(&directory, "USR");
         assert!(reloaded_child
-            .parents.iter()
+            .parents
+            .iter()
             .any(|(_uuid, info)| info.hrid == *parent.hrid()));
     }
 
@@ -1222,11 +1236,15 @@ mod tests {
         let child = directory
             .add_requirement("USR", "# Child".to_string())
             .unwrap();
+        directory
+            .flush()
+            .expect("failed to flush initial requirements");
 
-        Directory::new(root.clone())
-            .unwrap()
-            .link_requirement(child.hrid().clone(), parent.hrid().clone())
+        let mut directory = Directory::new(root.clone()).unwrap();
+        directory
+            .link_requirement(child.hrid(), parent.hrid())
             .unwrap();
+        directory.flush().unwrap();
 
         let accept = Accept {
             all: false,
@@ -1254,12 +1272,16 @@ mod tests {
         let child = directory
             .add_requirement("USR", "# Child".to_string())
             .unwrap();
+        directory
+            .flush()
+            .expect("failed to flush initial requirements");
 
         // Create a parent-child relationship to ensure we exercise counting logic.
-        Directory::new(root.clone())
-            .unwrap()
-            .link_requirement(child.hrid().clone(), parent.hrid().clone())
+        let mut directory = Directory::new(root.clone()).unwrap();
+        directory
+            .link_requirement(child.hrid(), parent.hrid())
             .unwrap();
+        directory.flush().unwrap();
 
         Status::default()
             .run(root)

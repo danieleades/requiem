@@ -14,6 +14,8 @@ fn preseed_directory(path: &std::path::Path, n: usize) {
     for _ in 0..n {
         dir.add_requirement("R", String::new()).unwrap();
     }
+
+    dir.flush().unwrap();
 }
 
 fn load_all(c: &mut Criterion) {
@@ -46,10 +48,11 @@ fn add_single_requirement_to_populated_dir(c: &mut Criterion) {
                 // Note this routine deliberately includes the step to load the requirements
                 // from disk, since this represents the true end-to-end user
                 // workflow.
-                Directory::new(tmp_dir.path().to_path_buf())
-                    .unwrap()
+                let mut directory = Directory::new(tmp_dir.path().to_path_buf()).unwrap();
+                directory
                     .add_requirement(black_box("R"), String::new())
                     .unwrap();
+                directory.flush().unwrap();
             },
             BatchSize::SmallInput,
         );

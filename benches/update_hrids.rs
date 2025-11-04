@@ -6,7 +6,7 @@
 use std::{num::NonZeroUsize, path::PathBuf};
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use requiem::{domain::hrid::KindString, Directory, Hrid};
+use requiem::{domain::hrid::KindString, Directory, Hrid, Requirement};
 use tempfile::TempDir;
 
 /// Generates a large number of interlinked documents
@@ -18,13 +18,22 @@ fn preseed_directory(path: PathBuf) {
         directory.add_requirement("USR", String::new()).unwrap();
         directory.add_requirement("SYS", String::new()).unwrap();
         let id = NonZeroUsize::new(i).unwrap();
-        let mut requirement = directory
-            .link_requirement(
-                Hrid::new(sys_kind.clone(), id),
-                Hrid::new(usr_kind.clone(), id),
-            )
-            .unwrap();
-        requirement.parents_mut().next().unwrap().1.hrid = Hrid::try_from("WRONG-001").unwrap();
+        let sys_hrid = Hrid::new(sys_kind.clone(), id);
+        let usr_hrid = Hrid::new(usr_kind.clone(), id);
+        let requirement_hrid = {
+            let requirement = directory.link_requirement(&sys_hrid, &usr_hrid).unwrap();
+            requirement.hrid.clone()
+        };
+        directory.flush().unwrap();
+
+        let mut on_disk = Requirement::load(
+            directory.root(),
+            requirement_hrid.clone(),
+            directory.config(),
+        )
+        .unwrap();
+        on_disk.parents_mut().next().unwrap().1.hrid = Hrid::try_from("WRONG-001").unwrap();
+        on_disk.save(directory.root(), directory.config()).unwrap();
     }
 }
 
@@ -40,10 +49,9 @@ fn update_hrids(c: &mut Criterion) {
                 tmp_dir
             },
             |tmp_dir| {
-                Directory::new(tmp_dir.path().to_path_buf())
-                    .unwrap()
-                    .update_hrids()
-                    .unwrap();
+                let mut directory = Directory::new(tmp_dir.path().to_path_buf()).unwrap();
+                directory.update_hrids();
+                directory.flush().unwrap();
             },
             BatchSize::SmallInput,
         );

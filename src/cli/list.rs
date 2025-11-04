@@ -9,7 +9,7 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use clap::{Parser, ValueEnum};
 use regex::Regex;
-use requiem::{Directory, Hrid, storage::RequirementView};
+use requiem::{storage::RequirementView, Directory, Hrid};
 use serde::Serialize;
 use tracing::instrument;
 use uuid::Uuid;
@@ -576,7 +576,8 @@ fn collect_entries(directory: &Directory) -> Vec<Entry> {
 
 fn entry_from_requirement(directory: &Directory, requirement: &RequirementView) -> Entry {
     let parents = requirement
-        .parents.iter()
+        .parents
+        .iter()
         .map(|(uuid, parent)| LinkRef::new(*uuid, parent.hrid.clone()))
         .collect::<Vec<_>>();
 
@@ -1518,8 +1519,8 @@ mod tests {
             let leaf = Entry {
                 uuid: leaf_uuid,
                 hrid: {
-                    use std::num::NonZeroUsize;
                     use requiem::domain::hrid::KindString;
+                    use std::num::NonZeroUsize;
                     Hrid::new_with_namespace(
                         vec![
                             KindString::new("SYSTEM".to_string()).unwrap(),
@@ -1898,7 +1899,7 @@ mod tests {
         assert_eq!(row.hrid, entry.hrid.to_string());
         assert_eq!(row.title, entry.title.as_deref());
         assert_eq!(row.kind, Some(entry.hrid.kind()));
-        assert_eq!(row.namespace.as_deref(), Some("System-Auth"));
+        assert_eq!(row.namespace.as_deref(), Some("SYSTEM-AUTH"));
         assert!(row.parents.as_ref().unwrap().contains("SYS-002"));
         assert!(row.children.is_none());
         assert!(row.tags.as_ref().unwrap().contains("Security"));
@@ -1942,8 +1943,9 @@ mod tests {
         let child = add_requirement(&mut directory, "USR", "# Child\nImplements parent");
 
         directory
-            .link_requirement(child.hrid().clone(), parent.hrid().clone())
+            .link_requirement(child.hrid(), parent.hrid())
             .unwrap();
+        directory.flush().unwrap();
 
         let mut table = base_list();
         table.sort = SortField::Title;

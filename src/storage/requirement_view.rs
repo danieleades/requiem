@@ -6,7 +6,10 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::{
-    domain::{requirement::{ContentRef, Parent}, Hrid},
+    domain::{
+        requirement::{ContentRef, Parent},
+        Hrid,
+    },
     Requirement,
 };
 

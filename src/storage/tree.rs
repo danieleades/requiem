@@ -3,14 +3,23 @@
 //! The [`Tree`] knows nothing about the filesystem or the directory structure.
 //! It stores requirements in a decomposed format for better maintainability and performance.
 
-use std::{collections::{BTreeMap, HashMap}, num::NonZeroUsize};
+use std::{
+    collections::{BTreeMap, HashMap},
+    num::NonZeroUsize,
+};
 
 use petgraph::graphmap::DiGraphMap;
 use tracing::instrument;
 use uuid::Uuid;
 
 use crate::{
-    Requirement, domain::{Hrid, hrid::KindString, requirement::Parent}, storage::{RequirementData, RequirementView}
+    domain::{
+        hrid::KindString,
+        requirement::{LoadError, Parent},
+        Hrid,
+    },
+    storage::{RequirementData, RequirementView},
+    Requirement,
 };
 
 /// Data stored on each edge in the dependency graph.
@@ -52,6 +61,21 @@ pub struct Tree {
     /// Edge data contains parent HRID and fingerprint for change detection.
     /// This is the sole source of truth for parent relationships.
     graph: DiGraphMap<Uuid, EdgeData>,
+}
+
+/// Result of linking two requirements together.
+#[derive(Debug)]
+pub struct LinkOutcome {
+    /// UUID of the child requirement.
+    pub child_uuid: Uuid,
+    /// HRID of the child requirement.
+    pub child_hrid: Hrid,
+    /// UUID of the parent requirement.
+    pub parent_uuid: Uuid,
+    /// HRID of the parent requirement.
+    pub parent_hrid: Hrid,
+    /// Whether the relationship already existed prior to linking.
+    pub already_linked: bool,
 }
 
 impl Default for Tree {
@@ -168,22 +192,18 @@ impl Tree {
     pub fn next_index(&self, kind: &KindString) -> NonZeroUsize {
         // Construct range bounds for this kind
         // Start: kind with ID 1 (MIN), End: kind with ID MAX
-        let start = crate::domain::Hrid::new_with_namespace(
-            Vec::new(),
-            kind.clone(),
-            NonZeroUsize::MIN,
-        );
-        let end = crate::domain::Hrid::new_with_namespace(
-            Vec::new(),
-            kind.clone(),
-            NonZeroUsize::MAX,
-        );
+        let start =
+            crate::domain::Hrid::new_with_namespace(Vec::new(), kind.clone(), NonZeroUsize::MIN);
+        let end =
+            crate::domain::Hrid::new_with_namespace(Vec::new(), kind.clone(), NonZeroUsize::MAX);
 
         // Use range query to find all HRIDs of this kind, then get the last one
         self.hrid_to_uuid
             .range(start..=end)
             .next_back()
-            .map_or(NonZeroUsize::MIN, |(hrid, _)| hrid.id().checked_add(1).expect("requirement ID overflow!"))
+            .map_or(NonZeroUsize::MIN, |(hrid, _)| {
+                hrid.id().checked_add(1).expect("requirement ID overflow!")
+            })
     }
 
     /// Returns an iterator over all requirements in the tree as borrowed views.
@@ -198,6 +218,42 @@ impl Tree {
     pub fn find_by_hrid(&self, hrid: &Hrid) -> Option<RequirementView<'_>> {
         let uuid = self.hrid_to_uuid.get(hrid)?;
         self.requirement(*uuid)
+    }
+
+    /// Link two requirements identified by their HRIDs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LoadError::NotFound`] when either HRID does not exist in the tree.
+    pub fn link_requirement(
+        &mut self,
+        child: &Hrid,
+        parent: &Hrid,
+    ) -> Result<LinkOutcome, LoadError> {
+        let (child_uuid, child_hrid) = {
+            let view = self.find_by_hrid(child).ok_or(LoadError::NotFound)?;
+            (*view.uuid, view.hrid.clone())
+        };
+
+        let (parent_uuid, parent_hrid, parent_fingerprint) = {
+            let view = self.find_by_hrid(parent).ok_or(LoadError::NotFound)?;
+            (*view.uuid, view.hrid.clone(), view.fingerprint())
+        };
+
+        let already_linked = self
+            .parents(child_uuid)
+            .into_iter()
+            .any(|(uuid, _)| uuid == parent_uuid);
+
+        self.upsert_parent_link(child_uuid, parent_uuid, parent_fingerprint);
+
+        Ok(LinkOutcome {
+            child_uuid,
+            child_hrid,
+            parent_uuid,
+            parent_hrid,
+            already_linked,
+        })
     }
 
     /// Get all children of a requirement.
@@ -227,6 +283,45 @@ impl Tree {
             .collect()
     }
 
+    /// Insert or update a parent link for the given child UUID.
+    ///
+    /// Returns `true` if an existing link was replaced, or `false` if a new link was created.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either the child or parent UUID does not exist in the tree.
+    pub fn upsert_parent_link(
+        &mut self,
+        child_uuid: Uuid,
+        parent_uuid: Uuid,
+        fingerprint: String,
+    ) -> bool {
+        assert!(
+            self.requirements.contains_key(&child_uuid),
+            "Child requirement {child_uuid} not found in tree"
+        );
+        assert!(
+            self.requirements.contains_key(&parent_uuid),
+            "Parent requirement {parent_uuid} not found in tree"
+        );
+
+        // Ensure both nodes exist in the graph; GraphMap::add_node is idempotent.
+        self.graph.add_node(child_uuid);
+        self.graph.add_node(parent_uuid);
+
+        let parent_hrid = self
+            .hrids
+            .get(&parent_uuid)
+            .unwrap_or_else(|| panic!("Parent HRID for {parent_uuid} not found"));
+
+        let edge = EdgeData {
+            parent_hrid: parent_hrid.clone(),
+            fingerprint,
+        };
+
+        self.graph.add_edge(child_uuid, parent_uuid, edge).is_some()
+    }
+
     /// Read all the requirements and update any incorrect parent HRIDs.
     /// Returns an iterator of UUIDs whose parents were updated.
     ///
@@ -251,11 +346,7 @@ impl Tree {
 
                 // Check if the stored HRID is outdated
                 if &edge_data.parent_hrid != current_parent_hrid {
-                    edges_to_update.push((
-                        child_uuid,
-                        parent_uuid,
-                        current_parent_hrid.clone(),
-                    ));
+                    edges_to_update.push((child_uuid, parent_uuid, current_parent_hrid.clone()));
                 }
             }
         }

@@ -332,8 +332,8 @@ impl TryFrom<MarkdownRequirement> for Requirement {
 mod tests {
     use std::{io::Cursor, num::NonZeroUsize};
 
-    use chrono::TimeZone;
     use crate::domain::hrid::KindString;
+    use chrono::TimeZone;
     use tempfile::TempDir;
 
     use super::{Parent, *};
