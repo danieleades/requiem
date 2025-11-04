@@ -15,8 +15,8 @@ use crate::{
 
 /// A borrowed view of a requirement, suitable for serialization.
 ///
-/// This struct holds references to requirement data from the Tree's decomposed storage.
-/// It's used primarily for serialization to avoid cloning data.
+/// This struct holds references to requirement data from the Tree's decomposed
+/// storage. It's used primarily for serialization to avoid cloning data.
 #[derive(Debug, Clone)]
 pub struct RequirementView<'a> {
     /// The requirement's UUID.
@@ -38,7 +38,8 @@ pub struct RequirementView<'a> {
 impl RequirementView<'_> {
     /// Calculate the fingerprint of this requirement.
     ///
-    /// The fingerprint is based on the content and tags only (not metadata like UUID, HRID, or parents).
+    /// The fingerprint is based on the content and tags only (not metadata like
+    /// UUID, HRID, or parents).
     #[must_use]
     pub fn fingerprint(&self) -> String {
         ContentRef {

@@ -68,12 +68,13 @@ pub struct ContentRef<'a> {
 impl ContentRef<'_> {
     /// Calculate the fingerprint of this content.
     ///
-    /// The fingerprint is a SHA256 hash of the Borsh-serialized content and tags.
-    /// This is used to detect when requirement content has changed.
+    /// The fingerprint is a SHA256 hash of the Borsh-serialized content and
+    /// tags. This is used to detect when requirement content has changed.
     ///
     /// # Panics
     ///
-    /// Panics if borsh serialization fails (which should never happen for this data structure).
+    /// Panics if borsh serialization fails (which should never happen for this
+    /// data structure).
     #[must_use]
     pub fn fingerprint(&self) -> String {
         #[derive(BorshSerialize)]
@@ -245,7 +246,7 @@ impl Requirement {
     /// malformed YAML frontmatter.
     pub fn load(
         root: &Path,
-        hrid: Hrid,
+        hrid: &Hrid,
         config: &crate::domain::Config,
     ) -> Result<Self, LoadError> {
         Ok(MarkdownRequirement::load(root, hrid, config)?.try_into()?)
@@ -264,6 +265,15 @@ impl Requirement {
     /// This method returns an error if the path cannot be written to.
     pub fn save(&self, root: &Path, config: &crate::domain::Config) -> io::Result<()> {
         MarkdownRequirement::from(self.clone()).save(root, config)
+    }
+
+    /// Save this requirement to a specific file path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be written.
+    pub fn save_to_path(&self, path: &Path) -> io::Result<()> {
+        MarkdownRequirement::from(self.clone()).save_to_path(path)
     }
 }
 

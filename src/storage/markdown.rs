@@ -32,7 +32,7 @@ impl MarkdownRequirement {
         writer.write_all(result.as_bytes())
     }
 
-    pub(crate) fn read<R: BufRead>(reader: &mut R, hrid: Hrid) -> Result<Self, LoadError> {
+    pub(crate) fn read<R: BufRead>(reader: &mut R) -> Result<Self, LoadError> {
         let mut lines = reader.lines();
 
         // Ensure frontmatter starts correctly
@@ -64,6 +64,7 @@ impl MarkdownRequirement {
         let content = lines.collect::<Result<Vec<_>, _>>()?.join("\n");
 
         let front: FrontMatter = serde_yaml::from_str(&frontmatter)?;
+        let hrid = front.hrid.clone();
 
         Ok(Self {
             frontmatter: front,
@@ -94,6 +95,17 @@ impl MarkdownRequirement {
             config.digits(),
         );
 
+        self.save_to_path(&file_path)
+    }
+
+    /// Writes the requirement to a specific file path.
+    ///
+    /// Parent directories are created automatically if they don't exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be created or written to.
+    pub fn save_to_path(&self, file_path: &Path) -> io::Result<()> {
         // Create parent directories if needed
         if let Some(parent) = file_path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -115,14 +127,14 @@ impl MarkdownRequirement {
     /// Returns an error if the file cannot be read or parsed.
     pub fn load(
         root: &Path,
-        hrid: Hrid,
+        hrid: &Hrid,
         config: &crate::domain::Config,
     ) -> Result<Self, LoadError> {
         use crate::storage::construct_path_from_hrid;
 
         let file_path = construct_path_from_hrid(
             root,
-            &hrid,
+            hrid,
             config.subfolders_are_namespaces,
             config.digits(),
         );
@@ -133,7 +145,7 @@ impl MarkdownRequirement {
         })?;
 
         let mut reader = BufReader::new(file);
-        Self::read(&mut reader, hrid)
+        Self::read(&mut reader)
     }
 }
 
@@ -156,6 +168,7 @@ pub enum LoadError {
 #[serde(into = "FrontMatterVersion")]
 struct FrontMatter {
     uuid: Uuid,
+    hrid: Hrid,
     created: DateTime<Utc>,
     tags: BTreeSet<String>,
     parents: Vec<Parent>,
@@ -204,6 +217,11 @@ enum FrontMatterVersion {
     #[serde(rename = "1")]
     V1 {
         uuid: Uuid,
+        #[serde(
+            serialize_with = "hrid_as_string",
+            deserialize_with = "hrid_from_string"
+        )]
+        hrid: Hrid,
         created: DateTime<Utc>,
         #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
         tags: BTreeSet<String>,
@@ -217,11 +235,13 @@ impl From<FrontMatterVersion> for FrontMatter {
         match version {
             FrontMatterVersion::V1 {
                 uuid,
+                hrid,
                 created,
                 tags,
                 parents,
             } => Self {
                 uuid,
+                hrid,
                 created,
                 tags,
                 parents,
@@ -234,12 +254,14 @@ impl From<FrontMatter> for FrontMatterVersion {
     fn from(front_matter: FrontMatter) -> Self {
         let FrontMatter {
             uuid,
+            hrid,
             created,
             tags,
             parents,
         } = front_matter;
         Self::V1 {
             uuid,
+            hrid,
             created,
             tags,
             parents,
@@ -262,6 +284,7 @@ impl From<Requirement> for MarkdownRequirement {
 
         let frontmatter = FrontMatter {
             uuid,
+            hrid: hrid.clone(),
             created,
             tags,
             parents: parents
@@ -287,10 +310,11 @@ impl TryFrom<MarkdownRequirement> for Requirement {
 
     fn try_from(req: MarkdownRequirement) -> Result<Self, Self::Error> {
         let MarkdownRequirement {
-            hrid,
+            hrid: _,
             frontmatter:
                 FrontMatter {
                     uuid,
+                    hrid,
                     created,
                     tags,
                     parents,
@@ -332,11 +356,11 @@ impl TryFrom<MarkdownRequirement> for Requirement {
 mod tests {
     use std::{io::Cursor, num::NonZeroUsize};
 
-    use crate::domain::hrid::KindString;
     use chrono::TimeZone;
     use tempfile::TempDir;
 
     use super::{Parent, *};
+    use crate::domain::hrid::KindString;
 
     fn req_hrid() -> Hrid {
         Hrid::new(
@@ -347,6 +371,7 @@ mod tests {
 
     fn create_test_frontmatter() -> FrontMatter {
         let uuid = Uuid::parse_str("12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53").unwrap();
+        let hrid = req_hrid();
         let created = Utc.with_ymd_and_hms(2025, 7, 14, 7, 15, 0).unwrap();
         let tags = BTreeSet::from(["tag1".to_string(), "tag2".to_string()]);
         let parents = vec![Parent {
@@ -356,6 +381,7 @@ mod tests {
         }];
         FrontMatter {
             uuid,
+            hrid,
             created,
             tags,
             parents,
@@ -364,10 +390,10 @@ mod tests {
 
     #[test]
     fn markdown_round_trip() {
-        let hrid = "REQ-001".parse().unwrap();
         let expected = r"---
 _version: '1'
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
+hrid: REQ-001
 created: 2025-07-14T07:15:00Z
 tags:
 - tag1
@@ -384,7 +410,7 @@ This is a paragraph.
 ";
 
         let mut reader = Cursor::new(expected);
-        let requirement = MarkdownRequirement::read(&mut reader, hrid).unwrap();
+        let requirement = MarkdownRequirement::read(&mut reader).unwrap();
 
         let mut bytes: Vec<u8> = vec![];
         requirement.write(&mut bytes).unwrap();
@@ -399,13 +425,14 @@ This is a paragraph.
         let content = r"---
 _version: '1'
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
+hrid: REQ-001
 created: 2025-07-14T07:15:00Z
 ---
 Just content
 ";
 
         let mut reader = Cursor::new(content);
-        let requirement = MarkdownRequirement::read(&mut reader, hrid.clone()).unwrap();
+        let requirement = MarkdownRequirement::read(&mut reader).unwrap();
 
         assert_eq!(requirement.hrid, hrid);
         assert_eq!(requirement.content, "Just content");
@@ -415,26 +442,26 @@ Just content
 
     #[test]
     fn empty_content() {
-        let hrid = req_hrid();
         let content = r"---
 _version: '1'
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
+hrid: REQ-001
 created: 2025-07-14T07:15:00Z
 ---
 ";
 
         let mut reader = Cursor::new(content);
-        let requirement = MarkdownRequirement::read(&mut reader, hrid).unwrap();
+        let requirement = MarkdownRequirement::read(&mut reader).unwrap();
 
         assert_eq!(requirement.content, "");
     }
 
     #[test]
     fn multiline_content() {
-        let hrid = req_hrid();
         let content = r"---
 _version: '1'
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
+hrid: REQ-001
 created: 2025-07-14T07:15:00Z
 ---
 Line 1
@@ -444,39 +471,37 @@ Line 4
 ";
 
         let mut reader = Cursor::new(content);
-        let requirement = MarkdownRequirement::read(&mut reader, hrid).unwrap();
+        let requirement = MarkdownRequirement::read(&mut reader).unwrap();
 
         assert_eq!(requirement.content, "Line 1\nLine 2\n\nLine 4");
     }
 
     #[test]
     fn invalid_frontmatter_start() {
-        let hrid = req_hrid();
         let content = "invalid frontmatter";
 
         let mut reader = Cursor::new(content);
-        let result = MarkdownRequirement::read(&mut reader, hrid);
+        let result = MarkdownRequirement::read(&mut reader);
 
         assert!(result.is_err());
     }
 
     #[test]
     fn missing_frontmatter_end() {
-        let hrid = req_hrid();
         let content = r"---
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
+hrid: REQ-001
 created: 2025-07-14T07:15:00Z
 This should be content but there's no closing ---";
 
         let mut reader = Cursor::new(content);
-        let result = MarkdownRequirement::read(&mut reader, hrid);
+        let result = MarkdownRequirement::read(&mut reader);
 
         assert!(result.is_err());
     }
 
     #[test]
     fn invalid_yaml() {
-        let hrid = req_hrid();
         let content = r"---
 invalid: yaml: structure:
 created: not-a-date
@@ -484,18 +509,17 @@ created: not-a-date
 Content";
 
         let mut reader = Cursor::new(content);
-        let result = MarkdownRequirement::read(&mut reader, hrid);
+        let result = MarkdownRequirement::read(&mut reader);
 
         assert!(matches!(result, Err(LoadError::Yaml(_))));
     }
 
     #[test]
     fn empty_input() {
-        let hrid = req_hrid();
         let content = "";
 
         let mut reader = Cursor::new(content);
-        let result = MarkdownRequirement::read(&mut reader, hrid);
+        let result = MarkdownRequirement::read(&mut reader);
 
         assert!(result.is_err());
     }
@@ -538,7 +562,7 @@ Content";
 
         // Test load
         let loaded_requirement =
-            MarkdownRequirement::load(temp_dir.path(), hrid.clone(), &config).unwrap();
+            MarkdownRequirement::load(temp_dir.path(), &hrid, &config).unwrap();
         assert_eq!(loaded_requirement.hrid, hrid);
         assert_eq!(loaded_requirement.content, content);
         assert_eq!(loaded_requirement.frontmatter, frontmatter);
@@ -548,7 +572,7 @@ Content";
     fn load_nonexistent_file() {
         let temp_dir = TempDir::new().unwrap();
         let config = crate::domain::Config::default();
-        let result = MarkdownRequirement::load(temp_dir.path(), req_hrid(), &config);
+        let result = MarkdownRequirement::load(temp_dir.path(), &req_hrid(), &config);
         assert!(matches!(result, Err(LoadError::NotFound)));
     }
 
@@ -565,6 +589,7 @@ Content";
 
         let frontmatter = FrontMatter {
             uuid,
+            hrid: req_hrid(),
             created,
             tags,
             parents,
@@ -594,10 +619,10 @@ Content";
 
     #[test]
     fn content_with_triple_dashes() {
-        let hrid = req_hrid();
         let content = r"---
 _version: '1'
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
+hrid: REQ-001
 created: 2025-07-14T07:15:00Z
 ---
 This content has --- in it
@@ -605,7 +630,7 @@ And more --- here
 ";
 
         let mut reader = Cursor::new(content);
-        let requirement = MarkdownRequirement::read(&mut reader, hrid).unwrap();
+        let requirement = MarkdownRequirement::read(&mut reader).unwrap();
 
         assert_eq!(
             requirement.content,
@@ -615,10 +640,10 @@ And more --- here
 
     #[test]
     fn frontmatter_with_special_characters() {
-        let hrid = req_hrid();
         let content = r#"---
 _version: '1'
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
+hrid: REQ-001
 created: 2025-07-14T07:15:00Z
 tags:
 - "tag with spaces"
@@ -629,7 +654,7 @@ Content here
 "#;
 
         let mut reader = Cursor::new(content);
-        let requirement = MarkdownRequirement::read(&mut reader, hrid).unwrap();
+        let requirement = MarkdownRequirement::read(&mut reader).unwrap();
 
         assert!(requirement.frontmatter.tags.contains("tag with spaces"));
         assert!(requirement.frontmatter.tags.contains("tag-with-dashes"));

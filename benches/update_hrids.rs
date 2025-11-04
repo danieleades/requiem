@@ -26,12 +26,8 @@ fn preseed_directory(path: PathBuf) {
         };
         directory.flush().unwrap();
 
-        let mut on_disk = Requirement::load(
-            directory.root(),
-            requirement_hrid.clone(),
-            directory.config(),
-        )
-        .unwrap();
+        let mut on_disk =
+            Requirement::load(directory.root(), &requirement_hrid, directory.config()).unwrap();
         on_disk.parents_mut().next().unwrap().1.hrid = Hrid::try_from("WRONG-001").unwrap();
         on_disk.save(directory.root(), directory.config()).unwrap();
     }

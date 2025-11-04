@@ -349,7 +349,7 @@ impl Suspect {
         None
     }
 
-    fn output_stats(suspect_links: &[requiem::storage::SuspectLink], _directory: &Directory) {
+    fn output_stats(suspect_links: &[requiem::SuspectLink], _directory: &Directory) {
         use std::collections::{HashMap, HashSet};
 
         let unique_parents: HashSet<_> = suspect_links
@@ -406,7 +406,7 @@ impl Suspect {
     }
 
     fn output_json(
-        suspect_links: &[requiem::storage::SuspectLink],
+        suspect_links: &[requiem::SuspectLink],
         directory: &Directory,
     ) -> anyhow::Result<()> {
         use std::collections::{HashMap, HashSet};
@@ -470,7 +470,7 @@ impl Suspect {
     }
 
     fn output_ndjson(
-        suspect_links: &[requiem::storage::SuspectLink],
+        suspect_links: &[requiem::SuspectLink],
         directory: &Directory,
     ) -> anyhow::Result<()> {
         use serde_json::json;
@@ -503,7 +503,7 @@ impl Suspect {
 
     fn output_table(
         &self,
-        suspect_links: &[requiem::storage::SuspectLink],
+        suspect_links: &[requiem::SuspectLink],
         directory: &Directory,
     ) -> anyhow::Result<()> {
         use terminal::Colorize;
@@ -604,15 +604,14 @@ impl Suspect {
 
     fn output_grouped(
         &self,
-        suspect_links: &[requiem::storage::SuspectLink],
+        suspect_links: &[requiem::SuspectLink],
         directory: &Directory,
     ) -> anyhow::Result<()> {
         use std::collections::HashMap;
 
         match self.group_by {
             Some(GroupBy::Parent) => {
-                let mut by_parent: HashMap<String, Vec<&requiem::storage::SuspectLink>> =
-                    HashMap::new();
+                let mut by_parent: HashMap<String, Vec<&requiem::SuspectLink>> = HashMap::new();
                 for link in suspect_links {
                     by_parent
                         .entry(link.parent_hrid.to_string())
@@ -651,8 +650,7 @@ impl Suspect {
                 }
             }
             Some(GroupBy::Child) => {
-                let mut by_child: HashMap<String, Vec<&requiem::storage::SuspectLink>> =
-                    HashMap::new();
+                let mut by_child: HashMap<String, Vec<&requiem::SuspectLink>> = HashMap::new();
                 for link in suspect_links {
                     by_child
                         .entry(link.child_hrid.to_string())
@@ -834,11 +832,11 @@ impl Accept {
             }
 
             match directory.accept_suspect_link(child.clone(), parent.clone())? {
-                requiem::storage::AcceptResult::Updated => {
+                requiem::AcceptResult::Updated => {
                     directory.flush()?;
                     println!("{}", format!("Accepted {child} ← {parent}").success());
                 }
-                requiem::storage::AcceptResult::AlreadyUpToDate => {
+                requiem::AcceptResult::AlreadyUpToDate => {
                     println!("No changes: link already up-to-date.");
                 }
             }
@@ -1079,7 +1077,7 @@ fn compute_path_based_location(root: &Path, hrid: &requiem::Hrid, digits: usize)
 
 #[cfg(test)]
 mod tests {
-    use requiem::{storage::RequirementView, Directory};
+    use requiem::{Directory, RequirementView};
     use tempfile::tempdir;
 
     use super::*;

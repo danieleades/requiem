@@ -1,6 +1,6 @@
-// Storage layer data structures for requirements.
+// Domain layer data structures for requirements.
 //
-// This module contains the decomposed data structures used by the Tree for storage.
+// This module contains the decomposed data structures used by the Tree.
 
 use std::collections::BTreeSet;
 
@@ -8,7 +8,8 @@ use chrono::{DateTime, Utc};
 
 use crate::Requirement;
 
-/// The core data of a requirement, excluding identity and relationship information.
+/// The core data of a requirement, excluding identity and relationship
+/// information.
 ///
 /// This struct contains only the mutable content of a requirement.
 /// Identity (UUID, HRID) and relationships (parents) are stored separately

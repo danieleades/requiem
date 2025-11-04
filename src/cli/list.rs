@@ -9,7 +9,7 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use clap::{Parser, ValueEnum};
 use regex::Regex;
-use requiem::{storage::RequirementView, Directory, Hrid};
+use requiem::{Directory, Hrid, RequirementView};
 use serde::Serialize;
 use tracing::instrument;
 use uuid::Uuid;
@@ -1519,8 +1519,9 @@ mod tests {
             let leaf = Entry {
                 uuid: leaf_uuid,
                 hrid: {
-                    use requiem::domain::hrid::KindString;
                     use std::num::NonZeroUsize;
+
+                    use requiem::domain::hrid::KindString;
                     Hrid::new_with_namespace(
                         vec![
                             KindString::new("SYSTEM".to_string()).unwrap(),
