@@ -30,7 +30,9 @@ pub struct Requirement {
 /// This contributes to the 'fingerprint' of the requirement
 #[derive(Debug, BorshSerialize, Clone, PartialEq, Eq)]
 pub struct Content {
+    /// Markdown content of the requirement.
     pub content: String,
+    /// Set of tags associated with the requirement.
     pub tags: BTreeSet<String>,
 }
 
@@ -109,13 +111,18 @@ pub struct Metadata {
     /// This should in general change, however it is possible to
     /// change it if needed.
     pub hrid: Hrid,
+    /// Timestamp recording when the requirement was created.
     pub created: DateTime<Utc>,
+    /// Parent requirements keyed by UUID.
     pub parents: HashMap<Uuid, Parent>,
 }
 
+/// Parent requirement metadata stored alongside a requirement.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Parent {
+    /// Human-readable identifier of the parent requirement.
     pub hrid: Hrid,
+    /// Fingerprint snapshot of the parent requirement.
     pub fingerprint: String,
 }
 

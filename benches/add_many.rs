@@ -12,7 +12,7 @@ fn preseed_directory(path: &std::path::Path, n: usize) {
     let mut dir = Directory::new(path.to_path_buf()).unwrap();
 
     for _ in 0..n {
-        dir.add_requirement("R".to_string(), String::new()).unwrap();
+        dir.add_requirement("R", String::new()).unwrap();
     }
 }
 
@@ -48,7 +48,7 @@ fn add_single_requirement_to_populated_dir(c: &mut Criterion) {
                 // workflow.
                 Directory::new(tmp_dir.path().to_path_buf())
                     .unwrap()
-                    .add_requirement(black_box("R".to_string()), String::new())
+                    .add_requirement(black_box("R"), String::new())
                     .unwrap();
             },
             BatchSize::SmallInput,

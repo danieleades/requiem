@@ -3,16 +3,14 @@
 //! The [`Tree`] knows nothing about the filesystem or the directory structure.
 //! It stores requirements in a decomposed format for better maintainability and performance.
 
-use std::collections::{BTreeMap, HashMap};
+use std::{collections::{BTreeMap, HashMap}, num::NonZeroUsize};
 
 use petgraph::graphmap::DiGraphMap;
 use tracing::instrument;
 use uuid::Uuid;
 
 use crate::{
-    domain::{requirement::Parent, Hrid},
-    storage::{RequirementData, RequirementView},
-    Requirement,
+    Requirement, domain::{Hrid, hrid::KindString, requirement::Parent}, storage::{RequirementData, RequirementView}
 };
 
 /// Data stored on each edge in the dependency graph.
@@ -161,21 +159,31 @@ impl Tree {
     /// the maximum ID for the given kind. Time complexity is O(log n) where n is
     /// the total number of requirements.
     ///
+    /// The input `kind` will be normalized to uppercase.
+    ///
     /// # Panics
     ///
-    /// Panics if the provided kind is an empty string.
+    /// Panics if the provided kind is invalid (empty or contains non-alphabetic characters).
     #[must_use]
-    pub fn next_index(&self, kind: &str) -> usize {
+    pub fn next_index(&self, kind: &KindString) -> NonZeroUsize {
         // Construct range bounds for this kind
-        // Start: kind with ID 0, End: kind with ID usize::MAX
-        let start = Hrid::new(kind.to_string(), 0).expect("kind should be non-empty");
-        let end = Hrid::new(kind.to_string(), usize::MAX).expect("kind should be non-empty");
+        // Start: kind with ID 1 (MIN), End: kind with ID MAX
+        let start = crate::domain::Hrid::new_with_namespace(
+            Vec::new(),
+            kind.clone(),
+            NonZeroUsize::MIN,
+        );
+        let end = crate::domain::Hrid::new_with_namespace(
+            Vec::new(),
+            kind.clone(),
+            NonZeroUsize::MAX,
+        );
 
         // Use range query to find all HRIDs of this kind, then get the last one
         self.hrid_to_uuid
             .range(start..=end)
             .next_back()
-            .map_or(1, |(hrid, _)| hrid.id() + 1)
+            .map_or(NonZeroUsize::MIN, |(hrid, _)| hrid.id().checked_add(1).expect("requirement ID overflow!"))
     }
 
     /// Returns an iterator over all requirements in the tree as borrowed views.

@@ -4,12 +4,7 @@
 //! directory structure. It is a wrapper around the filesystem agnostic
 //! [`Tree`].
 
-use std::{
-    ffi::OsStr,
-    fmt::{self},
-    io,
-    path::{Path, PathBuf},
-};
+use std::{ffi::OsStr, fmt::{self}, io, path::{Path, PathBuf}};
 
 use nonempty::NonEmpty;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -17,12 +12,9 @@ use walkdir::WalkDir;
 
 pub use crate::storage::Tree;
 use crate::{
-    domain::{
-        requirement::{LoadError, Parent},
-        Config, Hrid,
-    },
-    storage::path_parser::parse_hrid_from_path,
-    EmptyStringError, Requirement,
+    Requirement, domain::{
+        Config, Hrid, hrid::KindString, requirement::{LoadError, Parent}
+    }, storage::{RequirementView, path_parser::parse_hrid_from_path}
 };
 
 /// A filesystem backed store of requirements.
@@ -263,8 +255,8 @@ impl Directory {
     }
 
     /// Returns an iterator over all requirements stored in the directory.
-    pub fn requirements(&self) -> impl Iterator<Item = Requirement> + '_ {
-        self.tree.iter().map(|view| view.to_requirement())
+    pub fn requirements(&'_ self) -> impl Iterator<Item = RequirementView<'_>> + '_ {
+        self.tree.iter()
     }
 
     /// Returns the configuration used when loading this directory.
@@ -285,17 +277,24 @@ impl Directory {
     ///
     /// This method can fail if:
     ///
-    /// - the provided `kind` is an empty string
+    /// - the provided `kind` is an empty string or invalid
     /// - the requirement file cannot be written to
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tree returns an invalid ID (should never happen).
     pub fn add_requirement(
         &mut self,
-        kind: String,
+        kind: &str,
         content: String,
     ) -> Result<Requirement, AddRequirementError> {
         let tree = &mut self.tree;
 
-        let id = tree.next_index(&kind);
-        let hrid = Hrid::new(kind, id)?;
+        // Validate kind (CLI already normalized to uppercase)
+        let kind_string = KindString::new(kind.to_string()).map_err(crate::domain::hrid::Error::from)?;
+
+        let id = tree.next_index(&kind_string);
+        let hrid = Hrid::new(kind_string, id);
 
         // If no content is provided via CLI, check for a template
         let final_content = if content.is_empty() {
@@ -454,8 +453,8 @@ impl Directory {
 #[derive(Debug, thiserror::Error)]
 #[error("failed to add requirement: {0}")]
 pub enum AddRequirementError {
-    /// The requirement kind was invalid (empty string).
-    Kind(#[from] EmptyStringError),
+    /// The requirement kind or ID was invalid.
+    Hrid(#[from] crate::domain::HridError),
     /// An I/O error occurred while saving the requirement.
     Io(#[from] io::Error),
 }
@@ -570,7 +569,7 @@ mod tests {
     fn can_add_requirement() {
         let (_tmp, mut dir) = setup_temp_directory();
         let r1 = dir
-            .add_requirement("REQ".to_string(), String::new())
+            .add_requirement("REQ", String::new())
             .unwrap();
 
         assert_eq!(r1.hrid().to_string(), "REQ-001");
@@ -584,10 +583,10 @@ mod tests {
     fn can_add_multiple_requirements_with_incrementing_id() {
         let (_tmp, mut dir) = setup_temp_directory();
         let r1 = dir
-            .add_requirement("REQ".to_string(), String::new())
+            .add_requirement("REQ", String::new())
             .unwrap();
         let r2 = dir
-            .add_requirement("REQ".to_string(), String::new())
+            .add_requirement("REQ", String::new())
             .unwrap();
 
         assert_eq!(r1.hrid().to_string(), "REQ-001");
@@ -598,11 +597,9 @@ mod tests {
     fn can_link_two_requirements() {
         let (_tmp, mut dir) = setup_temp_directory();
         let parent = dir
-            .add_requirement("SYS".to_string(), String::new())
+            .add_requirement("SYS", String::new())
             .unwrap();
-        let child = dir
-            .add_requirement("USR".to_string(), String::new())
-            .unwrap();
+        let child = dir.add_requirement("USR", String::new()).unwrap();
 
         Directory::new(dir.root.clone())
             .unwrap()
@@ -622,8 +619,8 @@ mod tests {
     #[test]
     fn update_hrids_corrects_outdated_parent_hrids() {
         let (_tmp, mut dir) = setup_temp_directory();
-        let parent = dir.add_requirement("P".to_string(), String::new()).unwrap();
-        let mut child = dir.add_requirement("C".to_string(), String::new()).unwrap();
+        let parent = dir.add_requirement("P", String::new()).unwrap();
+        let mut child = dir.add_requirement("C", String::new()).unwrap();
 
         // Manually corrupt HRID in child's parent info
         child.add_parent(
@@ -649,8 +646,8 @@ mod tests {
     fn load_all_reads_all_saved_requirements() {
         use std::str::FromStr;
         let (_tmp, mut dir) = setup_temp_directory();
-        let r1 = dir.add_requirement("X".to_string(), String::new()).unwrap();
-        let r2 = dir.add_requirement("X".to_string(), String::new()).unwrap();
+        let r1 = dir.add_requirement("X", String::new()).unwrap();
+        let r2 = dir.add_requirement("X", String::new()).unwrap();
 
         let loaded = Directory::new(dir.root.clone()).unwrap();
 
@@ -756,6 +753,9 @@ Test requirement
 
     #[test]
     fn path_based_mode_saves_in_subdirectories() {
+        use std::num::NonZeroUsize;
+        use crate::domain::hrid::KindString;
+
         let tmp = TempDir::new().expect("failed to create temp dir");
         let root = tmp.path();
 
@@ -771,11 +771,13 @@ Test requirement
 
         // Add a requirement with namespace
         let hrid = Hrid::new_with_namespace(
-            vec!["system".to_string(), "auth".to_string()],
-            "REQ".to_string(),
-            1,
-        )
-        .unwrap();
+            vec![
+                KindString::new("SYSTEM".to_string()).unwrap(),
+                KindString::new("AUTH".to_string()).unwrap(),
+            ],
+            KindString::new("REQ".to_string()).unwrap(),
+            NonZeroUsize::new(1).unwrap(),
+        );
         let req = Requirement::new(hrid.clone(), "Test content".to_string());
 
         // Save using config
@@ -839,6 +841,9 @@ Test requirement
 
     #[test]
     fn filename_based_mode_saves_in_root() {
+        use std::num::NonZeroUsize;
+        use crate::domain::hrid::KindString;
+
         let tmp = TempDir::new().expect("failed to create temp dir");
         let root = tmp.path();
 
@@ -850,11 +855,13 @@ Test requirement
 
         // Add a requirement with namespace
         let hrid = Hrid::new_with_namespace(
-            vec!["system".to_string(), "auth".to_string()],
-            "REQ".to_string(),
-            1,
-        )
-        .unwrap();
+            vec![
+                KindString::new("SYSTEM".to_string()).unwrap(),
+                KindString::new("AUTH".to_string()).unwrap(),
+            ],
+            KindString::new("REQ".to_string()).unwrap(),
+            NonZeroUsize::new(1).unwrap(),
+        );
         let req = Requirement::new(hrid, "Test content".to_string());
 
         // Save using config

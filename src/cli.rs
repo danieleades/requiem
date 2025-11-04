@@ -10,6 +10,17 @@ use requiem::{Directory, Hrid};
 use status::Status;
 use tracing::instrument;
 
+/// Parse an HRID from a string, normalizing to uppercase.
+///
+/// This is a CLI boundary function that accepts lowercase input
+/// and normalizes it before parsing.
+fn parse_hrid(s: &str) -> Result<Hrid, String> {
+    // Normalize to uppercase
+    let uppercase = s.to_uppercase();
+    // Parse using FromStr (strict validation)
+    uppercase.parse().map_err(|e| format!("{e}"))
+}
+
 #[derive(Debug, clap::Parser)]
 #[command(version, about)]
 pub struct Cli {
@@ -121,7 +132,7 @@ pub struct Add {
     kind: String,
 
     /// The human-readable IDs of the parent requirements.
-    #[clap(long, short, value_delimiter = ',')]
+    #[clap(long, short, value_delimiter = ',', value_parser = parse_hrid)]
     parent: Vec<Hrid>,
 
     /// The title of the requirement (will be formatted as a markdown heading).
@@ -146,7 +157,9 @@ impl Add {
             (None, None) => String::new(),
         };
 
-        let requirement = directory.add_requirement(self.kind, content)?;
+        // Normalize kind to uppercase (CLI boundary)
+        let kind = self.kind.to_uppercase();
+        let requirement = directory.add_requirement(&kind, content)?;
 
         for parent in self.parent {
             // TODO: the linkage should be done before the requirement is saved by the
@@ -162,9 +175,11 @@ impl Add {
 #[derive(Debug, clap::Parser)]
 pub struct Link {
     /// The human-readable ID of the child document
+    #[clap(value_parser = parse_hrid)]
     child: Hrid,
 
     /// The human-readable ID of the parent document
+    #[clap(value_parser = parse_hrid)]
     parent: Hrid,
 }
 
@@ -214,11 +229,11 @@ pub struct Suspect {
     quiet: bool,
 
     /// Filter by child requirement HRID
-    #[arg(long)]
+    #[arg(long, value_parser = parse_hrid)]
     child: Option<Hrid>,
 
     /// Filter by parent requirement HRID
-    #[arg(long)]
+    #[arg(long, value_parser = parse_hrid)]
     parent: Option<Hrid>,
 
     /// Filter by child requirement kind
@@ -261,8 +276,9 @@ impl Suspect {
             suspect_links.retain(|link| &link.parent_hrid == parent_filter);
         }
         if let Some(ref kind_filter) = self.kind {
-            let kind_lower = kind_filter.to_ascii_lowercase();
-            suspect_links.retain(|link| link.child_hrid.kind().to_ascii_lowercase() == kind_lower);
+            // Normalize to uppercase for comparison (kinds are stored uppercase)
+            let kind_upper = kind_filter.to_uppercase();
+            suspect_links.retain(|link| link.child_hrid.kind() == kind_upper);
         }
 
         // Handle empty results
@@ -700,11 +716,11 @@ pub struct Accept {
     yes: bool,
 
     /// Accept a specific link from child to parent
-    #[arg(value_name = "CHILD", required_unless_present = "all")]
+    #[arg(value_name = "CHILD", required_unless_present = "all", value_parser = parse_hrid)]
     child: Option<Hrid>,
 
     /// Parent requirement HRID
-    #[arg(value_name = "PARENT", required_unless_present = "all")]
+    #[arg(value_name = "PARENT", required_unless_present = "all", value_parser = parse_hrid)]
     parent: Option<Hrid>,
 }
 
@@ -979,14 +995,14 @@ impl Diagnose {
                 let mut issues: Vec<String> = Vec::new();
 
                 for req in directory.requirements() {
-                    let current_path = directory.path_for(req.hrid());
+                    let current_path = directory.path_for(req.hrid);
 
                     if config.subfolders_are_namespaces {
                         let expected_path =
-                            compute_path_based_location(root, req.hrid(), config.digits());
+                            compute_path_based_location(root, req.hrid, config.digits());
 
                         if current_path != expected_path {
-                            let hrid = req.hrid();
+                            let hrid = req.hrid;
                             let expected_display = expected_path
                                 .strip_prefix(root)
                                 .unwrap_or(&expected_path)
@@ -1003,8 +1019,8 @@ impl Diagnose {
                         // In filename mode, check that HRID is fully in filename
                         if let Some(filename) = current_path.file_name() {
                             let filename_str = filename.to_string_lossy();
-                            if !filename_str.contains(req.hrid().kind()) {
-                                let hrid = req.hrid();
+                            if !filename_str.contains(req.hrid.kind()) {
+                                let hrid = req.hrid;
                                 issues.push(format!(
                                     "{hrid}: Filename '{filename_str}' should contain full HRID"
                                 ));
@@ -1057,15 +1073,15 @@ fn compute_path_based_location(root: &Path, hrid: &requiem::Hrid, digits: usize)
 
 #[cfg(test)]
 mod tests {
-    use requiem::{Directory, Requirement};
+    use requiem::{Directory, storage::RequirementView};
     use tempfile::tempdir;
 
     use super::*;
 
-    fn collect_child(directory: &Directory, kind: &str) -> Requirement {
+    fn collect_child<'a>(directory: &'a Directory, kind: &'a str) -> RequirementView<'a> {
         directory
             .requirements()
-            .find(|req| req.hrid().kind() == kind)
+            .find(|req| req.hrid.kind() == kind)
             .expect("expected requirement for kind")
     }
 
@@ -1076,7 +1092,7 @@ mod tests {
 
         let mut directory = Directory::new(root.clone()).expect("failed to load directory");
         let parent = directory
-            .add_requirement("SYS".to_string(), "# Parent".to_string())
+            .add_requirement("SYS", "# Parent".to_string())
             .unwrap();
 
         let add = Add {
@@ -1092,9 +1108,9 @@ mod tests {
         let child = collect_child(&directory, "USR");
 
         assert!(child
-            .parents()
+            .parents.iter()
             .any(|(_uuid, info)| info.hrid == *parent.hrid()));
-        assert_eq!(child.content(), "# Child\n\nbody text");
+        assert_eq!(child.content, "# Child\n\nbody text");
     }
 
     #[test]
@@ -1116,7 +1132,7 @@ mod tests {
 
         let directory = Directory::new(root).expect("failed to load directory");
         let child = collect_child(&directory, "USR");
-        assert_eq!(child.content(), "## Template body");
+        assert_eq!(child.content, "## Template body");
     }
 
     #[test]
@@ -1126,10 +1142,10 @@ mod tests {
 
         let mut directory = Directory::new(root.clone()).expect("failed to load directory");
         let parent = directory
-            .add_requirement("SYS".to_string(), "# Parent".to_string())
+            .add_requirement("SYS", "# Parent".to_string())
             .unwrap();
         let child = directory
-            .add_requirement("USR".to_string(), "# Child".to_string())
+            .add_requirement("USR", "# Child".to_string())
             .unwrap();
 
         let link = Link {
@@ -1142,7 +1158,7 @@ mod tests {
         let directory = Directory::new(root).expect("failed to load directory");
         let reloaded_child = collect_child(&directory, "USR");
         assert!(reloaded_child
-            .parents()
+            .parents.iter()
             .any(|(_uuid, info)| info.hrid == *parent.hrid()));
     }
 
@@ -1201,10 +1217,10 @@ mod tests {
 
         let mut directory = Directory::new(root.clone()).expect("failed to load directory");
         let parent = directory
-            .add_requirement("SYS".to_string(), "# Parent".to_string())
+            .add_requirement("SYS", "# Parent".to_string())
             .unwrap();
         let child = directory
-            .add_requirement("USR".to_string(), "# Child".to_string())
+            .add_requirement("USR", "# Child".to_string())
             .unwrap();
 
         Directory::new(root.clone())
@@ -1233,10 +1249,10 @@ mod tests {
 
         let mut directory = Directory::new(root.clone()).expect("failed to load directory");
         let parent = directory
-            .add_requirement("SYS".to_string(), "# Parent".to_string())
+            .add_requirement("SYS", "# Parent".to_string())
             .unwrap();
         let child = directory
-            .add_requirement("USR".to_string(), "# Child".to_string())
+            .add_requirement("USR", "# Child".to_string())
             .unwrap();
 
         // Create a parent-child relationship to ensure we exercise counting logic.

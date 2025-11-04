@@ -2,8 +2,8 @@
 //!
 //! Requirements are markdown documents stored in a directory.
 
-mod domain;
-pub use domain::{Config, EmptyStringError, Hrid, Requirement};
+pub mod domain;
+pub use domain::{Config, Hrid, Requirement};
 
 /// Filesystem storage and directory management for requirements.
 pub mod storage;

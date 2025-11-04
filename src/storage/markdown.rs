@@ -330,12 +330,20 @@ impl TryFrom<MarkdownRequirement> for Requirement {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
+    use std::{io::Cursor, num::NonZeroUsize};
 
     use chrono::TimeZone;
+    use crate::domain::hrid::KindString;
     use tempfile::TempDir;
 
     use super::{Parent, *};
+
+    fn req_hrid() -> Hrid {
+        Hrid::new(
+            KindString::new("REQ".to_string()).unwrap(),
+            NonZeroUsize::new(1).unwrap(),
+        )
+    }
 
     fn create_test_frontmatter() -> FrontMatter {
         let uuid = Uuid::parse_str("12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53").unwrap();
@@ -387,7 +395,7 @@ This is a paragraph.
 
     #[test]
     fn markdown_minimal_content() {
-        let hrid = Hrid::new("REQ".to_string(), 1).unwrap();
+        let hrid = req_hrid();
         let content = r"---
 _version: '1'
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
@@ -407,7 +415,7 @@ Just content
 
     #[test]
     fn empty_content() {
-        let hrid = Hrid::new("REQ".to_string(), 1).unwrap();
+        let hrid = req_hrid();
         let content = r"---
 _version: '1'
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
@@ -423,7 +431,7 @@ created: 2025-07-14T07:15:00Z
 
     #[test]
     fn multiline_content() {
-        let hrid = Hrid::new("REQ".to_string(), 1).unwrap();
+        let hrid = req_hrid();
         let content = r"---
 _version: '1'
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
@@ -443,7 +451,7 @@ Line 4
 
     #[test]
     fn invalid_frontmatter_start() {
-        let hrid = Hrid::new("REQ".to_string(), 1).unwrap();
+        let hrid = req_hrid();
         let content = "invalid frontmatter";
 
         let mut reader = Cursor::new(content);
@@ -454,7 +462,7 @@ Line 4
 
     #[test]
     fn missing_frontmatter_end() {
-        let hrid = Hrid::new("REQ".to_string(), 1).unwrap();
+        let hrid = req_hrid();
         let content = r"---
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
 created: 2025-07-14T07:15:00Z
@@ -468,7 +476,7 @@ This should be content but there's no closing ---";
 
     #[test]
     fn invalid_yaml() {
-        let hrid = Hrid::new("REQ".to_string(), 1).unwrap();
+        let hrid = req_hrid();
         let content = r"---
 invalid: yaml: structure:
 created: not-a-date
@@ -483,7 +491,7 @@ Content";
 
     #[test]
     fn empty_input() {
-        let hrid = Hrid::new("REQ".to_string(), 1).unwrap();
+        let hrid = req_hrid();
         let content = "";
 
         let mut reader = Cursor::new(content);
@@ -497,7 +505,7 @@ Content";
         let frontmatter = create_test_frontmatter();
         let requirement = MarkdownRequirement {
             frontmatter,
-            hrid: Hrid::new("REQ".to_string(), 1).unwrap(),
+            hrid: req_hrid(),
             content: "Test content".to_string(),
         };
 
@@ -514,7 +522,7 @@ Content";
     fn save_and_load() {
         let temp_dir = TempDir::new().unwrap();
         let frontmatter = create_test_frontmatter();
-        let hrid = Hrid::new("REQ".to_string(), 1).unwrap();
+        let hrid = req_hrid();
         let content = "Saved content".to_string();
 
         let requirement = MarkdownRequirement {
@@ -540,11 +548,7 @@ Content";
     fn load_nonexistent_file() {
         let temp_dir = TempDir::new().unwrap();
         let config = crate::domain::Config::default();
-        let result = MarkdownRequirement::load(
-            temp_dir.path(),
-            Hrid::new("REQ".to_string(), 1).unwrap(),
-            &config,
-        );
+        let result = MarkdownRequirement::load(temp_dir.path(), req_hrid(), &config);
         assert!(matches!(result, Err(LoadError::NotFound)));
     }
 
@@ -556,7 +560,7 @@ Content";
         let parents = vec![Parent {
             uuid: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
             fingerprint: "fp1".to_string(),
-            hrid: Hrid::new("REQ".to_string(), 1).unwrap(),
+            hrid: req_hrid(),
         }];
 
         let frontmatter = FrontMatter {
@@ -575,7 +579,7 @@ Content";
     fn parent_creation() {
         let uuid = Uuid::parse_str("12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53").unwrap();
         let fingerprint = "test-fingerprint".to_string();
-        let hrid = Hrid::new("REQ".to_string(), 1).unwrap();
+        let hrid = req_hrid();
 
         let parent = Parent {
             uuid,
@@ -590,7 +594,7 @@ Content";
 
     #[test]
     fn content_with_triple_dashes() {
-        let hrid = Hrid::new("REQ".to_string(), 1).unwrap();
+        let hrid = req_hrid();
         let content = r"---
 _version: '1'
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
@@ -611,7 +615,7 @@ And more --- here
 
     #[test]
     fn frontmatter_with_special_characters() {
-        let hrid = Hrid::new("REQ".to_string(), 1).unwrap();
+        let hrid = req_hrid();
         let content = r#"---
 _version: '1'
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53

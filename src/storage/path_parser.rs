@@ -11,12 +11,7 @@
 //!    - Example: `system/auth/USR/001.md` → `system-auth-USR-001`
 //!    - Format is inferred: numeric filename → KIND in parent folder
 
-use std::{
-    path::{Component, Path, PathBuf},
-    str::FromStr,
-};
-
-use non_empty_string::NonEmptyString;
+use std::{path::{Component, Path, PathBuf}, str::FromStr};
 
 use crate::domain::{Hrid, HridError};
 
@@ -47,7 +42,9 @@ pub fn parse_hrid_from_path(
         parse_with_namespace_from_path(path, root, filename_stem)
     } else {
         // Current behavior: parse HRID from filename only
-        Hrid::from_str(filename_stem).map_err(ParseError::Hrid)
+        // Normalize to uppercase before parsing
+        let uppercase = filename_stem.to_uppercase();
+        Hrid::from_str(&uppercase).map_err(ParseError::Hrid)
     }
 }
 
@@ -138,33 +135,45 @@ fn parse_with_namespace_from_path(
 ///
 /// Example: `system/auth/REQ/001.md` → `system-auth-REQ-001`
 fn parse_kind_in_parent(components: &[String], id_str: &str) -> Result<Hrid, ParseError> {
+    use std::num::NonZeroUsize;
+    use crate::domain::hrid::KindString;
+
     if components.is_empty() {
         return Err(ParseError::MissingKind);
     }
 
-    // Last component is KIND
-    let kind = NonEmptyString::from_str(components.last().unwrap())
+    // Last component is KIND - normalize to uppercase
+    let kind_str = components.last().unwrap().to_uppercase();
+    let kind = KindString::new(kind_str)
         .map_err(|_| ParseError::InvalidKind)?;
 
-    // Remaining components are namespace
+    // Remaining components are namespace - normalize to uppercase
     let namespace: Result<Vec<_>, _> = components[..components.len() - 1]
         .iter()
-        .map(|s| NonEmptyString::from_str(s))
+        .map(|s| {
+            let uppercase = s.to_uppercase();
+            KindString::new(uppercase)
+        })
         .collect();
     let namespace = namespace.map_err(|_| ParseError::InvalidNamespace)?;
 
     // Parse numeric ID
-    let id = id_str
+    let id_usize = id_str
         .parse::<usize>()
         .map_err(|_| ParseError::InvalidId(id_str.into()))?;
+    let id = NonZeroUsize::new(id_usize)
+        .ok_or_else(|| ParseError::InvalidId(id_str.into()))?;
 
-    Ok(Hrid::new_with_namespace_unchecked(namespace, kind, id))
+    Ok(Hrid::new_with_namespace(namespace, kind, id))
 }
 
 /// Parse HRID when KIND and ID are in the filename.
 ///
 /// Example: `system/auth/REQ-001.md` → `system-auth-REQ-001`
 fn parse_kind_in_filename(components: &[String], filename_stem: &str) -> Result<Hrid, ParseError> {
+    use std::num::NonZeroUsize;
+    use crate::domain::hrid::KindString;
+
     // Split on last dash to handle multi-dash patterns
     let dash_pos = filename_stem
         .rfind('-')
@@ -173,19 +182,28 @@ fn parse_kind_in_filename(components: &[String], filename_stem: &str) -> Result<
     let kind_str = &filename_stem[..dash_pos];
     let id_str = &filename_stem[dash_pos + 1..];
 
-    let kind = NonEmptyString::from_str(kind_str).map_err(|_| ParseError::InvalidKind)?;
-    let id = id_str
+    // Normalize kind to uppercase
+    let kind_upper = kind_str.to_uppercase();
+    let kind = KindString::new(kind_upper).map_err(|_| ParseError::InvalidKind)?;
+
+    // Parse ID
+    let id_usize = id_str
         .parse::<usize>()
         .map_err(|_| ParseError::InvalidId(id_str.into()))?;
+    let id = NonZeroUsize::new(id_usize)
+        .ok_or_else(|| ParseError::InvalidId(id_str.into()))?;
 
-    // All components are namespace
+    // All components are namespace - normalize to uppercase
     let namespace: Result<Vec<_>, _> = components
         .iter()
-        .map(|s| NonEmptyString::from_str(s))
+        .map(|s| {
+            let uppercase = s.to_uppercase();
+            KindString::new(uppercase)
+        })
         .collect();
     let namespace = namespace.map_err(|_| ParseError::InvalidNamespace)?;
 
-    Ok(Hrid::new_with_namespace_unchecked(namespace, kind, id))
+    Ok(Hrid::new_with_namespace(namespace, kind, id))
 }
 
 /// Errors that can occur during path parsing
@@ -262,7 +280,7 @@ mod tests {
         assert_eq!(hrid.to_string(), "system-auth-REQ-001");
         assert_eq!(hrid.namespace(), vec!["system", "auth"]);
         assert_eq!(hrid.kind(), "REQ");
-        assert_eq!(hrid.id(), 1);
+        assert_eq!(hrid.id().get(), 1);
     }
 
     #[test]
@@ -274,7 +292,7 @@ mod tests {
         assert_eq!(hrid.to_string(), "system-auth-REQ-001");
         assert_eq!(hrid.namespace(), vec!["system", "auth"]);
         assert_eq!(hrid.kind(), "REQ");
-        assert_eq!(hrid.id(), 1);
+        assert_eq!(hrid.id().get(), 1);
     }
 
     #[test]
@@ -286,7 +304,7 @@ mod tests {
         assert_eq!(hrid.to_string(), "REQ-001");
         assert!(hrid.namespace().is_empty());
         assert_eq!(hrid.kind(), "REQ");
-        assert_eq!(hrid.id(), 1);
+        assert_eq!(hrid.id().get(), 1);
     }
 
     #[test]
@@ -298,7 +316,7 @@ mod tests {
         assert_eq!(hrid.to_string(), "REQ-001");
         assert!(hrid.namespace().is_empty());
         assert_eq!(hrid.kind(), "REQ");
-        assert_eq!(hrid.id(), 1);
+        assert_eq!(hrid.id().get(), 1);
     }
 
     #[test]
