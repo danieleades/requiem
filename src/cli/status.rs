@@ -33,7 +33,7 @@ impl Status {
         let mut counts: BTreeMap<String, usize> = BTreeMap::new();
         for requirement in directory.requirements() {
             *counts
-                .entry(requirement.hrid().kind().to_string())
+                .entry(requirement.hrid.kind().to_string())
                 .or_insert(0) += 1;
         }
 

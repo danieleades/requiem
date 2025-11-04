@@ -9,7 +9,7 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use clap::{Parser, ValueEnum};
 use regex::Regex;
-use requiem::{Directory, Hrid, Requirement};
+use requiem::{Directory, Hrid, RequirementView};
 use serde::Serialize;
 use tracing::instrument;
 use uuid::Uuid;
@@ -568,28 +568,29 @@ fn collect_entries(directory: &Directory) -> Vec<Entry> {
     let mut entries = Vec::new();
 
     for requirement in directory.requirements() {
-        entries.push(entry_from_requirement(directory, requirement));
+        entries.push(entry_from_requirement(directory, &requirement));
     }
 
     entries
 }
 
-fn entry_from_requirement(directory: &Directory, requirement: &Requirement) -> Entry {
+fn entry_from_requirement(directory: &Directory, requirement: &RequirementView) -> Entry {
     let parents = requirement
-        .parents()
-        .map(|(uuid, parent)| LinkRef::new(uuid, parent.hrid.clone()))
+        .parents
+        .iter()
+        .map(|(uuid, parent)| LinkRef::new(*uuid, parent.hrid.clone()))
         .collect::<Vec<_>>();
 
-    let tags = requirement.tags().iter().cloned().collect::<Vec<_>>();
-    let path = directory.path_for(requirement.hrid());
+    let tags = requirement.tags.iter().cloned().collect::<Vec<_>>();
+    let path = directory.path_for(requirement.hrid);
 
     Entry {
-        uuid: requirement.uuid(),
-        hrid: requirement.hrid().clone(),
-        title: extract_title(requirement.content()),
+        uuid: *requirement.uuid,
+        hrid: requirement.hrid.clone(),
+        title: extract_title(requirement.content),
         tags,
-        created: requirement.created(),
-        content: requirement.content().to_string(),
+        created: *requirement.created,
+        content: requirement.content.to_string(),
         parents,
         children: Vec::new(),
         path,
@@ -1441,7 +1442,7 @@ mod tests {
 
     use chrono::{Duration, TimeZone, Utc};
     use regex::Regex;
-    use requiem::Directory;
+    use requiem::{Directory, Requirement};
     use tempfile::tempdir;
     use uuid::Uuid;
 
@@ -1517,12 +1518,19 @@ mod tests {
 
             let leaf = Entry {
                 uuid: leaf_uuid,
-                hrid: Hrid::new_with_namespace(
-                    vec!["System".to_string(), "Auth".to_string()],
-                    "USR".to_string(),
-                    7,
-                )
-                .unwrap(),
+                hrid: {
+                    use std::num::NonZeroUsize;
+
+                    use requiem::domain::hrid::KindString;
+                    Hrid::new_with_namespace(
+                        vec![
+                            KindString::new("SYSTEM".to_string()).unwrap(),
+                            KindString::new("AUTH".to_string()).unwrap(),
+                        ],
+                        KindString::new("USR".to_string()).unwrap(),
+                        NonZeroUsize::new(7).unwrap(),
+                    )
+                },
                 title: Some("Login".to_string()),
                 tags: vec!["Security".to_string(), "UI".to_string()],
                 created: base_time + Duration::days(2),
@@ -1604,7 +1612,7 @@ mod tests {
 
     fn add_requirement(directory: &mut Directory, kind: &str, content: &str) -> Requirement {
         directory
-            .add_requirement(kind.to_string(), content.to_string())
+            .add_requirement(kind, content.to_string())
             .unwrap()
     }
 
@@ -1892,7 +1900,7 @@ mod tests {
         assert_eq!(row.hrid, entry.hrid.to_string());
         assert_eq!(row.title, entry.title.as_deref());
         assert_eq!(row.kind, Some(entry.hrid.kind()));
-        assert_eq!(row.namespace.as_deref(), Some("System-Auth"));
+        assert_eq!(row.namespace.as_deref(), Some("SYSTEM-AUTH"));
         assert!(row.parents.as_ref().unwrap().contains("SYS-002"));
         assert!(row.children.is_none());
         assert!(row.tags.as_ref().unwrap().contains("Security"));
@@ -1936,8 +1944,9 @@ mod tests {
         let child = add_requirement(&mut directory, "USR", "# Child\nImplements parent");
 
         directory
-            .link_requirement(child.hrid().clone(), parent.hrid().clone())
+            .link_requirement(child.hrid(), parent.hrid())
             .unwrap();
+        directory.flush().unwrap();
 
         let mut table = base_list();
         table.sort = SortField::Title;
