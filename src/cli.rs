@@ -164,7 +164,10 @@ impl Add {
         for parent in &self.parent {
             // TODO: the linkage should be done before the requirement is saved by the
             // 'add_requirement' method to avoid unnecessary IO.
-            directory.link_requirement(requirement.hrid(), parent)?;
+            if let Err(err) = directory.link_requirement(requirement.hrid(), parent) {
+                directory.remove_requirement(requirement.uuid());
+                return Err(err.into());
+            }
         }
         directory.flush()?;
 
@@ -264,20 +267,116 @@ enum GroupBy {
     None,
 }
 
+/// Information about a requirement extracted for display purposes.
+struct LinkInfo {
+    hrid: String,
+    title: String,
+    path: String,
+    kind: String,
+}
+
+impl LinkInfo {
+    fn from_hrid(directory: &Directory, hrid: &requiem::Hrid) -> Self {
+        let requirement = directory.requirement_by_hrid(hrid);
+        let title = requirement
+            .and_then(|r| Suspect::extract_title(r.content()))
+            .unwrap_or_default();
+
+        Self {
+            hrid: hrid.to_string(),
+            title,
+            path: directory.path_for(hrid).display().to_string(),
+            kind: hrid.kind().to_string(),
+        }
+    }
+}
+
+/// An enriched suspect link with precomputed display information.
+struct EnrichedLink<'a> {
+    link: &'a requiem::SuspectLink<'a>,
+    child_info: LinkInfo,
+    parent_info: LinkInfo,
+}
+
+impl<'a> EnrichedLink<'a> {
+    fn from_link(link: &'a requiem::SuspectLink<'a>, directory: &Directory) -> Self {
+        Self {
+            link,
+            child_info: LinkInfo::from_hrid(directory, link.child_hrid),
+            parent_info: LinkInfo::from_hrid(directory, link.parent_hrid),
+        }
+    }
+
+    fn to_json_value(&self) -> serde_json::Value {
+        use serde_json::json;
+
+        json!({
+            "child": {
+                "hrid": &self.child_info.hrid,
+                "title": if self.child_info.title.is_empty() { None } else { Some(&self.child_info.title) },
+                "path": &self.child_info.path,
+                "kind": &self.child_info.kind,
+            },
+            "parent": {
+                "hrid": &self.parent_info.hrid,
+                "title": if self.parent_info.title.is_empty() { None } else { Some(&self.parent_info.title) },
+                "path": &self.parent_info.path,
+                "kind": &self.parent_info.kind,
+            },
+            "status": "fingerprint drift",
+            "stored_fingerprint": self.link.stored_fingerprint,
+            "current_fingerprint": &self.link.current_fingerprint,
+        })
+    }
+}
+
+/// Statistics about suspect links.
+struct SuspectStats {
+    total: usize,
+    unique_parents: usize,
+    unique_children: usize,
+    by_kind: std::collections::HashMap<String, usize>,
+}
+
+impl SuspectStats {
+    fn from_links(suspect_links: &[requiem::SuspectLink<'_>]) -> Self {
+        use std::collections::{HashMap, HashSet};
+
+        let mut unique_parents = HashSet::new();
+        let mut unique_children = HashSet::new();
+        let mut by_kind = HashMap::new();
+
+        for link in suspect_links {
+            unique_parents.insert(link.parent_hrid.to_string());
+            unique_children.insert(link.child_hrid.to_string());
+            *by_kind
+                .entry(link.child_hrid.kind().to_string())
+                .or_insert(0) += 1;
+        }
+
+        Self {
+            total: suspect_links.len(),
+            unique_parents: unique_parents.len(),
+            unique_children: unique_children.len(),
+            by_kind,
+        }
+    }
+}
+
 impl Suspect {
     #[instrument]
     fn run(self, path: PathBuf) -> anyhow::Result<()> {
         use terminal::Colorize;
 
         let directory = Directory::new(path)?;
-        let mut suspect_links = directory.suspect_links();
+        let mut suspect_links: Vec<_> = directory.suspect_links().collect();
 
         // Apply filters
         if let Some(ref child_filter) = self.child {
-            suspect_links.retain(|link| &link.child_hrid == child_filter);
+            suspect_links.retain(|link| link.child_hrid == child_filter);
         }
         if let Some(ref parent_filter) = self.parent {
-            suspect_links.retain(|link| &link.parent_hrid == parent_filter);
+            suspect_links.retain(|link| link.parent_hrid == parent_filter);
         }
         if let Some(ref kind_filter) = self.kind {
             // Normalize to uppercase for comparison (kinds are stored uppercase)
@@ -349,36 +448,21 @@ impl Suspect {
         None
     }
 
-    fn output_stats(suspect_links: &[requiem::SuspectLink], _directory: &Directory) {
-        use std::collections::{HashMap, HashSet};
+    fn output_stats(suspect_links: &[requiem::SuspectLink<'_>], _directory: &Directory) {
+        use std::collections::HashMap;
 
-        let unique_parents: HashSet<_> = suspect_links
-            .iter()
-            .map(|l| l.parent_hrid.to_string())
-            .collect();
-        let unique_children: HashSet<_> = suspect_links
-            .iter()
-            .map(|l| l.child_hrid.to_string())
-            .collect();
+        let stats = SuspectStats::from_links(suspect_links);
 
         println!("Suspect Link Statistics");
         println!();
-        println!("Total suspect links:       {}", suspect_links.len());
-        println!("Unique parents affected:   {}", unique_parents.len());
-        println!("Unique children affected:  {}", unique_children.len());
+        println!("Total suspect links:       {}", stats.total);
+        println!("Unique parents affected:   {}", stats.unique_parents);
+        println!("Unique children affected:  {}", stats.unique_children);
         println!();
 
-        // Count by child kind
-        let mut by_kind: HashMap<String, usize> = HashMap::new();
-        for link in suspect_links {
-            *by_kind
-                .entry(link.child_hrid.kind().to_string())
-                .or_insert(0) += 1;
-        }
-
-        if !by_kind.is_empty() {
+        if !stats.by_kind.is_empty() {
             println!("By child requirement kind:");
-            let mut kinds: Vec<_> = by_kind.iter().collect();
+            let mut kinds: Vec<_> = stats.by_kind.iter().collect();
             kinds.sort_by_key(|(k, _)| *k);
             for (kind, count) in kinds {
                 println!("  {kind}  →  *     {count} links");
@@ -406,61 +490,24 @@ impl Suspect {
     }
 
     fn output_json(
-        suspect_links: &[requiem::SuspectLink],
+        suspect_links: &[requiem::SuspectLink<'_>],
         directory: &Directory,
     ) -> anyhow::Result<()> {
-        use std::collections::{HashMap, HashSet};
-
         use serde_json::json;
 
-        let unique_parents: HashSet<_> = suspect_links
-            .iter()
-            .map(|l| l.parent_hrid.to_string())
-            .collect();
-        let unique_children: HashSet<_> = suspect_links
-            .iter()
-            .map(|l| l.child_hrid.to_string())
-            .collect();
-
-        let mut by_kind: HashMap<String, usize> = HashMap::new();
-        for link in suspect_links {
-            *by_kind
-                .entry(link.child_hrid.kind().to_string())
-                .or_insert(0) += 1;
-        }
+        let stats = SuspectStats::from_links(suspect_links);
 
         let links: Vec<_> = suspect_links
             .iter()
-            .map(|link| {
-                let child_req = directory.requirement_by_hrid(&link.child_hrid);
-                let parent_req = directory.requirement_by_hrid(&link.parent_hrid);
-
-                json!({
-                    "child": {
-                        "hrid": link.child_hrid.to_string(),
-                        "title": child_req.and_then(|r| Self::extract_title(r.content())),
-                        "path": directory.path_for(&link.child_hrid).display().to_string(),
-                        "kind": link.child_hrid.kind(),
-                    },
-                    "parent": {
-                        "hrid": link.parent_hrid.to_string(),
-                        "title": parent_req.and_then(|r| Self::extract_title(r.content())),
-                        "path": directory.path_for(&link.parent_hrid).display().to_string(),
-                        "kind": link.parent_hrid.kind(),
-                    },
-                    "status": "fingerprint drift",
-                    "stored_fingerprint": &link.stored_fingerprint,
-                    "current_fingerprint": &link.current_fingerprint,
-                })
-            })
+            .map(|link| EnrichedLink::from_link(link, directory).to_json_value())
             .collect();
 
         let output = json!({
             "summary": {
-                "total_count": suspect_links.len(),
-                "unique_parents": unique_parents.len(),
-                "unique_children": unique_children.len(),
-                "by_kind": by_kind,
+                "total_count": stats.total,
+                "unique_parents": stats.unique_parents,
+                "unique_children": stats.unique_children,
+                "by_kind": stats.by_kind,
             },
             "links": links,
         });
@@ -470,40 +517,19 @@ impl Suspect {
     }
 
     fn output_ndjson(
-        suspect_links: &[requiem::SuspectLink],
+        suspect_links: &[requiem::SuspectLink<'_>],
         directory: &Directory,
     ) -> anyhow::Result<()> {
-        use serde_json::json;
-
         for link in suspect_links {
-            let child_req = directory.requirement_by_hrid(&link.child_hrid);
-            let parent_req = directory.requirement_by_hrid(&link.parent_hrid);
-
-            let obj = json!({
-                "child": {
-                    "hrid": link.child_hrid.to_string(),
-                    "title": child_req.and_then(|r| Self::extract_title(r.content())),
-                    "path": directory.path_for(&link.child_hrid).display().to_string(),
-                    "kind": link.child_hrid.kind(),
-                },
-                "parent": {
-                    "hrid": link.parent_hrid.to_string(),
-                    "title": parent_req.and_then(|r| Self::extract_title(r.content())),
-                    "path": directory.path_for(&link.parent_hrid).display().to_string(),
-                    "kind": link.parent_hrid.kind(),
-                },
-                "status": "fingerprint drift",
-                "stored_fingerprint": &link.stored_fingerprint,
-                "current_fingerprint": &link.current_fingerprint,
-            });
-            println!("{}", serde_json::to_string(&obj)?);
+            let enriched = EnrichedLink::from_link(link, directory);
+            println!("{}", serde_json::to_string(&enriched.to_json_value())?);
         }
         Ok(())
     }
 
     fn output_table(
         &self,
-        suspect_links: &[requiem::SuspectLink],
+        suspect_links: &[requiem::SuspectLink<'_>],
         directory: &Directory,
     ) -> anyhow::Result<()> {
         use terminal::Colorize;
@@ -518,27 +544,13 @@ impl Suspect {
                 println!("Suspect Link #{} of {}", i + 1, suspect_links.len());
                 println!();
 
-                let child_req = directory.requirement_by_hrid(&link.child_hrid);
-                let parent_req = directory.requirement_by_hrid(&link.parent_hrid);
+                let enriched = EnrichedLink::from_link(link, directory);
 
-                let child_title = child_req
-                    .and_then(|r| Self::extract_title(r.content()))
-                    .unwrap_or_default();
-                let parent_title = parent_req
-                    .and_then(|r| Self::extract_title(r.content()))
-                    .unwrap_or_default();
-
-                println!("  CHILD:   {}  {}", link.child_hrid, child_title);
-                println!(
-                    "           Path:     {}",
-                    directory.path_for(&link.child_hrid).display()
-                );
+                println!("  CHILD:   {}  {}", enriched.child_info.hrid, enriched.child_info.title);
+                println!("           Path:     {}", enriched.child_info.path);
                 println!();
-                println!("  PARENT:  {}  {}", link.parent_hrid, parent_title);
-                println!(
-                    "           Path:     {}",
-                    directory.path_for(&link.parent_hrid).display()
-                );
+                println!("  PARENT:  {}  {}", enriched.parent_info.hrid, enriched.parent_info.title);
+                println!("           Path:     {}", enriched.parent_info.path);
                 println!();
                 println!("  REASON:  Parent content changed (fingerprint drift)");
                 println!();
@@ -567,15 +579,18 @@ impl Suspect {
             println!("{}", "─".repeat(70).dim());
 
             for link in suspect_links {
-                let child_req = directory.requirement_by_hrid(&link.child_hrid);
-                let parent_req = directory.requirement_by_hrid(&link.parent_hrid);
+                let enriched = EnrichedLink::from_link(link, directory);
 
-                let child_title = child_req
-                    .and_then(|r| Self::extract_title(r.content()))
-                    .unwrap_or_else(|| String::from("(no title)"));
-                let parent_title = parent_req
-                    .and_then(|r| Self::extract_title(r.content()))
-                    .unwrap_or_else(|| String::from("(no title)"));
+                let child_title = if enriched.child_info.title.is_empty() {
+                    "(no title)".to_string()
+                } else {
+                    enriched.child_info.title
+                };
+                let parent_title = if enriched.parent_info.title.is_empty() {
+                    "(no title)".to_string()
+                } else {
+                    enriched.parent_info.title
+                };
 
                 println!(
                     "{:<12} {} {:<12}     {} {} {}",
@@ -604,14 +619,14 @@ impl Suspect {
 
     fn output_grouped(
         &self,
-        suspect_links: &[requiem::SuspectLink],
+        suspect_links: &[requiem::SuspectLink<'_>],
         directory: &Directory,
     ) -> anyhow::Result<()> {
         use std::collections::HashMap;
 
         match self.group_by {
             Some(GroupBy::Parent) => {
-                let mut by_parent: HashMap<String, Vec<&requiem::SuspectLink>> = HashMap::new();
+                let mut by_parent: HashMap<String, Vec<&requiem::SuspectLink<'_>>> = HashMap::new();
                 for link in suspect_links {
                     by_parent
                         .entry(link.parent_hrid.to_string())
@@ -627,30 +642,24 @@ impl Suspect {
                 println!();
 
                 for (parent_hrid_str, links) in &by_parent {
-                    let parent_req = directory.requirement_by_hrid(&links[0].parent_hrid);
-                    let parent_title = parent_req
-                        .and_then(|r| Self::extract_title(r.content()))
-                        .unwrap_or_default();
+                    let parent_info = LinkInfo::from_hrid(directory, links[0].parent_hrid);
 
-                    println!("{parent_hrid_str} ({parent_title})");
+                    println!("{parent_hrid_str} ({}) ", parent_info.title);
                     for (idx, link) in links.iter().enumerate() {
-                        let child_req = directory.requirement_by_hrid(&link.child_hrid);
-                        let child_title = child_req
-                            .and_then(|r| Self::extract_title(r.content()))
-                            .unwrap_or_default();
+                        let child_info = LinkInfo::from_hrid(directory, link.child_hrid);
 
                         let prefix = if idx == links.len() - 1 {
                             "└─"
                         } else {
                             "├─"
                         };
-                        println!("{}  {}  {}", prefix, link.child_hrid, child_title);
+                        println!("{}  {}  {}", prefix, link.child_hrid, child_info.title);
                     }
                     println!();
                 }
             }
             Some(GroupBy::Child) => {
-                let mut by_child: HashMap<String, Vec<&requiem::SuspectLink>> = HashMap::new();
+                let mut by_child: HashMap<String, Vec<&requiem::SuspectLink<'_>>> = HashMap::new();
                 for link in suspect_links {
                     by_child
                         .entry(link.child_hrid.to_string())
@@ -666,24 +675,18 @@ impl Suspect {
                 println!();
 
                 for (child_hrid_str, links) in &by_child {
-                    let child_req = directory.requirement_by_hrid(&links[0].child_hrid);
-                    let child_title = child_req
-                        .and_then(|r| Self::extract_title(r.content()))
-                        .unwrap_or_default();
+                    let child_info = LinkInfo::from_hrid(directory, links[0].child_hrid);
 
-                    println!("{child_hrid_str} ({child_title})");
+                    println!("{child_hrid_str} ({})", child_info.title);
                     for (idx, link) in links.iter().enumerate() {
-                        let parent_req = directory.requirement_by_hrid(&link.parent_hrid);
-                        let parent_title = parent_req
-                            .and_then(|r| Self::extract_title(r.content()))
-                            .unwrap_or_default();
+                        let parent_info = LinkInfo::from_hrid(directory, link.parent_hrid);
 
                         let prefix = if idx == links.len() - 1 {
                             "└─"
                         } else {
                             "├─"
                         };
-                        println!("{}  {}  {}", prefix, link.parent_hrid, parent_title);
+                        println!("{}  {}  {}", prefix, link.parent_hrid, parent_info.title);
                     }
                     println!();
                 }
@@ -735,7 +738,7 @@ impl Accept {
         let mut directory = Directory::new(path)?;
 
         if self.all {
-            let suspect_links = directory.suspect_links();
+            let suspect_links: Vec<_> = directory.suspect_links().collect();
 
             if suspect_links.is_empty() {
                 println!("Nothing to update. All suspect links are already accepted.");
@@ -807,10 +810,9 @@ impl Accept {
                 .expect("parent is required when --all is not set");
 
             // For single link, check if it's suspect
-            let suspect_links = directory.suspect_links();
-            let link = suspect_links
-                .iter()
-                .find(|l| l.child_hrid == child && l.parent_hrid == parent);
+            let link = directory
+                .suspect_links()
+                .find(|l| *l.child_hrid == child && *l.parent_hrid == parent);
 
             if let Some(link) = link {
                 // Show confirmation banner if link is suspect

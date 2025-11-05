@@ -9,17 +9,18 @@ use std::{
     num::NonZeroUsize,
 };
 
-use petgraph::graphmap::DiGraphMap;
+use petgraph::{
+    algo::{has_path_connecting, is_cyclic_directed, tarjan_scc},
+    graphmap::DiGraphMap,
+};
+use thiserror::Error;
 use tracing::instrument;
 use uuid::Uuid;
 
 use crate::{
     domain::{
-        hrid::KindString,
-        requirement::{LoadError, Parent},
-        requirement_data::RequirementData,
-        requirement_view::RequirementView,
-        Hrid,
+        hrid::KindString, requirement::Parent, requirement_data::RequirementData,
+        requirement_view::RequirementView, Hrid,
     },
     Requirement,
 };
@@ -50,7 +51,7 @@ struct EdgeData {
 /// - HRID lookup: `BTreeMap<Hrid, Uuid>`
 /// - Relationships: `DiGraphMap<Uuid, EdgeData>` (edges are child→parent,
 ///   `EdgeData` contains parent info)
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Tree {
     /// Requirements data, keyed by UUID.
     requirements: HashMap<Uuid, RequirementData>,
@@ -69,6 +70,25 @@ pub struct Tree {
     graph: DiGraphMap<Uuid, EdgeData>,
 }
 
+/// Errors that can occur when linking requirements.
+#[derive(Debug, Error)]
+pub enum LinkError {
+    /// The child requirement could not be found.
+    #[error("child requirement {0} not found")]
+    ChildNotFound(Hrid),
+    /// The parent requirement could not be found.
+    #[error("parent requirement {0} not found")]
+    ParentNotFound(Hrid),
+    /// Establishing the link would introduce a cycle in the requirement graph.
+    #[error("link {child} ← {parent} would create a cycle")]
+    Cycle {
+        /// HRID of the child requirement.
+        child: Hrid,
+        /// HRID of the parent requirement.
+        parent: Hrid,
+    },
+}
+
 /// Result of linking two requirements together.
 #[derive(Debug)]
 pub struct LinkOutcome {
@@ -82,17 +102,6 @@ pub struct LinkOutcome {
     pub parent_hrid: Hrid,
     /// Whether the relationship already existed prior to linking.
     pub already_linked: bool,
-}
-
-impl Default for Tree {
-    fn default() -> Self {
-        Self {
-            requirements: HashMap::new(),
-            hrids: HashMap::new(),
-            hrid_to_uuid: BTreeMap::new(),
-            graph: DiGraphMap::new(),
-        }
-    }
 }
 
 impl Tree {
@@ -137,9 +146,9 @@ impl Tree {
             self.graph.add_edge(uuid, *parent_uuid, edge_data);
         }
 
-        // Store HRID
-        self.hrids.insert(uuid, hrid.clone());
-        self.hrid_to_uuid.insert(hrid, uuid);
+        // Store HRID (move hrid into hrids, clone for hrid_to_uuid)
+        self.hrid_to_uuid.insert(hrid.clone(), uuid);
+        self.hrids.insert(uuid, hrid);
 
         // Store decomposed data
         let data = RequirementData::from(requirement);
@@ -307,27 +316,44 @@ impl Tree {
     ///
     /// # Errors
     ///
-    /// Returns [`LoadError::NotFound`] when either HRID does not exist in the
-    /// tree.
+    /// Returns [`LinkError::ChildNotFound`] or [`LinkError::ParentNotFound`]
+    /// when either HRID does not exist, or [`LinkError::Cycle`] if the link
+    /// would introduce a cycle.
     pub fn link_requirement(
         &mut self,
         child: &Hrid,
         parent: &Hrid,
-    ) -> Result<LinkOutcome, LoadError> {
-        let (child_uuid, child_hrid) = {
-            let view = self.find_by_hrid(child).ok_or(LoadError::NotFound)?;
-            (*view.uuid, view.hrid.clone())
-        };
+    ) -> Result<LinkOutcome, LinkError> {
+        let child_view = self
+            .find_by_hrid(child)
+            .ok_or_else(|| LinkError::ChildNotFound(child.clone()))?;
+        let parent_view = self
+            .find_by_hrid(parent)
+            .ok_or_else(|| LinkError::ParentNotFound(parent.clone()))?;
 
-        let (parent_uuid, parent_hrid, parent_fingerprint) = {
-            let view = self.find_by_hrid(parent).ok_or(LoadError::NotFound)?;
-            (*view.uuid, view.hrid.clone(), view.fingerprint())
-        };
+        let child_uuid = *child_view.uuid;
+        let parent_uuid = *parent_view.uuid;
+        let child_hrid = child_view.hrid.clone();
+        let parent_hrid = parent_view.hrid.clone();
+        let parent_fingerprint = parent_view.fingerprint();
+
+        if child_uuid == parent_uuid {
+            return Err(LinkError::Cycle {
+                child: child_hrid,
+                parent: parent_hrid,
+            });
+        }
 
         let already_linked = self
             .parents(child_uuid)
-            .into_iter()
             .any(|(uuid, _)| uuid == parent_uuid);
+
+        if !already_linked && self.link_would_create_cycle(child_uuid, parent_uuid) {
+            return Err(LinkError::Cycle {
+                child: child_hrid,
+                parent: parent_hrid,
+            });
+        }
 
         self.upsert_parent_link(child_uuid, parent_uuid, parent_fingerprint);
 
@@ -341,30 +367,28 @@ impl Tree {
     }
 
     /// Get all children of a requirement.
-    #[must_use]
-    pub fn children(&self, uuid: Uuid) -> Vec<Uuid> {
-        if !self.graph.contains_node(uuid) {
-            return Vec::new();
-        }
-
+    pub fn children(&self, uuid: Uuid) -> impl Iterator<Item = Uuid> + '_ {
         // Incoming edges are from children
-        self.graph
-            .neighbors_directed(uuid, petgraph::Direction::Incoming)
-            .collect()
+        if self.graph.contains_node(uuid) {
+            Some(self.graph.neighbors_directed(uuid, petgraph::Direction::Incoming))
+        } else {
+            None
+        }
+        .into_iter()
+        .flatten()
     }
 
     /// Get all parents of a requirement with their fingerprints.
-    #[must_use]
-    pub fn parents(&self, uuid: Uuid) -> Vec<(Uuid, String)> {
-        if !self.graph.contains_node(uuid) {
-            return Vec::new();
-        }
-
+    pub fn parents(&self, uuid: Uuid) -> impl Iterator<Item = (Uuid, String)> + '_ {
         // Outgoing edges are to parents
-        self.graph
-            .edges(uuid)
-            .map(|(_, parent_uuid, edge_data)| (parent_uuid, edge_data.fingerprint.clone()))
-            .collect()
+        if self.graph.contains_node(uuid) {
+            Some(self.graph.edges(uuid))
+        } else {
+            None
+        }
+        .into_iter()
+        .flatten()
+        .map(|(_, parent_uuid, edge_data)| (parent_uuid, edge_data.fingerprint.clone()))
     }
 
     /// Insert or update a parent link for the given child UUID.
@@ -405,6 +429,57 @@ impl Tree {
         };
 
         self.graph.add_edge(child_uuid, parent_uuid, edge).is_some()
+    }
+
+    /// Remove a requirement and all of its relationships from the tree.
+    ///
+    /// Returns `true` if the requirement existed and was removed.
+    pub fn remove_requirement(&mut self, uuid: Uuid) -> bool {
+        let Some(hrid) = self.hrids.remove(&uuid) else {
+            return false;
+        };
+
+        self.hrid_to_uuid.remove(&hrid);
+        self.requirements.remove(&uuid);
+        self.graph.remove_node(uuid);
+
+        true
+    }
+    /// Determine whether the graph contains any cycles.
+    #[must_use]
+    pub fn has_cycles(&self) -> bool {
+        is_cyclic_directed(&self.graph)
+    }
+
+    /// Return all cycles in the graph as sets of HRIDs.
+    #[must_use]
+    pub fn cycles(&self) -> Vec<Vec<Hrid>> {
+        let mut cycles = Vec::new();
+
+        for component in tarjan_scc(&self.graph) {
+            if component.len() > 1 {
+                let mut hrids: Vec<_> = component
+                    .iter()
+                    .filter_map(|uuid| self.hrid(*uuid).cloned())
+                    .collect();
+                hrids.sort();
+                cycles.push(hrids);
+                continue;
+            }
+
+            let Some(&node) = component.first() else {
+                continue;
+            };
+
+            if self.graph.contains_edge(node, node) {
+                if let Some(hrid) = self.hrid(node) {
+                    cycles.push(vec![hrid.clone()]);
+                }
+            }
+        }
+
+        cycles.sort();
+        cycles
     }
 
     /// Read all the requirements and update any incorrect parent HRIDs.
@@ -462,42 +537,39 @@ impl Tree {
     /// # Panics
     ///
     /// Panics if a child UUID in the graph doesn't have a corresponding HRID.
-    #[must_use]
-    pub fn suspect_links(&self) -> Vec<SuspectLink> {
+    pub fn suspect_links(&self) -> impl Iterator<Item = SuspectLink<'_>> + '_ {
         use crate::domain::requirement::ContentRef;
 
-        let mut suspect = Vec::new();
-
-        for child_uuid in self.graph.nodes() {
+        self.graph.nodes().flat_map(move |child_uuid| {
             let child_hrid = self.hrids.get(&child_uuid).unwrap();
 
-            for (_, parent_uuid, edge_data) in self.graph.edges(child_uuid) {
-                // Access RequirementData directly to avoid full RequirementView construction
-                let Some(parent_data) = self.requirements.get(&parent_uuid) else {
-                    continue;
-                };
+            self.graph
+                .edges(child_uuid)
+                .filter_map(move |(_, parent_uuid, edge_data)| {
+                    // Access RequirementData directly to avoid full RequirementView construction
+                    let parent_data = self.requirements.get(&parent_uuid)?;
 
-                // Calculate fingerprint directly from RequirementData
-                let current_fingerprint = ContentRef {
-                    content: &parent_data.content,
-                    tags: &parent_data.tags,
-                }
-                .fingerprint();
+                    // Calculate fingerprint directly from RequirementData
+                    let current_fingerprint = ContentRef {
+                        content: &parent_data.content,
+                        tags: &parent_data.tags,
+                    }
+                    .fingerprint();
 
-                if edge_data.fingerprint != current_fingerprint {
-                    suspect.push(SuspectLink {
-                        child_uuid,
-                        child_hrid: child_hrid.clone(),
-                        parent_uuid,
-                        parent_hrid: edge_data.parent_hrid.clone(),
-                        stored_fingerprint: edge_data.fingerprint.clone(),
-                        current_fingerprint,
-                    });
-                }
-            }
-        }
-
-        suspect
+                    if edge_data.fingerprint == current_fingerprint {
+                        None
+                    } else {
+                        Some(SuspectLink {
+                            child_uuid,
+                            child_hrid,
+                            parent_uuid,
+                            parent_hrid: &edge_data.parent_hrid,
+                            stored_fingerprint: &edge_data.fingerprint,
+                            current_fingerprint,
+                        })
+                    }
+                })
+        })
     }
 
     /// Update the fingerprint for a specific parent link.
@@ -540,12 +612,17 @@ impl Tree {
 
     /// Update all suspect fingerprints in the tree.
     pub fn accept_all_suspect_links(&mut self) -> Vec<(Uuid, Uuid)> {
-        let suspect = self.suspect_links();
+        // Collect UUIDs first to avoid holding immutable references while mutating
+        let suspect_uuids: Vec<(Uuid, Uuid)> = self
+            .suspect_links()
+            .map(|link| (link.child_uuid, link.parent_uuid))
+            .collect();
+
         let mut updated = Vec::new();
 
-        for link in suspect {
-            if self.accept_suspect_link(link.child_uuid, link.parent_uuid) {
-                updated.push((link.child_uuid, link.parent_uuid));
+        for (child_uuid, parent_uuid) in suspect_uuids {
+            if self.accept_suspect_link(child_uuid, parent_uuid) {
+                updated.push((child_uuid, parent_uuid));
             }
         }
 
@@ -553,19 +630,204 @@ impl Tree {
     }
 }
 
+impl Tree {
+    fn link_would_create_cycle(&self, child_uuid: Uuid, parent_uuid: Uuid) -> bool {
+        if !self.graph.contains_node(parent_uuid) || !self.graph.contains_node(child_uuid) {
+            return false;
+        }
+
+        if !has_path_connecting(&self.graph, parent_uuid, child_uuid, None) {
+            return false;
+        }
+
+        // If the child can already reach the parent through existing links,
+        // then the graph already contains a cycle involving these nodes.
+        if has_path_connecting(&self.graph, child_uuid, parent_uuid, None) {
+            return false;
+        }
+
+        true
+    }
+}
+
 /// A suspect link in the requirement graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SuspectLink {
+pub struct SuspectLink<'a> {
     /// The UUID of the child requirement.
     pub child_uuid: Uuid,
     /// The HRID of the child requirement.
-    pub child_hrid: Hrid,
+    pub child_hrid: &'a Hrid,
     /// The UUID of the parent requirement.
     pub parent_uuid: Uuid,
     /// The HRID of the parent requirement.
-    pub parent_hrid: Hrid,
+    pub parent_hrid: &'a Hrid,
     /// The fingerprint stored in the child's parent reference.
-    pub stored_fingerprint: String,
+    pub stored_fingerprint: &'a str,
     /// The current fingerprint of the parent requirement.
     pub current_fingerprint: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::requirement::Parent as RequirementParent;
+    use std::convert::TryFrom;
+
+    fn make_requirement(kind: &str, index: usize, title: &str) -> Requirement {
+        let hrid = Hrid::try_from(format!("{kind}-{index:03}").as_str()).unwrap();
+        Requirement::new(hrid, format!("# {title}"))
+    }
+
+    fn parent_info(req: &Requirement) -> RequirementParent {
+        RequirementParent {
+            hrid: req.hrid().clone(),
+            fingerprint: req.fingerprint(),
+        }
+    }
+
+    #[test]
+    fn prevents_new_cycle_when_linking() {
+        let mut tree = Tree::default();
+
+        let req_a = make_requirement("REQ", 1, "A");
+        let req_b = make_requirement("REQ", 2, "B");
+
+        tree.insert(req_a.clone());
+        tree.insert(req_b.clone());
+
+        // Initial link (B -> A) is acyclic.
+        tree.link_requirement(req_b.hrid(), req_a.hrid())
+            .expect("initial link should succeed");
+
+        assert!(!tree.has_cycles());
+
+        // Linking A -> B would create a cycle and should be rejected.
+        let err = tree
+            .link_requirement(req_a.hrid(), req_b.hrid())
+            .expect_err("link should create a cycle");
+
+        match err {
+            LinkError::Cycle { child, parent } => {
+                assert_eq!(child, req_a.hrid().clone());
+                assert_eq!(parent, req_b.hrid().clone());
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+
+        // Graph remains acyclic after rejection.
+        assert!(!tree.has_cycles());
+    }
+
+    #[test]
+    fn allows_link_within_existing_cycle() {
+        let mut tree = Tree::default();
+
+        let mut req_a = make_requirement("REQ", 1, "A");
+        let mut req_b = make_requirement("REQ", 2, "B");
+        let mut req_c = make_requirement("REQ", 3, "C");
+
+        // Construct an existing cycle A -> B -> C -> A
+        req_a.add_parent(req_b.uuid(), parent_info(&req_b));
+        req_b.add_parent(req_c.uuid(), parent_info(&req_c));
+        req_c.add_parent(req_a.uuid(), parent_info(&req_a));
+
+        tree.insert(req_a.clone());
+        tree.insert(req_b.clone());
+        tree.insert(req_c.clone());
+
+        assert!(tree.has_cycles());
+
+        // Add an additional link B -> A inside the existing strongly connected component.
+        let outcome = tree
+            .link_requirement(req_b.hrid(), req_a.hrid())
+            .expect("link inside existing cycle should succeed");
+
+        assert_eq!(outcome.child_uuid, req_b.uuid());
+        assert_eq!(outcome.parent_uuid, req_a.uuid());
+        assert!(!outcome.already_linked);
+        assert!(tree.has_cycles());
+    }
+
+    #[test]
+    fn rejects_linking_requirement_to_itself() {
+        let mut tree = Tree::default();
+
+        let req = make_requirement("REQ", 1, "Self");
+        tree.insert(req.clone());
+
+        let err = tree
+            .link_requirement(req.hrid(), req.hrid())
+            .expect_err("self-link should be rejected");
+
+        match err {
+            LinkError::Cycle { child, parent } => {
+                assert_eq!(child, req.hrid().clone());
+                assert_eq!(parent, req.hrid().clone());
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn linking_existing_parent_sets_already_linked() {
+        let mut tree = Tree::default();
+
+        let req_a = make_requirement("REQ", 1, "A");
+        let req_b = make_requirement("REQ", 2, "B");
+
+        tree.insert(req_a.clone());
+        tree.insert(req_b.clone());
+
+        let first = tree
+            .link_requirement(req_b.hrid(), req_a.hrid())
+            .expect("initial link should succeed");
+        assert!(!first.already_linked);
+
+        let second = tree
+            .link_requirement(req_b.hrid(), req_a.hrid())
+            .expect("duplicate link should succeed");
+        assert!(second.already_linked);
+
+        let parents: Vec<_> = tree.parents(req_b.uuid()).collect();
+        assert_eq!(parents.len(), 1, "duplicate link should not add extra edges");
+        assert_eq!(parents[0].0, req_a.uuid());
+    }
+
+    #[test]
+    fn linking_missing_child_returns_error() {
+        let mut tree = Tree::default();
+
+        let missing_child = make_requirement("REQ", 1, "Missing Child");
+        let parent = make_requirement("REQ", 2, "Parent");
+
+        tree.insert(parent.clone());
+
+        let err = tree
+            .link_requirement(missing_child.hrid(), parent.hrid())
+            .expect_err("linking with missing child should fail");
+
+        match err {
+            LinkError::ChildNotFound(hrid) => assert_eq!(hrid, missing_child.hrid().clone()),
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn linking_missing_parent_returns_error() {
+        let mut tree = Tree::default();
+
+        let child = make_requirement("REQ", 1, "Child");
+        let missing_parent = make_requirement("REQ", 2, "Missing Parent");
+
+        tree.insert(child.clone());
+
+        let err = tree
+            .link_requirement(child.hrid(), missing_parent.hrid())
+            .expect_err("linking with missing parent should fail");
+
+        match err {
+            LinkError::ParentNotFound(hrid) => assert_eq!(hrid, missing_parent.hrid().clone()),
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
 }

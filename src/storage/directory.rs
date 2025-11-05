@@ -17,8 +17,11 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
+use crate::domain::tree::LinkOutcome;
 use crate::{
-    domain::{hrid::KindString, requirement::LoadError, Config, Hrid, RequirementView, Tree},
+    domain::{
+        hrid::KindString, requirement::LoadError, Config, Hrid, LinkError, RequirementView, Tree,
+    },
     Requirement,
 };
 
@@ -44,26 +47,33 @@ impl Directory {
     ///
     /// # Errors
     ///
-    /// This method can fail if:
-    ///
-    /// - either the child or parent requirement file cannot be found
-    /// - either the child or parent requirement file cannot be parsed
-    /// - the child requirement file cannot be written to
+    /// Returns an error when:
+    /// - the child requirement cannot be found
+    /// - the parent requirement cannot be found
+    /// - creating the link would introduce a cycle in the requirement graph
     pub fn link_requirement(
         &mut self,
         child: &Hrid,
         parent: &Hrid,
-    ) -> Result<RequirementView<'_>, LoadError> {
+    ) -> Result<RequirementView<'_>, LinkError> {
         let outcome = self.tree.link_requirement(child, parent)?;
-        self.mark_dirty(outcome.child_uuid);
+        let LinkOutcome {
+            child_uuid,
+            child_hrid,
+            parent_uuid: _,
+            parent_hrid,
+            already_linked,
+        } = outcome;
 
-        if !outcome.already_linked {
-            tracing::info!("Linked {} ← {}", outcome.child_hrid, outcome.parent_hrid);
+        self.mark_dirty(child_uuid);
+
+        if !already_linked {
+            tracing::info!("Linked {} ← {}", child_hrid, parent_hrid);
         }
 
         self.tree
-            .requirement(outcome.child_uuid)
-            .ok_or(LoadError::NotFound)
+            .requirement(child_uuid)
+            .ok_or(LinkError::ChildNotFound(child_hrid))
     }
 
     /// Opens a directory at the given path.
@@ -293,13 +303,11 @@ impl Directory {
         kind: &str,
         content: String,
     ) -> Result<Requirement, AddRequirementError> {
-        let tree = &mut self.tree;
-
         // Validate kind (CLI already normalized to uppercase)
         let kind_string =
             KindString::new(kind.to_string()).map_err(crate::domain::hrid::Error::from)?;
 
-        let id = tree.next_index(&kind_string);
+        let id = self.tree.next_index(&kind_string);
         let hrid = Hrid::new(kind_string, id);
 
         // If no content is provided via CLI, check for a template
@@ -311,12 +319,20 @@ impl Directory {
 
         let requirement = Requirement::new(hrid, final_content);
 
-        tree.insert(requirement.clone());
-        self.mark_dirty(requirement.uuid());
+        let uuid = requirement.uuid();
+        self.tree.insert(requirement);
+        self.mark_dirty(uuid);
 
-        tracing::info!("Added requirement: {}", requirement.hrid());
+        tracing::info!(
+            "Added requirement: {}",
+            self.tree.hrid(uuid).expect("just inserted")
+        );
 
-        Ok(requirement)
+        Ok(self
+            .tree
+            .requirement(uuid)
+            .expect("just inserted")
+            .to_requirement())
     }
 
     /// Update the human-readable IDs (HRIDs) of all 'parents' references in the
@@ -349,9 +365,33 @@ impl Directory {
     ///
     /// A link is suspect when the fingerprint stored in a child requirement
     /// does not match the current fingerprint of the parent requirement.
-    #[must_use]
-    pub fn suspect_links(&self) -> Vec<crate::domain::SuspectLink> {
+    pub fn suspect_links(&self) -> impl Iterator<Item = crate::domain::SuspectLink<'_>> + '_ {
         self.tree.suspect_links()
+    }
+
+    /// Determine whether the requirement graph currently contains cycles.
+    #[must_use]
+    pub fn has_cycles(&self) -> bool {
+        self.tree.has_cycles()
+    }
+
+    /// Remove a requirement from the directory without touching the filesystem.
+    ///
+    /// This is primarily used to roll back in-memory operations when validation
+    /// fails before data is flushed to disk.
+    pub fn remove_requirement(&mut self, uuid: Uuid) -> bool {
+        let removed = self.tree.remove_requirement(uuid);
+        if removed {
+            self.dirty.remove(&uuid);
+            self.paths.remove(&uuid);
+        }
+        removed
+    }
+
+    /// Return all cycles in the requirement graph as HRID groups.
+    #[must_use]
+    pub fn cycles(&self) -> Vec<Vec<Hrid>> {
+        self.tree.cycles()
     }
 
     /// Accept a specific suspect link by updating its fingerprint.
@@ -380,7 +420,6 @@ impl Directory {
         let has_link = self
             .tree
             .parents(child_uuid)
-            .into_iter()
             .any(|(uuid, _)| uuid == parent_uuid);
 
         if !has_link {

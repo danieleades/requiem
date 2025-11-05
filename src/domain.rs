@@ -16,7 +16,7 @@ pub use hrid::{Error as HridError, Hrid};
 
 /// In-memory tree structure for requirements.
 pub mod tree;
-pub use tree::{SuspectLink, Tree};
+pub use tree::{LinkError, SuspectLink, Tree};
 
 /// Borrowed view of requirements for efficient access.
 pub mod requirement_view;

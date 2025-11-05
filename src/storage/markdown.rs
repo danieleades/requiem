@@ -354,12 +354,13 @@ impl TryFrom<MarkdownRequirement> for Requirement {
 
 #[cfg(test)]
 mod tests {
-    use std::{io::Cursor, num::NonZeroUsize};
+    use std::{collections::BTreeSet, io::Cursor, num::NonZeroUsize};
 
-    use chrono::TimeZone;
+    use chrono::{TimeZone, Utc};
     use tempfile::TempDir;
+    use uuid::Uuid;
 
-    use super::{Parent, *};
+    use super::{Parent, FrontMatter, FrontMatterVersion, Hrid, LoadError, MarkdownRequirement};
     use crate::domain::hrid::KindString;
 
     fn req_hrid() -> Hrid {

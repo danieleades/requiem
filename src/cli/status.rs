@@ -38,7 +38,13 @@ impl Status {
         }
 
         let total: usize = counts.values().sum();
-        let suspect_count = directory.suspect_links().len();
+        let suspect_count = directory.suspect_links().count();
+        let cycles_raw = directory.cycles();
+        let cycle_count = cycles_raw.len();
+        let cycles: Vec<Vec<String>> = cycles_raw
+            .iter()
+            .map(|cycle| cycle.iter().map(ToString::to_string).collect())
+            .collect();
 
         // Check if we have an empty repository
         if total == 0 {
@@ -48,20 +54,28 @@ impl Status {
 
         match self.output {
             OutputFormat::Json => {
-                Self::output_json(&counts, total, suspect_count)?;
+                Self::output_json(&counts, total, suspect_count, cycle_count, &cycles)?;
             }
             OutputFormat::Table => {
                 if self.quiet {
-                    Self::output_quiet(&counts, total, suspect_count);
+                    Self::output_quiet(total, suspect_count, cycle_count);
                 } else {
-                    Self::output_table(&counts, total, suspect_count);
+                    Self::output_table(&counts, total, suspect_count, cycle_count, &cycles);
                 }
             }
         }
 
-        // Exit with code 2 if suspect links exist (for CI)
+        // Exit with a non-zero code when the repository needs attention.
+        let mut exit_code = 0;
+        if cycle_count > 0 {
+            exit_code = exit_code.max(3);
+        }
         if suspect_count > 0 {
-            process::exit(2);
+            exit_code = exit_code.max(2);
+        }
+
+        if exit_code != 0 {
+            process::exit(exit_code);
         }
 
         Ok(())
@@ -71,6 +85,8 @@ impl Status {
         counts: &BTreeMap<String, usize>,
         total: usize,
         suspect_count: usize,
+        cycle_count: usize,
+        cycles: &[Vec<String>],
     ) -> anyhow::Result<()> {
         use serde_json::json;
 
@@ -85,24 +101,37 @@ impl Status {
             })
             .collect();
 
+        let cycle_groups: Vec<_> = cycles.to_vec();
+
         let output = json!({
             "kinds": kinds,
             "total": {
                 "count": total,
                 "delta": 0  // TODO: implement git delta
             },
-            "suspect_links": suspect_count
+            "suspect_links": suspect_count,
+            "cycles": {
+                "count": cycle_count,
+                "members": cycle_groups,
+            }
         });
 
         println!("{}", serde_json::to_string_pretty(&output)?);
         Ok(())
     }
 
-    fn output_quiet(_counts: &BTreeMap<String, usize>, total: usize, suspect_count: usize) {
-        println!("total={total} suspect={suspect_count}");
+    fn output_quiet(total: usize, suspect_count: usize, cycle_count: usize) {
+        println!("total={total} suspect={suspect_count} cycles={cycle_count}");
     }
 
-    fn output_table(counts: &BTreeMap<String, usize>, total: usize, suspect_count: usize) {
+    fn output_table(
+        counts: &BTreeMap<String, usize>,
+        total: usize,
+        suspect_count: usize,
+        cycle_count: usize,
+        cycles: &[Vec<String>],
+    ) {
+        const MAX_CYCLE_DISPLAY: usize = 5;
         let narrow = is_narrow();
 
         println!("Requirement counts");
@@ -131,6 +160,27 @@ impl Status {
         } else {
             println!("Suspect links: {} ⚠️", suspect_count.to_string().warning());
             println!("{}", "Run 'req suspect' to investigate.".dim());
+        }
+
+        println!();
+
+        if cycle_count == 0 {
+            println!("Cycles: {} ✅", "0".success());
+        } else {
+            println!("Cycles: {} ⚠️", cycle_count.to_string().warning());
+            for cycle in cycles.iter().take(MAX_CYCLE_DISPLAY) {
+                println!("  - {}", cycle.join(" -> "));
+            }
+            if cycle_count > MAX_CYCLE_DISPLAY {
+                println!(
+                    "  - ... and {} more cycles",
+                    cycle_count - MAX_CYCLE_DISPLAY
+                );
+            }
+            println!(
+                "{}",
+                "Resolve cycles to restore an acyclic dependency graph.".dim()
+            );
         }
     }
 }

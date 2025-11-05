@@ -266,12 +266,20 @@ impl List {
 
         // Populate children based on parent links.
         for idx in 0..entries.len() {
-            let entry = entries[idx].clone();
-            for parent in &entry.parents {
-                if let Some(parent_idx) = index_by_uuid.get(&parent.uuid) {
+            // Extract data we need before mutating entries
+            let child_uuid = entries[idx].uuid;
+            let child_hrid = entries[idx].hrid.clone();
+            let parent_uuids: Vec<_> = entries[idx]
+                .parents
+                .iter()
+                .map(|p| p.uuid)
+                .collect();
+
+            for parent_uuid in parent_uuids {
+                if let Some(parent_idx) = index_by_uuid.get(&parent_uuid) {
                     entries[*parent_idx]
                         .children
-                        .push(LinkRef::new(entry.uuid, entry.hrid.clone()));
+                        .push(LinkRef::new(child_uuid, child_hrid.clone()));
                 }
             }
         }
@@ -565,9 +573,10 @@ impl LinkRef {
 }
 
 fn collect_entries(directory: &Directory) -> Vec<Entry> {
-    let mut entries = Vec::new();
+    let requirements: Vec<_> = directory.requirements().collect();
+    let mut entries = Vec::with_capacity(requirements.len());
 
-    for requirement in directory.requirements() {
+    for requirement in requirements {
         entries.push(entry_from_requirement(directory, &requirement));
     }
 
@@ -933,7 +942,7 @@ fn compare_rows(a: &Row, b: &Row, entries: &[Entry], sort_field: SortField) -> O
 fn apply_offset_limit(mut rows: Vec<Row>, offset: Option<usize>, limit: Option<usize>) -> Vec<Row> {
     if let Some(off) = offset {
         if off < rows.len() {
-            rows = rows.into_iter().skip(off).collect();
+            rows.drain(..off);
         } else {
             rows.clear();
         }
@@ -1104,8 +1113,8 @@ fn render_table(
         columns.to_vec()
     };
 
-    let mut headers = Vec::new();
-    let mut data: Vec<Vec<String>> = Vec::new();
+    let mut headers = Vec::with_capacity(selected_columns.len());
+    let mut data: Vec<Vec<String>> = Vec::with_capacity(rows.len());
 
     if !quiet {
         headers = selected_columns
@@ -1116,7 +1125,7 @@ fn render_table(
 
     for row in rows {
         let entry = &entries[row.index];
-        let mut row_data = Vec::new();
+        let mut row_data = Vec::with_capacity(selected_columns.len());
 
         for column in &selected_columns {
             let mut value = column.value(entry);
