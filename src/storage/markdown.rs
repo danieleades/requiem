@@ -7,6 +7,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_evolve::Versioned;
 use uuid::Uuid;
 
 use crate::{
@@ -163,9 +164,9 @@ pub enum LoadError {
     Hrid(#[from] HridError),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-#[serde(from = "FrontMatterVersion")]
-#[serde(into = "FrontMatterVersion")]
+/// YAML frontmatter for markdown requirements.
+#[derive(Debug, Clone, PartialEq, Versioned)]
+#[versioned(mode = "infallible", chain(FrontMatterV1), transparent = true)]
 struct FrontMatter {
     uuid: Uuid,
     hrid: Hrid,
@@ -211,60 +212,42 @@ where
     Hrid::try_from(s.as_str()).map_err(serde::de::Error::custom)
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "_version")]
-enum FrontMatterVersion {
-    #[serde(rename = "1")]
-    V1 {
-        uuid: Uuid,
-        #[serde(
-            serialize_with = "hrid_as_string",
-            deserialize_with = "hrid_from_string"
-        )]
-        hrid: Hrid,
-        created: DateTime<Utc>,
-        #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-        tags: BTreeSet<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        parents: Vec<Parent>,
-    },
+/// Version 1 of the serialized frontmatter format.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrontMatterV1 {
+    uuid: Uuid,
+    #[serde(
+        serialize_with = "hrid_as_string",
+        deserialize_with = "hrid_from_string"
+    )]
+    hrid: Hrid,
+    created: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    tags: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    parents: Vec<Parent>,
 }
 
-impl From<FrontMatterVersion> for FrontMatter {
-    fn from(version: FrontMatterVersion) -> Self {
-        match version {
-            FrontMatterVersion::V1 {
-                uuid,
-                hrid,
-                created,
-                tags,
-                parents,
-            } => Self {
-                uuid,
-                hrid,
-                created,
-                tags,
-                parents,
-            },
+impl From<FrontMatterV1> for FrontMatter {
+    fn from(v1: FrontMatterV1) -> Self {
+        Self {
+            uuid: v1.uuid,
+            hrid: v1.hrid,
+            created: v1.created,
+            tags: v1.tags,
+            parents: v1.parents,
         }
     }
 }
 
-impl From<FrontMatter> for FrontMatterVersion {
-    fn from(front_matter: FrontMatter) -> Self {
-        let FrontMatter {
-            uuid,
-            hrid,
-            created,
-            tags,
-            parents,
-        } = front_matter;
-        Self::V1 {
-            uuid,
-            hrid,
-            created,
-            tags,
-            parents,
+impl From<&FrontMatter> for FrontMatterV1 {
+    fn from(front_matter: &FrontMatter) -> Self {
+        Self {
+            uuid: front_matter.uuid,
+            hrid: front_matter.hrid.clone(),
+            created: front_matter.created,
+            tags: front_matter.tags.clone(),
+            parents: front_matter.parents.clone(),
         }
     }
 }
@@ -360,7 +343,7 @@ mod tests {
     use tempfile::TempDir;
     use uuid::Uuid;
 
-    use super::{Parent, FrontMatter, FrontMatterVersion, Hrid, LoadError, MarkdownRequirement};
+    use super::{FrontMatter, FrontMatterV1, Hrid, LoadError, MarkdownRequirement, Parent};
     use crate::domain::hrid::KindString;
 
     fn req_hrid() -> Hrid {
@@ -595,8 +578,8 @@ Content";
             tags,
             parents,
         };
-        let version: FrontMatterVersion = frontmatter.clone().into();
-        let back_to_frontmatter: FrontMatter = version.into();
+        let v1: FrontMatterV1 = (&frontmatter).into();
+        let back_to_frontmatter: FrontMatter = v1.into();
 
         assert_eq!(frontmatter, back_to_frontmatter);
     }

@@ -9,6 +9,7 @@ use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+#[doc(hidden)]
 pub use crate::storage::markdown::LoadError;
 use crate::{domain::Hrid, storage::markdown::MarkdownRequirement};
 
@@ -20,20 +21,20 @@ use crate::{domain::Hrid, storage::markdown::MarkdownRequirement};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Requirement {
     /// The requirement's content (markdown text and tags).
-    pub content: Content,
+    pub(crate) content: Content,
     /// The requirement's metadata (UUID, HRID, creation time, parents).
-    pub metadata: Metadata,
+    pub(crate) metadata: Metadata,
 }
 
 /// The semantically important content of the requirement.
 ///
 /// This contributes to the 'fingerprint' of the requirement
 #[derive(Debug, BorshSerialize, Clone, PartialEq, Eq)]
-pub struct Content {
+pub(crate) struct Content {
     /// Markdown content of the requirement.
-    pub content: String,
+    pub(crate) content: String,
     /// Set of tags associated with the requirement.
-    pub tags: BTreeSet<String>,
+    pub(crate) tags: BTreeSet<String>,
 }
 
 impl Content {
@@ -41,7 +42,7 @@ impl Content {
     ///
     /// This is useful for computing fingerprints without cloning data.
     #[must_use]
-    pub fn as_ref(&self) -> ContentRef<'_> {
+    fn as_ref(&self) -> ContentRef<'_> {
         ContentRef {
             content: &self.content,
             tags: &self.tags,
@@ -58,11 +59,11 @@ impl Content {
 /// This type represents the semantically important content of a requirement
 /// using borrowed data. It is used for computing fingerprints without cloning.
 #[derive(Debug, Clone, Copy)]
-pub struct ContentRef<'a> {
+pub(crate) struct ContentRef<'a> {
     /// The markdown content of the requirement.
-    pub content: &'a str,
+    pub(crate) content: &'a str,
     /// Tags associated with the requirement.
-    pub tags: &'a BTreeSet<String>,
+    pub(crate) tags: &'a BTreeSet<String>,
 }
 
 impl ContentRef<'_> {
@@ -103,19 +104,19 @@ impl ContentRef<'_> {
 ///
 /// Does not contribute to the requirement fingerprint.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Metadata {
+pub(crate) struct Metadata {
     /// Globally unique, perpetually stable identifier
-    pub uuid: Uuid,
+    pub(crate) uuid: Uuid,
 
     /// Globally unique, human readable identifier.
     ///
     /// This should in general change, however it is possible to
     /// change it if needed.
-    pub hrid: Hrid,
+    pub(crate) hrid: Hrid,
     /// Timestamp recording when the requirement was created.
-    pub created: DateTime<Utc>,
+    pub(crate) created: DateTime<Utc>,
     /// Parent requirements keyed by UUID.
-    pub parents: HashMap<Uuid, Parent>,
+    pub(crate) parents: HashMap<Uuid, Parent>,
 }
 
 /// Parent requirement metadata stored alongside a requirement.
@@ -133,7 +134,7 @@ impl Requirement {
     ///
     /// A new UUID is automatically generated.
     #[must_use]
-    pub fn new(hrid: Hrid, content: String) -> Self {
+    pub(crate) fn new(hrid: Hrid, content: String) -> Self {
         Self::new_with_uuid(hrid, content, Uuid::new_v4())
     }
 
@@ -244,6 +245,7 @@ impl Requirement {
     ///
     /// Returns an error if the file does not exist, cannot be read from, or has
     /// malformed YAML frontmatter.
+    #[doc(hidden)]
     pub fn load(
         root: &Path,
         hrid: &Hrid,
@@ -263,6 +265,7 @@ impl Requirement {
     /// # Errors
     ///
     /// This method returns an error if the path cannot be written to.
+    #[doc(hidden)]
     pub fn save(&self, root: &Path, config: &crate::domain::Config) -> io::Result<()> {
         MarkdownRequirement::from(self.clone()).save(root, config)
     }
@@ -272,6 +275,7 @@ impl Requirement {
     /// # Errors
     ///
     /// Returns an error if the file cannot be written.
+    #[doc(hidden)]
     pub fn save_to_path(&self, path: &Path) -> io::Result<()> {
         MarkdownRequirement::from(self.clone()).save_to_path(path)
     }

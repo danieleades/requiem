@@ -7,6 +7,7 @@ use non_empty_string::NonEmptyString;
 /// Used for HRID kind and namespace segments to ensure they conform to the
 /// required format.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub struct KindString(NonEmptyString);
 
 impl KindString {
@@ -82,7 +83,7 @@ impl FromStr for KindString {
 /// Error returned when a string doesn't match the required pattern [A-Z]+.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 #[error("Invalid kind string '{0}': must be non-empty and contain only uppercase letters (A-Z)")]
-pub struct InvalidKindError(String);
+pub struct InvalidKindError(pub(crate) String);
 
 /// A human-readable identifier (HRID) for a requirement.
 ///
@@ -105,7 +106,12 @@ impl Hrid {
     /// Create an HRID with no namespace.
     ///
     /// This is an infallible constructor that takes pre-validated types.
+    ///
+    /// # Note
+    /// This is primarily intended for testing. For parsing HRIDs from strings,
+    /// use `FromStr::from_str` or `TryFrom::try_from`.
     #[must_use]
+    #[doc(hidden)]
     pub const fn new(kind: KindString, id: NonZeroUsize) -> Self {
         Self::new_with_namespace(Vec::new(), kind, id)
     }
@@ -113,7 +119,12 @@ impl Hrid {
     /// Create an HRID with the given namespace.
     ///
     /// This is an infallible constructor that takes pre-validated types.
+    ///
+    /// # Note
+    /// This is primarily intended for testing. For parsing HRIDs from strings,
+    /// use `FromStr::from_str` or `TryFrom::try_from`.
     #[must_use]
+    #[doc(hidden)]
     pub const fn new_with_namespace(
         namespace: Vec<KindString>,
         kind: KindString,

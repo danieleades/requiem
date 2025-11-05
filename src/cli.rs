@@ -546,10 +546,16 @@ impl Suspect {
 
                 let enriched = EnrichedLink::from_link(link, directory);
 
-                println!("  CHILD:   {}  {}", enriched.child_info.hrid, enriched.child_info.title);
+                println!(
+                    "  CHILD:   {}  {}",
+                    enriched.child_info.hrid, enriched.child_info.title
+                );
                 println!("           Path:     {}", enriched.child_info.path);
                 println!();
-                println!("  PARENT:  {}  {}", enriched.parent_info.hrid, enriched.parent_info.title);
+                println!(
+                    "  PARENT:  {}  {}",
+                    enriched.parent_info.hrid, enriched.parent_info.title
+                );
                 println!("           Path:     {}", enriched.parent_info.path);
                 println!();
                 println!("  REASON:  Parent content changed (fingerprint drift)");

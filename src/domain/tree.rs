@@ -370,7 +370,10 @@ impl Tree {
     pub fn children(&self, uuid: Uuid) -> impl Iterator<Item = Uuid> + '_ {
         // Incoming edges are from children
         if self.graph.contains_node(uuid) {
-            Some(self.graph.neighbors_directed(uuid, petgraph::Direction::Incoming))
+            Some(
+                self.graph
+                    .neighbors_directed(uuid, petgraph::Direction::Incoming),
+            )
         } else {
             None
         }
@@ -445,6 +448,7 @@ impl Tree {
 
         true
     }
+
     /// Determine whether the graph contains any cycles.
     #[must_use]
     pub fn has_cycles(&self) -> bool {
@@ -669,9 +673,10 @@ pub struct SuspectLink<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::convert::TryFrom;
+
     use super::*;
     use crate::domain::requirement::Parent as RequirementParent;
-    use std::convert::TryFrom;
 
     fn make_requirement(kind: &str, index: usize, title: &str) -> Requirement {
         let hrid = Hrid::try_from(format!("{kind}-{index:03}").as_str()).unwrap();
@@ -737,7 +742,8 @@ mod tests {
 
         assert!(tree.has_cycles());
 
-        // Add an additional link B -> A inside the existing strongly connected component.
+        // Add an additional link B -> A inside the existing strongly connected
+        // component.
         let outcome = tree
             .link_requirement(req_b.hrid(), req_a.hrid())
             .expect("link inside existing cycle should succeed");
@@ -789,7 +795,11 @@ mod tests {
         assert!(second.already_linked);
 
         let parents: Vec<_> = tree.parents(req_b.uuid()).collect();
-        assert_eq!(parents.len(), 1, "duplicate link should not add extra edges");
+        assert_eq!(
+            parents.len(),
+            1,
+            "duplicate link should not add extra edges"
+        );
         assert_eq!(parents[0].0, req_a.uuid());
     }
 

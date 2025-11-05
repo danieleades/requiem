@@ -1,13 +1,14 @@
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use serde_evolve::Versioned;
 
 /// Configuration for requirements management.
 ///
 /// This struct holds settings that control how requirements are managed,
 /// including HRID formatting, directory structure modes, and validation rules.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(from = "Versions", into = "Versions")]
+#[derive(Debug, Clone, PartialEq, Eq, Versioned)]
+#[versioned(mode = "infallible", chain(ConfigV1), transparent = true)]
 pub struct Config {
     /// The kinds of requirements that are allowed.
     ///
@@ -106,61 +107,41 @@ const fn default_digits() -> usize {
     3
 }
 
-/// The serialized versions of the configuration.
-/// This allows for future changes to the configuration format and to the domain
-/// type without breaking compatibility.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "_version")]
-enum Versions {
-    #[serde(rename = "1")]
-    V1 {
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        allowed_kinds: Vec<String>,
+/// Version 1 of the serialized configuration format.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigV1 {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    allowed_kinds: Vec<String>,
 
-        /// The number of digits in the HRID.
-        ///
-        /// Digits are padded to this width with leading zeros.
-        ///
-        /// This is the second component of the HRID.
-        /// For example, '001' (3 digits) or '0001' (4 digits).
-        #[serde(default = "default_digits")]
-        digits: usize,
+    #[serde(default = "default_digits")]
+    digits: usize,
 
-        #[serde(default)]
-        allow_unrecognised: bool,
+    #[serde(default)]
+    allow_unrecognised: bool,
 
-        #[serde(default)]
-        allow_invalid: bool,
+    #[serde(default)]
+    allow_invalid: bool,
 
-        #[serde(default)]
-        subfolders_are_namespaces: bool,
-    },
+    #[serde(default)]
+    subfolders_are_namespaces: bool,
 }
 
-impl From<Versions> for super::Config {
-    fn from(versions: Versions) -> Self {
-        match versions {
-            Versions::V1 {
-                allowed_kinds,
-                digits,
-                allow_unrecognised,
-                allow_invalid,
-                subfolders_are_namespaces,
-            } => Self {
-                allowed_kinds,
-                digits,
-                allow_unrecognised,
-                allow_invalid,
-                subfolders_are_namespaces,
-            },
+impl From<ConfigV1> for Config {
+    fn from(v1: ConfigV1) -> Self {
+        Self {
+            allowed_kinds: v1.allowed_kinds,
+            digits: v1.digits,
+            allow_unrecognised: v1.allow_unrecognised,
+            allow_invalid: v1.allow_invalid,
+            subfolders_are_namespaces: v1.subfolders_are_namespaces,
         }
     }
 }
 
-impl From<super::Config> for Versions {
-    fn from(config: super::Config) -> Self {
-        Self::V1 {
-            allowed_kinds: config.allowed_kinds,
+impl From<&Config> for ConfigV1 {
+    fn from(config: &Config) -> Self {
+        Self {
+            allowed_kinds: config.allowed_kinds.clone(),
             digits: config.digits,
             allow_unrecognised: config.allow_unrecognised,
             allow_invalid: config.allow_invalid,

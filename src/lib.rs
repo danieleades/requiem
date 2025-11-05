@@ -3,6 +3,8 @@
 //! Requirements are markdown documents stored in a directory.
 
 pub mod domain;
+#[doc(hidden)]
+pub use domain::KindString;
 pub use domain::{Config, Hrid, LinkError, Requirement, RequirementView, SuspectLink, Tree};
 
 /// Filesystem storage and directory management for requirements.

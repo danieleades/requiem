@@ -269,11 +269,7 @@ impl List {
             // Extract data we need before mutating entries
             let child_uuid = entries[idx].uuid;
             let child_hrid = entries[idx].hrid.clone();
-            let parent_uuids: Vec<_> = entries[idx]
-                .parents
-                .iter()
-                .map(|p| p.uuid)
-                .collect();
+            let parent_uuids: Vec<_> = entries[idx].parents.iter().map(|p| p.uuid).collect();
 
             for parent_uuid in parent_uuids {
                 if let Some(parent_idx) = index_by_uuid.get(&parent_uuid) {

@@ -27,6 +27,7 @@ non-empty-string = "0.2.6"
 nonempty = "0.12.0"
 rayon = "1.10.0"
 serde = { version = "1.0.219", features = ["derive"] }
+serde-evolve = { path = "/tmp/serde-evolve" }
 serde_yaml = "0.9.34"
 sha2 = "0.10.9"
 thiserror = "2.0.12"

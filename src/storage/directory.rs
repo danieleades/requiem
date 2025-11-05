@@ -17,11 +17,9 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
-use crate::domain::tree::LinkOutcome;
 use crate::{
-    domain::{
-        hrid::KindString, requirement::LoadError, Config, Hrid, LinkError, RequirementView, Tree,
-    },
+    domain::{hrid::KindString, tree::LinkOutcome, Config, Hrid, LinkError, RequirementView, Tree},
+    storage::markdown::LoadError,
     Requirement,
 };
 
