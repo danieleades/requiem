@@ -4,10 +4,11 @@ Requiem requirements are stored as markdown files with YAML frontmatter. This ch
 
 ## File Structure
 
-A requirement file has two parts:
+A requirement file has three parts:
 
 1. **YAML Frontmatter** - Metadata enclosed in `---` delimiters
-2. **Markdown Body** - The requirement text
+2. **HRID Title** - The HRID as the first token in the first markdown heading
+3. **Markdown Body** - The requirement text
 
 ### Example
 
@@ -21,11 +22,30 @@ parents:
   fingerprint: c4020419ead000e9b5f9cfd4ebf6192e73f905c27e6897548d8f6e12fd7f1356
   hrid: USR-001
 ---
+# SYS-001 Email Validation
 
 The system shall validate user email addresses according to RFC 5322.
 
 Email validation must occur before account creation.
 ```
+
+## HRID in Title
+
+**Important**: The HRID (Human-Readable ID) must appear as the first token in the first markdown heading:
+
+```markdown
+# USR-001 Plain Text Storage
+# SYS-042 Email Validation System
+# AUTH-LOGIN-SYS-001 Password Hashing
+```
+
+**Key points**:
+- The HRID is the first token (word) in the heading
+- Followed by a space and then the title text
+- The HRID is NOT in the YAML frontmatter
+- This format ensures compatibility with Sphinx and MdBook
+
+**Why this matters**: This change was made to improve compatibility with documentation tools like Sphinx and MdBook, which can use the heading as the page title naturally.
 
 ## YAML Frontmatter
 
@@ -169,7 +189,11 @@ You can use any Markdown syntax:
 
 #### Headings
 
+The first heading must contain the HRID. Subsequent headings are free-form:
+
 ```markdown
+# USR-001 User Authentication
+
 ## Rationale
 
 The requirement exists because...
@@ -222,6 +246,8 @@ COMPONENT-SUBCOMPONENT-SWR-123.md
 **Case sensitive**: `USR-001.md` and `usr-001.md` are different files (though the latter won't be recognized as a requirement).
 
 **Extension**: Must be `.md`.
+
+**HRID Consistency**: The HRID in the filename should match the HRID in the first heading. For example, `USR-001.md` should contain `# USR-001 Title`. The filename is authoritative for determining the HRID.
 
 If the filename doesn't match the HRID format, Requiem will:
 - Ignore the file (if `allow_unrecognised = true` in config)

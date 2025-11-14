@@ -1,5 +1,3 @@
-# [Requirement Title]
-
 ## Statement
 
 The system shall [describe what must be accomplished from user perspective].

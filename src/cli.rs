@@ -325,30 +325,6 @@ impl Suspect {
         std::process::exit(2);
     }
 
-    fn extract_title(content: &str) -> Option<String> {
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-
-            if let Some(stripped) = trimmed.strip_prefix("# ") {
-                return Some(stripped.trim().to_string());
-            }
-
-            if let Some(stripped) = trimmed.strip_prefix("## ") {
-                return Some(stripped.trim().to_string());
-            }
-
-            if let Some(stripped) = trimmed.strip_prefix("### ") {
-                return Some(stripped.trim().to_string());
-            }
-
-            return Some(trimmed.to_string());
-        }
-        None
-    }
-
     fn output_stats(suspect_links: &[requiem::SuspectLink], _directory: &Directory) {
         use std::collections::{HashMap, HashSet};
 
@@ -438,13 +414,13 @@ impl Suspect {
                 json!({
                     "child": {
                         "hrid": link.child_hrid.to_string(),
-                        "title": child_req.and_then(|r| Self::extract_title(r.content())),
+                        "title": child_req.map(|r| r.title().to_string()),
                         "path": directory.path_for(&link.child_hrid).display().to_string(),
                         "kind": link.child_hrid.kind(),
                     },
                     "parent": {
                         "hrid": link.parent_hrid.to_string(),
-                        "title": parent_req.and_then(|r| Self::extract_title(r.content())),
+                        "title": parent_req.map(|r| r.title().to_string()),
                         "path": directory.path_for(&link.parent_hrid).display().to_string(),
                         "kind": link.parent_hrid.kind(),
                     },
@@ -482,13 +458,13 @@ impl Suspect {
             let obj = json!({
                 "child": {
                     "hrid": link.child_hrid.to_string(),
-                    "title": child_req.and_then(|r| Self::extract_title(r.content())),
+                    "title": child_req.map(|r| r.title().to_string()),
                     "path": directory.path_for(&link.child_hrid).display().to_string(),
                     "kind": link.child_hrid.kind(),
                 },
                 "parent": {
                     "hrid": link.parent_hrid.to_string(),
-                    "title": parent_req.and_then(|r| Self::extract_title(r.content())),
+                    "title": parent_req.map(|r| r.title().to_string()),
                     "path": directory.path_for(&link.parent_hrid).display().to_string(),
                     "kind": link.parent_hrid.kind(),
                 },
@@ -521,11 +497,9 @@ impl Suspect {
                 let child_req = directory.requirement_by_hrid(&link.child_hrid);
                 let parent_req = directory.requirement_by_hrid(&link.parent_hrid);
 
-                let child_title = child_req
-                    .and_then(|r| Self::extract_title(r.content()))
-                    .unwrap_or_default();
+                let child_title = child_req.map(|r| r.title().to_string()).unwrap_or_default();
                 let parent_title = parent_req
-                    .and_then(|r| Self::extract_title(r.content()))
+                    .map(|r| r.title().to_string())
                     .unwrap_or_default();
 
                 println!("  CHILD:   {}  {}", link.child_hrid, child_title);
@@ -570,12 +544,10 @@ impl Suspect {
                 let child_req = directory.requirement_by_hrid(&link.child_hrid);
                 let parent_req = directory.requirement_by_hrid(&link.parent_hrid);
 
-                let child_title = child_req
-                    .and_then(|r| Self::extract_title(r.content()))
-                    .unwrap_or_else(|| String::from("(no title)"));
-                let parent_title = parent_req
-                    .and_then(|r| Self::extract_title(r.content()))
-                    .unwrap_or_else(|| String::from("(no title)"));
+                let child_title =
+                    child_req.map_or_else(|| "(no title)".to_string(), |r| r.title().to_string());
+                let parent_title =
+                    parent_req.map_or_else(|| "(no title)".to_string(), |r| r.title().to_string());
 
                 println!(
                     "{:<12} {} {:<12}     {} {} {}",
@@ -629,15 +601,14 @@ impl Suspect {
                 for (parent_hrid_str, links) in &by_parent {
                     let parent_req = directory.requirement_by_hrid(&links[0].parent_hrid);
                     let parent_title = parent_req
-                        .and_then(|r| Self::extract_title(r.content()))
+                        .map(|r| r.title().to_string())
                         .unwrap_or_default();
 
                     println!("{parent_hrid_str} ({parent_title})");
                     for (idx, link) in links.iter().enumerate() {
                         let child_req = directory.requirement_by_hrid(&link.child_hrid);
-                        let child_title = child_req
-                            .and_then(|r| Self::extract_title(r.content()))
-                            .unwrap_or_default();
+                        let child_title =
+                            child_req.map(|r| r.title().to_string()).unwrap_or_default();
 
                         let prefix = if idx == links.len() - 1 {
                             "└─"
@@ -667,15 +638,13 @@ impl Suspect {
 
                 for (child_hrid_str, links) in &by_child {
                     let child_req = directory.requirement_by_hrid(&links[0].child_hrid);
-                    let child_title = child_req
-                        .and_then(|r| Self::extract_title(r.content()))
-                        .unwrap_or_default();
+                    let child_title = child_req.map(|r| r.title().to_string()).unwrap_or_default();
 
                     println!("{child_hrid_str} ({child_title})");
                     for (idx, link) in links.iter().enumerate() {
                         let parent_req = directory.requirement_by_hrid(&link.parent_hrid);
                         let parent_title = parent_req
-                            .and_then(|r| Self::extract_title(r.content()))
+                            .map(|r| r.title().to_string())
                             .unwrap_or_default();
 
                         let prefix = if idx == links.len() - 1 {
@@ -1118,7 +1087,8 @@ mod tests {
             .parents
             .iter()
             .any(|(_uuid, info)| info.hrid == *parent.hrid()));
-        assert_eq!(child.content, "# Child\n\nbody text");
+        assert_eq!(child.title, "Child");
+        assert_eq!(child.body, "body text");
     }
 
     #[test]
@@ -1140,7 +1110,7 @@ mod tests {
 
         let directory = Directory::new(root).expect("failed to load directory");
         let child = collect_child(&directory, "USR");
-        assert_eq!(child.content, "## Template body");
+        assert_eq!(child.body, "## Template body");
     }
 
     #[test]

@@ -1,8 +1,14 @@
-# [Requirement Title]
-
 ## Statement
 
 The tool shall [describe what the system must do using precise, testable language].
+
+## Rationale (Optional)
+
+[Explain why this requirement exists and how it supports the parent user requirement(s). Include:
+- Technical reasoning for the approach
+- Tradeoffs considered
+- Integration benefits
+- Alternatives rejected and why]
 
 ## Implementation Notes
 

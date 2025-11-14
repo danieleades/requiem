@@ -51,6 +51,7 @@ Requiem is built on several core principles:
 3. **Dual identifiers** - Stable UUIDs for machine processing, human-readable IDs (like `USR-001`) for people
 4. **Fast by default** - Parallel processing and efficient data structures mean Requiem scales to large projects
 5. **Composable** - Works alongside your existing documentation tools rather than replacing them
+6. **Documentation tool friendly** - HRIDs are stored in markdown headings (e.g., `# USR-001 Title`) for seamless integration with Sphinx and MdBook
 
 ## Who This Guide Is For
 

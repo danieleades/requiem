@@ -331,22 +331,43 @@ digits = 3
 
 **Note**: Namespace validation is not yet implemented. You can use any namespace structure. Future versions may allow restricting namespaces.
 
+## HRID Storage Location
+
+**Important**: HRIDs are stored in two places:
+
+1. **Filename**: `USR-001.md`, `COMPONENT-SYS-042.md`
+2. **First Heading**: `# USR-001 Title`, `# COMPONENT-SYS-042 Title`
+
+The HRID must appear as the first token in the first markdown heading:
+
+```markdown
+---
+_version: '1'
+uuid: ...
+---
+# USR-001 Plain Text Storage
+
+Requirements are stored as plain-text files...
+```
+
+**Not in frontmatter**: The HRID is NOT stored in the YAML frontmatter. This change was made to improve compatibility with Sphinx and MdBook.
+
 ## Filename Matching
 
-Requirement filenames **must** match the HRID:
+Requirement filenames **must** match the HRID in the first heading:
 
 ```
-USR-001.md              # Matches USR-001
-COMPONENT-SYS-042.md    # Matches COMPONENT-SYS-042
+USR-001.md with heading: # USR-001 Title        → Valid
+COMPONENT-SYS-042.md with: # COMPONENT-SYS-042  → Valid
 ```
 
 Mismatches cause errors:
 
 ```
-USR-001.md containing HRID USR-002 → Error!
+USR-001.md with heading: # USR-002 Title → Error!
 ```
 
-The HRID in the filename is authoritative. Requiem derives the HRID from the filename, not from any field in the YAML.
+The HRID in the filename is authoritative. Requiem derives the HRID from the filename and expects the heading to match.
 
 ## Next Steps
 

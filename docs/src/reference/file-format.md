@@ -44,10 +44,11 @@ MOBILE-AUTH-LOGIN-SYS-005.md
 
 ## File Structure
 
-Requirements consist of two parts:
+Requirements consist of three parts:
 
 1. **YAML Frontmatter**: Metadata enclosed in `---` delimiters
-2. **Markdown Body**: Requirement text in CommonMark format
+2. **HRID Heading**: First heading with HRID as first token
+3. **Markdown Body**: Requirement text in CommonMark format
 
 ### General Structure
 
@@ -55,6 +56,7 @@ Requirements consist of two parts:
 ---
 <YAML frontmatter>
 ---
+# <HRID> <Title>
 <blank line optional>
 <Markdown content>
 ```
@@ -74,6 +76,7 @@ parents:
   fingerprint: c4020419ead000e9b5f9cfd4ebf6192e73f905c27e6897548d8f6e12fd7f1356
   hrid: USR-001
 ---
+# SYS-001 Email Validation
 
 The system shall validate user email addresses according to RFC 5322.
 
@@ -313,6 +316,35 @@ Parsers should:
 - Provide defaults for missing optional fields
 - Reject unknown `_version` values (fail-safe)
 
+## HRID Heading
+
+### Format
+
+The first heading in the markdown must contain the HRID as the first token:
+
+```markdown
+# <HRID> <Title Text>
+```
+
+### Requirements
+
+- Must be a level-1 heading (`#`)
+- HRID must be the first token (word)
+- Followed by space and title text
+- HRID must match the filename (without `.md`)
+
+### Examples
+
+```markdown
+# USR-001 Plain Text Storage
+# SYS-042 Email Validation System
+# AUTH-LOGIN-SYS-001 Password Hashing
+```
+
+### Rationale
+
+The HRID is stored in the heading (not frontmatter) for compatibility with Sphinx and MdBook, which use the first heading as the page title.
+
 ## Markdown Body
 
 ### Format
@@ -321,12 +353,12 @@ CommonMark (Markdown specification)
 
 ### Location
 
-Everything after the closing frontmatter delimiter (`---`) is the markdown body.
+Everything after the first heading is the markdown body.
 
 ### Content
 
 Free-form Markdown:
-- Headings (`#`, `##`, etc.)
+- Headings (`##`, `###`, etc. - first `#` is reserved for HRID)
 - Paragraphs
 - Lists (ordered, unordered)
 - Code blocks (fenced, indented)
@@ -351,6 +383,7 @@ _version: '1'
 uuid: ...
 created: ...
 ---
+# USR-001 Email Validation
 
 The system shall validate user email addresses.
 
@@ -512,6 +545,7 @@ parents:
   fingerprint: a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
   hrid: USR-003
 ---
+# SYS-001 Email Validation
 
 The system shall validate user email addresses according to RFC 5322.
 

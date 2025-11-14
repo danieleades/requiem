@@ -587,39 +587,17 @@ fn entry_from_requirement(directory: &Directory, requirement: &RequirementView) 
     Entry {
         uuid: *requirement.uuid,
         hrid: requirement.hrid.clone(),
-        title: extract_title(requirement.content),
+        title: Some(requirement.title.to_string()),
         tags,
         created: *requirement.created,
-        content: requirement.content.to_string(),
+        content: format!(
+            "# {} {}\n\n{}",
+            requirement.hrid, requirement.title, requirement.body
+        ),
         parents,
         children: Vec::new(),
         path,
     }
-}
-
-fn extract_title(content: &str) -> Option<String> {
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        if let Some(stripped) = trimmed.strip_prefix("# ") {
-            return Some(stripped.trim().to_string());
-        }
-
-        if let Some(stripped) = trimmed.strip_prefix("## ") {
-            return Some(stripped.trim().to_string());
-        }
-
-        if let Some(stripped) = trimmed.strip_prefix("### ") {
-            return Some(stripped.trim().to_string());
-        }
-
-        // First non-empty line as fallback.
-        return Some(trimmed.to_string());
-    }
-    None
 }
 
 fn produce_base_rows(entries: &[Entry], filters: &Filters, target_indices: &[usize]) -> Vec<Row> {
@@ -1614,19 +1592,6 @@ mod tests {
         directory
             .add_requirement(kind, content.to_string())
             .unwrap()
-    }
-
-    #[test]
-    fn extract_title_prefers_headings_and_fallbacks() {
-        assert_eq!(
-            extract_title("# Heading\nBody"),
-            Some("Heading".to_string())
-        );
-        assert_eq!(
-            extract_title("  Plain content\nMore"),
-            Some("Plain content".to_string())
-        );
-        assert_eq!(extract_title(""), None);
     }
 
     #[test]

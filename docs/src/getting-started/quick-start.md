@@ -35,6 +35,7 @@ _version: '1'
 uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
 created: 2025-07-22T12:19:56.950194157Z
 ---
+# USR-001
 
 
 ```
@@ -43,6 +44,10 @@ The YAML frontmatter includes:
 - `_version`: Format version for future compatibility
 - `uuid`: A globally unique, stable identifier
 - `created`: Timestamp of creation
+
+The heading includes:
+- `# USR-001`: The HRID as the first token in the first heading
+- Followed by the title text (currently empty)
 
 The body (currently empty) is where you'll write the requirement text.
 
@@ -56,11 +61,12 @@ _version: '1'
 uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
 created: 2025-07-22T12:19:56.950194157Z
 ---
+# USR-001 Plain Text Requirements
 
 The system shall support plain-text requirements that can be edited with any text editor.
 ```
 
-Save the file. That's it! You've created your first requirement.
+Notice the HRID (`USR-001`) appears as the first token in the first heading, followed by the title. Save the file. That's it! You've created your first requirement.
 
 ## Adding More Requirements
 
@@ -75,11 +81,25 @@ Edit these files to add meaningful content. For example:
 
 **USR-002.md:**
 ```markdown
+---
+_version: '1'
+uuid: ...
+created: ...
+---
+# USR-002 Version Control Integration
+
 The system shall integrate with version control systems like Git.
 ```
 
 **USR-003.md:**
 ```markdown
+---
+_version: '1'
+uuid: ...
+created: ...
+---
+# USR-003 Requirement Traceability
+
 The system shall support requirement traceability and linkage.
 ```
 
@@ -105,9 +125,9 @@ Output:
 Linked SYS-001 to USR-001
 ```
 
-Now if you open `SYS-001.md`, you'll see the parent relationship in the frontmatter:
+Now if you open `SYS-001.md`, you'll see the parent relationship in the frontmatter and the HRID in the heading:
 
-```yaml
+```markdown
 ---
 _version: '1'
 uuid: 81e63bac-4035-47b5-b273-ac13e47a2ff6
@@ -117,6 +137,7 @@ parents:
   fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
   hrid: USR-001
 ---
+# SYS-001 Markdown File Format
 
 Each requirement shall be stored as a markdown file with YAML frontmatter.
 ```

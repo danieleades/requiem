@@ -25,8 +25,10 @@ pub struct RequirementView<'a> {
     pub hrid: &'a Hrid,
     /// When the requirement was created.
     pub created: &'a DateTime<Utc>,
-    /// The requirement's markdown content.
-    pub content: &'a str,
+    /// The requirement's title.
+    pub title: &'a str,
+    /// The requirement's body content.
+    pub body: &'a str,
     /// The requirement's tags.
     pub tags: &'a BTreeSet<String>,
     /// Parent requirements (UUID → Parent info).
@@ -38,12 +40,13 @@ pub struct RequirementView<'a> {
 impl RequirementView<'_> {
     /// Calculate the fingerprint of this requirement.
     ///
-    /// The fingerprint is based on the content and tags only (not metadata like
-    /// UUID, HRID, or parents).
+    /// The fingerprint is based on the body and tags only (not metadata like
+    /// UUID, HRID, title, or parents).
     #[must_use]
     pub fn fingerprint(&self) -> String {
         ContentRef {
-            content: self.content,
+            title: self.title,
+            body: self.body,
             tags: self.tags,
         }
         .fingerprint()
@@ -58,7 +61,8 @@ impl RequirementView<'_> {
 
         Requirement {
             content: crate::domain::requirement::Content {
-                content: self.content.to_string(),
+                title: self.title.to_string(),
+                body: self.body.to_string(),
                 tags: self.tags.clone(),
             },
             metadata: crate::domain::requirement::Metadata {
