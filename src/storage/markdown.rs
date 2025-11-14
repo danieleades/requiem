@@ -28,7 +28,38 @@ pub struct MarkdownRequirement {
 impl MarkdownRequirement {
     fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         let frontmatter = serde_yaml::to_string(&self.frontmatter).expect("this must never fail");
-        let result = format!("---\n{frontmatter}---\n{}\n", self.content);
+        // Insert HRID at the beginning of the content if not already present
+        let content_with_hrid = if self.content.trim_start().starts_with('#') {
+            // Extract the first line to check if HRID is already there
+            if let Some(first_line_end) = self.content.find('\n') {
+                let first_line = &self.content[..first_line_end];
+                if first_line.contains(&self.hrid.to_string()) {
+                    // HRID already in title
+                    self.content.clone()
+                } else {
+                    // Add HRID to existing title
+                    let rest = &self.content[first_line_end..];
+                    format!("# {} {}{}", self.hrid, first_line.trim_start_matches('#').trim(), rest)
+                }
+            } else {
+                // Single line title
+                let first_line = &self.content;
+                if first_line.contains(&self.hrid.to_string()) {
+                    self.content.clone()
+                } else {
+                    format!("# {} {}", self.hrid, first_line.trim_start_matches('#').trim())
+                }
+            }
+        } else {
+            // No title, create one with HRID
+            if self.content.is_empty() {
+                format!("# {}", self.hrid)
+            } else {
+                format!("# {}\n\n{}", self.hrid, self.content)
+            }
+        };
+
+        let result = format!("---\n{frontmatter}---\n{}\n", content_with_hrid);
         writer.write_all(result.as_bytes())
     }
 
@@ -64,7 +95,9 @@ impl MarkdownRequirement {
         let content = lines.collect::<Result<Vec<_>, _>>()?.join("\n");
 
         let front: FrontMatter = serde_yaml::from_str(&frontmatter)?;
-        let hrid = front.hrid.clone();
+
+        // Extract HRID from the first line of content (title)
+        let hrid = extract_hrid_from_content(&content)?;
 
         Ok(Self {
             frontmatter: front,
@@ -149,6 +182,44 @@ impl MarkdownRequirement {
     }
 }
 
+/// Extracts the HRID from the first heading line of markdown content.
+///
+/// The HRID must be the first token in the first heading (after the `#` markers).
+///
+/// # Errors
+///
+/// Returns an error if no heading is found or if the HRID cannot be parsed.
+fn extract_hrid_from_content(content: &str) -> Result<Hrid, LoadError> {
+    // Find the first non-empty line that starts with '#'
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') {
+            // Remove leading '#' characters and whitespace
+            let after_hashes = trimmed.trim_start_matches('#').trim();
+
+            // Extract the first token (should be the HRID)
+            let first_token = after_hashes
+                .split_whitespace()
+                .next()
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "No HRID found in title",
+                    )
+                })?;
+
+            // Parse the HRID
+            return first_token.parse::<Hrid>().map_err(LoadError::from);
+        }
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::InvalidData,
+        "No heading found in content - HRID must be in the first heading",
+    )
+    .into())
+}
+
 /// Errors that can occur when loading a requirement from markdown.
 #[derive(Debug, thiserror::Error)]
 #[error("failed to read from markdown")]
@@ -168,7 +239,6 @@ pub enum LoadError {
 #[serde(into = "FrontMatterVersion")]
 struct FrontMatter {
     uuid: Uuid,
-    hrid: Hrid,
     created: DateTime<Utc>,
     tags: BTreeSet<String>,
     parents: Vec<Parent>,
@@ -217,11 +287,6 @@ enum FrontMatterVersion {
     #[serde(rename = "1")]
     V1 {
         uuid: Uuid,
-        #[serde(
-            serialize_with = "hrid_as_string",
-            deserialize_with = "hrid_from_string"
-        )]
-        hrid: Hrid,
         created: DateTime<Utc>,
         #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
         tags: BTreeSet<String>,
@@ -235,13 +300,11 @@ impl From<FrontMatterVersion> for FrontMatter {
         match version {
             FrontMatterVersion::V1 {
                 uuid,
-                hrid,
                 created,
                 tags,
                 parents,
             } => Self {
                 uuid,
-                hrid,
                 created,
                 tags,
                 parents,
@@ -254,14 +317,12 @@ impl From<FrontMatter> for FrontMatterVersion {
     fn from(front_matter: FrontMatter) -> Self {
         let FrontMatter {
             uuid,
-            hrid,
             created,
             tags,
             parents,
         } = front_matter;
         Self::V1 {
             uuid,
-            hrid,
             created,
             tags,
             parents,
@@ -284,7 +345,6 @@ impl From<Requirement> for MarkdownRequirement {
 
         let frontmatter = FrontMatter {
             uuid,
-            hrid: hrid.clone(),
             created,
             tags,
             parents: parents
@@ -310,11 +370,10 @@ impl TryFrom<MarkdownRequirement> for Requirement {
 
     fn try_from(req: MarkdownRequirement) -> Result<Self, Self::Error> {
         let MarkdownRequirement {
-            hrid: _,
+            hrid,
             frontmatter:
                 FrontMatter {
                     uuid,
-                    hrid,
                     created,
                     tags,
                     parents,
@@ -371,7 +430,6 @@ mod tests {
 
     fn create_test_frontmatter() -> FrontMatter {
         let uuid = Uuid::parse_str("12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53").unwrap();
-        let hrid = req_hrid();
         let created = Utc.with_ymd_and_hms(2025, 7, 14, 7, 15, 0).unwrap();
         let tags = BTreeSet::from(["tag1".to_string(), "tag2".to_string()]);
         let parents = vec![Parent {
@@ -381,7 +439,6 @@ mod tests {
         }];
         FrontMatter {
             uuid,
-            hrid,
             created,
             tags,
             parents,
@@ -390,10 +447,9 @@ mod tests {
 
     #[test]
     fn markdown_round_trip() {
-        let expected = r"---
+        let input = r"---
 _version: '1'
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
-hrid: REQ-001
 created: 2025-07-14T07:15:00Z
 tags:
 - tag1
@@ -403,20 +459,21 @@ parents:
   fingerprint: fingerprint1
   hrid: REQ-PARENT-001
 ---
-
-# The Title
+# REQ-001 The Title
 
 This is a paragraph.
 ";
 
-        let mut reader = Cursor::new(expected);
+        let mut reader = Cursor::new(input);
         let requirement = MarkdownRequirement::read(&mut reader).unwrap();
+
+        assert_eq!(requirement.hrid, req_hrid());
 
         let mut bytes: Vec<u8> = vec![];
         requirement.write(&mut bytes).unwrap();
 
         let actual = String::from_utf8(bytes).unwrap();
-        assert_eq!(expected, &actual);
+        assert_eq!(input, &actual);
     }
 
     #[test]
@@ -425,35 +482,35 @@ This is a paragraph.
         let content = r"---
 _version: '1'
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
-hrid: REQ-001
 created: 2025-07-14T07:15:00Z
 ---
-Just content
+# REQ-001 Just content
 ";
 
         let mut reader = Cursor::new(content);
         let requirement = MarkdownRequirement::read(&mut reader).unwrap();
 
         assert_eq!(requirement.hrid, hrid);
-        assert_eq!(requirement.content, "Just content");
+        assert_eq!(requirement.content, "# REQ-001 Just content");
         assert!(requirement.frontmatter.tags.is_empty());
         assert!(requirement.frontmatter.parents.is_empty());
     }
 
     #[test]
-    fn empty_content() {
+    fn hrid_only_title() {
         let content = r"---
 _version: '1'
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
-hrid: REQ-001
 created: 2025-07-14T07:15:00Z
 ---
+# REQ-001
 ";
 
         let mut reader = Cursor::new(content);
         let requirement = MarkdownRequirement::read(&mut reader).unwrap();
 
-        assert_eq!(requirement.content, "");
+        assert_eq!(requirement.hrid, req_hrid());
+        assert_eq!(requirement.content, "# REQ-001");
     }
 
     #[test]
@@ -461,10 +518,10 @@ created: 2025-07-14T07:15:00Z
         let content = r"---
 _version: '1'
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
-hrid: REQ-001
 created: 2025-07-14T07:15:00Z
 ---
-Line 1
+# REQ-001 Title
+
 Line 2
 
 Line 4
@@ -473,7 +530,8 @@ Line 4
         let mut reader = Cursor::new(content);
         let requirement = MarkdownRequirement::read(&mut reader).unwrap();
 
-        assert_eq!(requirement.content, "Line 1\nLine 2\n\nLine 4");
+        assert_eq!(requirement.hrid, req_hrid());
+        assert_eq!(requirement.content, "# REQ-001 Title\n\nLine 2\n\nLine 4");
     }
 
     #[test]
@@ -490,7 +548,6 @@ Line 4
     fn missing_frontmatter_end() {
         let content = r"---
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
-hrid: REQ-001
 created: 2025-07-14T07:15:00Z
 This should be content but there's no closing ---";
 
@@ -506,7 +563,7 @@ This should be content but there's no closing ---";
 invalid: yaml: structure:
 created: not-a-date
 ---
-Content";
+# REQ-001 Content";
 
         let mut reader = Cursor::new(content);
         let result = MarkdownRequirement::read(&mut reader);
@@ -530,7 +587,7 @@ Content";
         let requirement = MarkdownRequirement {
             frontmatter,
             hrid: req_hrid(),
-            content: "Test content".to_string(),
+            content: "# REQ-001 Test content".to_string(),
         };
 
         let mut buffer = Vec::new();
@@ -539,7 +596,16 @@ Content";
         assert!(result.is_ok());
         let output = String::from_utf8(buffer).unwrap();
         assert!(output.contains("---"));
-        assert!(output.contains("Test content"));
+        assert!(output.contains("# REQ-001 Test content"));
+        // The frontmatter should not have an hrid field at the top level
+        // (though parent entries still contain hrid fields)
+        let lines: Vec<&str> = output.lines().collect();
+        let frontmatter_end = lines.iter().skip(1).position(|l| l.trim() == "---").unwrap() + 1;
+        let frontmatter_lines = &lines[1..frontmatter_end];
+        let has_top_level_hrid = frontmatter_lines.iter().any(|line| {
+            line.starts_with("hrid:") && !line.contains("  ")
+        });
+        assert!(!has_top_level_hrid, "Frontmatter should not have top-level hrid field");
     }
 
     #[test]
@@ -547,7 +613,7 @@ Content";
         let temp_dir = TempDir::new().unwrap();
         let frontmatter = create_test_frontmatter();
         let hrid = req_hrid();
-        let content = "Saved content".to_string();
+        let content = "# REQ-001 Saved content".to_string();
 
         let requirement = MarkdownRequirement {
             frontmatter: frontmatter.clone(),
@@ -589,7 +655,6 @@ Content";
 
         let frontmatter = FrontMatter {
             uuid,
-            hrid: req_hrid(),
             created,
             tags,
             parents,
@@ -622,9 +687,10 @@ Content";
         let content = r"---
 _version: '1'
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
-hrid: REQ-001
 created: 2025-07-14T07:15:00Z
 ---
+# REQ-001 Content
+
 This content has --- in it
 And more --- here
 ";
@@ -632,9 +698,10 @@ And more --- here
         let mut reader = Cursor::new(content);
         let requirement = MarkdownRequirement::read(&mut reader).unwrap();
 
+        assert_eq!(requirement.hrid, req_hrid());
         assert_eq!(
             requirement.content,
-            "This content has --- in it\nAnd more --- here"
+            "# REQ-001 Content\n\nThis content has --- in it\nAnd more --- here"
         );
     }
 
@@ -643,24 +710,56 @@ And more --- here
         let content = r#"---
 _version: '1'
 uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
-hrid: REQ-001
 created: 2025-07-14T07:15:00Z
 tags:
 - "tag with spaces"
 - "tag-with-dashes"
 - "tag_with_underscores"
 ---
-Content here
+# REQ-001 Content here
 "#;
 
         let mut reader = Cursor::new(content);
         let requirement = MarkdownRequirement::read(&mut reader).unwrap();
 
+        assert_eq!(requirement.hrid, req_hrid());
         assert!(requirement.frontmatter.tags.contains("tag with spaces"));
         assert!(requirement.frontmatter.tags.contains("tag-with-dashes"));
         assert!(requirement
             .frontmatter
             .tags
             .contains("tag_with_underscores"));
+    }
+
+    #[test]
+    fn missing_hrid_in_title() {
+        let content = r"---
+_version: '1'
+uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
+created: 2025-07-14T07:15:00Z
+---
+# Just a title without HRID
+";
+
+        let mut reader = Cursor::new(content);
+        let result = MarkdownRequirement::read(&mut reader);
+
+        assert!(matches!(result, Err(LoadError::Hrid(_))));
+    }
+
+    #[test]
+    fn no_heading_in_content() {
+        let content = r"---
+_version: '1'
+uuid: 12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53
+created: 2025-07-14T07:15:00Z
+---
+Just plain text without a heading
+";
+
+        let mut reader = Cursor::new(content);
+        let result = MarkdownRequirement::read(&mut reader);
+
+        assert!(matches!(result, Err(LoadError::Io(_))));
     }
 }

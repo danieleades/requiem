@@ -277,6 +277,32 @@ def validate_email(email: str) -> bool:
     ...
 ```
 
+## HRID in Headings - Sphinx Compatibility
+
+**Important**: Requiem now stores HRIDs in the first markdown heading (e.g., `# USR-001 Title`) rather than in the YAML frontmatter. This change was specifically made to improve compatibility with Sphinx and MdBook.
+
+### Benefits for Sphinx
+
+- The first heading becomes the natural page title
+- Sphinx uses the heading text for navigation and cross-references
+- The HRID is visible in the rendered documentation
+- No special processing needed to extract the HRID
+
+### Example
+
+```markdown
+---
+_version: '1'
+uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
+created: 2025-07-22T12:19:56.950194157Z
+---
+# USR-001 Plain Text Storage
+
+Requirements are stored as plain-text files...
+```
+
+Sphinx renders this with "USR-001 Plain Text Storage" as the page title, which is exactly what you want.
+
 ## Handling Frontmatter
 
 ### Problem: YAML Frontmatter Renders as Code Block

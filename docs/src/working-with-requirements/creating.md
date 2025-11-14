@@ -98,6 +98,7 @@ _version: '1'
 uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
 created: 2025-07-22T12:19:56.950194157Z
 ---
+# USR-001
 
 
 ```
@@ -106,8 +107,9 @@ created: 2025-07-22T12:19:56.950194157Z
 - `_version`: Always `'1'` (current format version)
 - `uuid`: A random UUIDv4
 - `created`: Current timestamp in ISO 8601 format (UTC)
+- `# USR-001`: First heading with HRID (title text is initially empty)
 
-**Empty body**: You need to add the requirement text yourself.
+**Empty body**: You need to add the requirement title and text yourself.
 
 ## Adding Content
 
@@ -123,7 +125,7 @@ vim USR-001.md
 code USR-001.md
 ```
 
-Add your requirement text:
+Add your requirement title and text:
 
 ```markdown
 ---
@@ -131,13 +133,16 @@ _version: '1'
 uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
 created: 2025-07-22T12:19:56.950194157Z
 ---
+# USR-001 CSV Export
 
 Users shall be able to export data in CSV format.
 
-Rationale: CSV is a universally supported format for data interchange.
+## Rationale
+
+CSV is a universally supported format for data interchange.
 ```
 
-Save the file. Your requirement is now complete.
+Note that the HRID (`USR-001`) is the first token in the heading, followed by the title. Save the file. Your requirement is now complete.
 
 ## Creating with Parents
 
@@ -159,6 +164,7 @@ parents:
   fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
   hrid: USR-001
 ---
+# SYS-001
 
 
 ```
@@ -166,7 +172,10 @@ parents:
 **Generated parent fields**:
 - `uuid`: Copied from USR-001's UUID
 - `fingerprint`: Computed from USR-001's current content
-- `hrid`: USR-001 (for human readability)
+- `hrid`: USR-001 (for human readability in frontmatter)
+
+**Generated heading**:
+- `# SYS-001`: First heading with HRID (you'll add the title text when editing)
 
 ### Multiple Parents
 

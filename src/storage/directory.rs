@@ -689,10 +689,9 @@ mod tests {
             r"---
 _version: '1'
 uuid: 12345678-1234-1234-1234-123456789012
-hrid: SYSTEM-AUTH-REQ-001
 created: 2025-01-01T00:00:00Z
 ---
-Test requirement
+# SYSTEM-AUTH-REQ-001 Test requirement
 ",
         )
         .unwrap();
@@ -727,10 +726,9 @@ Test requirement
             r"---
 _version: '1'
 uuid: 12345678-1234-1234-1234-123456789013
-hrid: SYSTEM-AUTH-USR-001
 created: 2025-01-01T00:00:00Z
 ---
-Test requirement
+# SYSTEM-AUTH-USR-001 Test requirement
 ",
         )
         .unwrap();
@@ -816,10 +814,9 @@ Test requirement
             r"---
 _version: '1'
 uuid: 12345678-1234-1234-1234-123456789014
-hrid: SYSTEM-AUTH-REQ-001
 created: 2025-01-01T00:00:00Z
 ---
-Test requirement
+# SYSTEM-AUTH-REQ-001 Test requirement
 ",
         )
         .unwrap();

@@ -11,6 +11,8 @@ Requiem requirements are Markdown files, making them naturally compatible with M
 - Mix requirements with narrative documentation
 - Generate complete documentation sites with embedded requirements
 
+**HRID in Headings**: Requiem now stores HRIDs in the first markdown heading (e.g., `# USR-001 Title`) rather than in YAML frontmatter. This change was specifically made to improve compatibility with MdBook, as MdBook uses the first heading as the page title.
+
 ## Basic Setup
 
 ### Project Structure
@@ -79,7 +81,7 @@ Requirements can be listed in `SUMMARY.md` like any other chapter:
 - [Features](./features.md)
 ```
 
-Requirements appear as chapters in the generated book, with frontmatter and Markdown body rendered.
+Requirements appear as chapters in the generated book. The HRID in the first heading (e.g., `# USR-001 User Authentication`) becomes the page title automatically.
 
 ## Embedding Requirements
 
@@ -102,26 +104,27 @@ When MdBook builds, `USR-001.md` content is embedded directly.
 
 ### Selective Inclusion
 
-Include only the requirement body (skip frontmatter):
+Include only the requirement body (skip frontmatter but keep the heading):
 
 ```markdown
-\{{#include USR-001.md:7:}}
+\{{#include USR-001.md:6:}}
 ```
 
-This skips the YAML frontmatter (lines 1-6 typically) and includes only the markdown body.
+This skips the YAML frontmatter and includes the heading and body.
 
 **Line counting**:
 ```markdown
----
+---                    ← Line 1
 _version: '1'
 uuid: ...
 created: ...
----                    ← Line 6
+---                    ← Line 5
+# USR-001 Title        ← Line 6 (keep this!)
 
 Requirement text...    ← Line 7 onwards
 ```
 
-Adjust the line number based on your frontmatter length.
+Adjust the line number based on your frontmatter length. The heading with the HRID should typically be kept as it provides context.
 
 ## Formatting Requirements
 

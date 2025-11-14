@@ -1118,7 +1118,7 @@ mod tests {
             .parents
             .iter()
             .any(|(_uuid, info)| info.hrid == *parent.hrid()));
-        assert_eq!(child.content, "# Child\n\nbody text");
+        assert_eq!(child.content, "# USR-001 Child\n\nbody text");
     }
 
     #[test]
@@ -1140,7 +1140,7 @@ mod tests {
 
         let directory = Directory::new(root).expect("failed to load directory");
         let child = collect_child(&directory, "USR");
-        assert_eq!(child.content, "## Template body");
+        assert_eq!(child.content, "# USR-001 Template body");
     }
 
     #[test]
