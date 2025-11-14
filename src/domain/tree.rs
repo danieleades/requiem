@@ -184,7 +184,8 @@ impl Tree {
 
         Some(Requirement {
             content: crate::domain::requirement::Content {
-                content: data.content.clone(),
+                title: data.title.clone(),
+                body: data.body.clone(),
                 tags: data.tags.clone(),
             },
             metadata: crate::domain::requirement::Metadata {
@@ -230,7 +231,8 @@ impl Tree {
             uuid: uuid_ref,
             hrid,
             created: &data.created,
-            content: &data.content,
+            title: &data.title,
+            body: &data.body,
             tags: &data.tags,
             parents,
         })
@@ -289,7 +291,8 @@ impl Tree {
                 uuid,
                 hrid,
                 created: &data.created,
-                content: &data.content,
+                title: &data.title,
+                body: &data.body,
                 tags: &data.tags,
                 parents,
             })
@@ -479,7 +482,8 @@ impl Tree {
 
                 // Calculate fingerprint directly from RequirementData
                 let current_fingerprint = ContentRef {
-                    content: &parent_data.content,
+                    title: &parent_data.title,
+                    body: &parent_data.body,
                     tags: &parent_data.tags,
                 }
                 .fingerprint();

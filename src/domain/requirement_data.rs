@@ -16,8 +16,10 @@ use crate::Requirement;
 /// in the Tree structure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequirementData {
-    /// The markdown content of the requirement.
-    pub content: String,
+    /// The title of the requirement (without HRID or markdown heading markers).
+    pub title: String,
+    /// The body content of the requirement (markdown text after the heading).
+    pub body: String,
     /// Tags associated with the requirement.
     pub tags: BTreeSet<String>,
     /// When the requirement was created.
@@ -27,7 +29,8 @@ pub struct RequirementData {
 impl From<Requirement> for RequirementData {
     fn from(req: Requirement) -> Self {
         Self {
-            content: req.content.content,
+            title: req.content.title,
+            body: req.content.body,
             tags: req.content.tags,
             created: req.metadata.created,
         }

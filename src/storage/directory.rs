@@ -7,8 +7,7 @@
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsStr,
-    fmt::{self},
-    io,
+    fmt, io,
     path::{Path, PathBuf},
 };
 
@@ -302,14 +301,39 @@ impl Directory {
         let id = tree.next_index(&kind_string);
         let hrid = Hrid::new(kind_string, id);
 
+        // Parse content to extract title and body
         // If no content is provided via CLI, check for a template
-        let final_content = if content.is_empty() {
-            load_template(&self.root, &hrid)
+        let (title, body) = if content.is_empty() {
+            // Template content - treat as raw body, don't parse
+            let template_content = load_template(&self.root, &hrid);
+            (String::new(), template_content)
         } else {
-            content
+            // User-provided content - parse if it has a heading
+            let trimmed = content.trim();
+            if let Some(first_line_end) = trimmed.find('\n') {
+                let first_line = &trimmed[..first_line_end];
+                if first_line.trim_start().starts_with('#') {
+                    // Has a heading - extract title and body
+                    let after_hashes = first_line.trim_start_matches('#').trim();
+                    let title = after_hashes.to_string();
+                    let body = trimmed[first_line_end..].trim().to_string();
+                    (title, body)
+                } else {
+                    // No heading
+                    (String::new(), content)
+                }
+            } else {
+                // Single line - check if it's a heading
+                if trimmed.starts_with('#') {
+                    let after_hashes = trimmed.trim_start_matches('#').trim();
+                    (after_hashes.to_string(), String::new())
+                } else {
+                    (String::new(), content)
+                }
+            }
         };
 
-        let requirement = Requirement::new(hrid, final_content);
+        let requirement = Requirement::new(hrid, title, body);
 
         tree.insert(requirement.clone());
         self.mark_dirty(requirement.uuid());
@@ -784,7 +808,11 @@ created: 2025-01-01T00:00:00Z
             KindString::new("REQ".to_string()).unwrap(),
             NonZeroUsize::new(1).unwrap(),
         );
-        let req = Requirement::new(hrid.clone(), "Test content".to_string());
+        let req = Requirement::new(
+            hrid.clone(),
+            "Test Title".to_string(),
+            "Test content".to_string(),
+        );
 
         // Save using config
         req.save(root, &dir.config).unwrap();
@@ -869,7 +897,7 @@ created: 2025-01-01T00:00:00Z
             KindString::new("REQ".to_string()).unwrap(),
             NonZeroUsize::new(1).unwrap(),
         );
-        let req = Requirement::new(hrid, "Test content".to_string());
+        let req = Requirement::new(hrid, "Test Title".to_string(), "Test content".to_string());
 
         // Save using config
         req.save(root, &dir.config).unwrap();

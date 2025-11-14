@@ -22,56 +22,24 @@ use crate::{
 pub struct MarkdownRequirement {
     frontmatter: FrontMatter,
     hrid: Hrid,
-    content: String,
+    title: String,
+    body: String,
 }
 
 impl MarkdownRequirement {
     fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         let frontmatter = serde_yaml::to_string(&self.frontmatter).expect("this must never fail");
-        // Insert HRID at the beginning of the content if not already present
-        let content_with_hrid = if self.content.trim_start().starts_with('#') {
-            // Extract the first line to check if HRID is already there
-            self.content.find('\n').map_or_else(
-                || {
-                    // Single line title
-                    let first_line = &self.content;
-                    if first_line.contains(&self.hrid.to_string()) {
-                        self.content.clone()
-                    } else {
-                        format!(
-                            "# {} {}",
-                            self.hrid,
-                            first_line.trim_start_matches('#').trim()
-                        )
-                    }
-                },
-                |first_line_end| {
-                    let first_line = &self.content[..first_line_end];
-                    if first_line.contains(&self.hrid.to_string()) {
-                        // HRID already in title
-                        self.content.clone()
-                    } else {
-                        // Add HRID to existing title
-                        let rest = &self.content[first_line_end..];
-                        format!(
-                            "# {} {}{}",
-                            self.hrid,
-                            first_line.trim_start_matches('#').trim(),
-                            rest
-                        )
-                    }
-                },
-            )
+
+        // Construct the heading with HRID and title
+        let heading = format!("# {} {}", self.hrid, self.title);
+
+        // Combine frontmatter, heading, and body
+        let result = if self.body.is_empty() {
+            format!("---\n{frontmatter}---\n{heading}\n")
         } else {
-            // No title, create one with HRID
-            if self.content.is_empty() {
-                format!("# {}", self.hrid)
-            } else {
-                format!("# {}\n\n{}", self.hrid, self.content)
-            }
+            format!("---\n{frontmatter}---\n{heading}\n\n{}\n", self.body)
         };
 
-        let result = format!("---\n{frontmatter}---\n{content_with_hrid}\n");
         writer.write_all(result.as_bytes())
     }
 
@@ -108,13 +76,14 @@ impl MarkdownRequirement {
 
         let front: FrontMatter = serde_yaml::from_str(&frontmatter)?;
 
-        // Extract HRID from the first line of content (title)
-        let hrid = extract_hrid_from_content(&content)?;
+        // Extract HRID, title, and body from content
+        let (hrid, title, body) = parse_content(&content)?;
 
         Ok(Self {
             frontmatter: front,
             hrid,
-            content,
+            title,
+            body,
         })
     }
 
@@ -194,37 +163,58 @@ impl MarkdownRequirement {
     }
 }
 
-/// Extracts the HRID from the first heading line of markdown content.
+/// Parses markdown content into HRID, title, and body.
 ///
 /// The HRID must be the first token in the first heading (after the `#`
-/// markers).
+/// markers), followed by the title. The body is everything after the first
+/// heading.
 ///
 /// # Errors
 ///
 /// Returns an error if no heading is found or if the HRID cannot be parsed.
-fn extract_hrid_from_content(content: &str) -> Result<Hrid, LoadError> {
+fn parse_content(content: &str) -> Result<(Hrid, String, String), LoadError> {
     // Find the first non-empty line that starts with '#'
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('#') {
-            // Remove leading '#' characters and whitespace
-            let after_hashes = trimmed.trim_start_matches('#').trim();
+    let (heading_line_idx, line) = content
+        .lines()
+        .enumerate()
+        .find(|(_, line)| line.trim().starts_with('#'))
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "No heading found in content - HRID must be in the first heading",
+            )
+        })?;
 
-            // Extract the first token (should be the HRID)
-            let first_token = after_hashes.split_whitespace().next().ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidData, "No HRID found in title")
-            })?;
+    let trimmed = line.trim();
+    // Remove leading '#' characters and whitespace
+    let after_hashes = trimmed.trim_start_matches('#').trim();
 
-            // Parse the HRID
-            return first_token.parse::<Hrid>().map_err(LoadError::from);
-        }
-    }
+    // Extract the first token (should be the HRID)
+    let first_token = after_hashes
+        .split_whitespace()
+        .next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "No HRID found in title"))?;
 
-    Err(io::Error::new(
-        io::ErrorKind::InvalidData,
-        "No heading found in content - HRID must be in the first heading",
-    )
-    .into())
+    // Parse the HRID
+    let hrid = first_token.parse::<Hrid>().map_err(LoadError::from)?;
+
+    // The rest after the HRID is the title
+    let title = after_hashes
+        .strip_prefix(first_token)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+
+    // The body is everything after the heading line
+    let body = content
+        .lines()
+        .skip(heading_line_idx + 1)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+
+    Ok((hrid, title, body))
 }
 
 /// Errors that can occur when loading a requirement from markdown.
@@ -340,7 +330,7 @@ impl From<FrontMatter> for FrontMatterVersion {
 impl From<Requirement> for MarkdownRequirement {
     fn from(req: Requirement) -> Self {
         let Requirement {
-            content: Content { content, tags },
+            content: Content { title, body, tags },
             metadata:
                 Metadata {
                     uuid,
@@ -367,7 +357,8 @@ impl From<Requirement> for MarkdownRequirement {
         Self {
             frontmatter,
             hrid,
-            content,
+            title,
+            body,
         }
     }
 }
@@ -385,7 +376,8 @@ impl TryFrom<MarkdownRequirement> for Requirement {
                     tags,
                     parents,
                 },
-            content,
+            title,
+            body,
         } = req;
 
         let parent_map = parents
@@ -407,7 +399,7 @@ impl TryFrom<MarkdownRequirement> for Requirement {
             .collect::<Result<_, Self::Error>>()?;
 
         Ok(Self {
-            content: Content { content, tags },
+            content: Content { title, body, tags },
             metadata: Metadata {
                 uuid,
                 hrid,
@@ -498,7 +490,8 @@ created: 2025-07-14T07:15:00Z
         let requirement = MarkdownRequirement::read(&mut reader).unwrap();
 
         assert_eq!(requirement.hrid, hrid);
-        assert_eq!(requirement.content, "# REQ-001 Just content");
+        assert_eq!(requirement.title, "Just content");
+        assert_eq!(requirement.body, "");
         assert!(requirement.frontmatter.tags.is_empty());
         assert!(requirement.frontmatter.parents.is_empty());
     }
@@ -517,7 +510,8 @@ created: 2025-07-14T07:15:00Z
         let requirement = MarkdownRequirement::read(&mut reader).unwrap();
 
         assert_eq!(requirement.hrid, req_hrid());
-        assert_eq!(requirement.content, "# REQ-001");
+        assert_eq!(requirement.title, "");
+        assert_eq!(requirement.body, "");
     }
 
     #[test]
@@ -538,7 +532,8 @@ Line 4
         let requirement = MarkdownRequirement::read(&mut reader).unwrap();
 
         assert_eq!(requirement.hrid, req_hrid());
-        assert_eq!(requirement.content, "# REQ-001 Title\n\nLine 2\n\nLine 4");
+        assert_eq!(requirement.title, "Title");
+        assert_eq!(requirement.body, "Line 2\n\nLine 4");
     }
 
     #[test]
@@ -594,7 +589,8 @@ created: not-a-date
         let requirement = MarkdownRequirement {
             frontmatter,
             hrid: req_hrid(),
-            content: "# REQ-001 Test content".to_string(),
+            title: "Test content".to_string(),
+            body: String::new(),
         };
 
         let mut buffer = Vec::new();
@@ -628,12 +624,14 @@ created: not-a-date
         let temp_dir = TempDir::new().unwrap();
         let frontmatter = create_test_frontmatter();
         let hrid = req_hrid();
-        let content = "# REQ-001 Saved content".to_string();
+        let title = "Saved content".to_string();
+        let body = "Some body text".to_string();
 
         let requirement = MarkdownRequirement {
             frontmatter: frontmatter.clone(),
             hrid: hrid.clone(),
-            content: content.clone(),
+            title: title.clone(),
+            body: body.clone(),
         };
 
         // Test save
@@ -645,7 +643,8 @@ created: not-a-date
         let loaded_requirement =
             MarkdownRequirement::load(temp_dir.path(), &hrid, &config).unwrap();
         assert_eq!(loaded_requirement.hrid, hrid);
-        assert_eq!(loaded_requirement.content, content);
+        assert_eq!(loaded_requirement.title, title);
+        assert_eq!(loaded_requirement.body, body);
         assert_eq!(loaded_requirement.frontmatter, frontmatter);
     }
 
@@ -714,9 +713,10 @@ And more --- here
         let requirement = MarkdownRequirement::read(&mut reader).unwrap();
 
         assert_eq!(requirement.hrid, req_hrid());
+        assert_eq!(requirement.title, "Content");
         assert_eq!(
-            requirement.content,
-            "# REQ-001 Content\n\nThis content has --- in it\nAnd more --- here"
+            requirement.body,
+            "This content has --- in it\nAnd more --- here"
         );
     }
 

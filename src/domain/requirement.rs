@@ -30,8 +30,10 @@ pub struct Requirement {
 /// This contributes to the 'fingerprint' of the requirement
 #[derive(Debug, BorshSerialize, Clone, PartialEq, Eq)]
 pub struct Content {
-    /// Markdown content of the requirement.
-    pub content: String,
+    /// Title of the requirement (without HRID or markdown heading markers).
+    pub title: String,
+    /// Body content of the requirement (markdown text after the heading).
+    pub body: String,
     /// Set of tags associated with the requirement.
     pub tags: BTreeSet<String>,
 }
@@ -43,7 +45,8 @@ impl Content {
     #[must_use]
     pub fn as_ref(&self) -> ContentRef<'_> {
         ContentRef {
-            content: &self.content,
+            title: &self.title,
+            body: &self.body,
             tags: &self.tags,
         }
     }
@@ -59,8 +62,10 @@ impl Content {
 /// using borrowed data. It is used for computing fingerprints without cloning.
 #[derive(Debug, Clone, Copy)]
 pub struct ContentRef<'a> {
-    /// The markdown content of the requirement.
-    pub content: &'a str,
+    /// The title of the requirement.
+    pub title: &'a str,
+    /// The body content of the requirement.
+    pub body: &'a str,
     /// Tags associated with the requirement.
     pub tags: &'a BTreeSet<String>,
 }
@@ -68,8 +73,9 @@ pub struct ContentRef<'a> {
 impl ContentRef<'_> {
     /// Calculate the fingerprint of this content.
     ///
-    /// The fingerprint is a SHA256 hash of the Borsh-serialized content and
-    /// tags. This is used to detect when requirement content has changed.
+    /// The fingerprint is a SHA256 hash of the Borsh-serialized body and tags.
+    /// The title and HRID are excluded so that renaming requirements or
+    /// updating titles doesn't invalidate child requirement links.
     ///
     /// # Panics
     ///
@@ -79,12 +85,12 @@ impl ContentRef<'_> {
     pub fn fingerprint(&self) -> String {
         #[derive(BorshSerialize)]
         struct FingerprintData<'a> {
-            content: &'a str,
+            body: &'a str,
             tags: &'a BTreeSet<String>,
         }
 
         let data = FingerprintData {
-            content: self.content,
+            body: self.body,
             tags: self.tags,
         };
 
@@ -128,18 +134,19 @@ pub struct Parent {
 }
 
 impl Requirement {
-    /// Construct a new [`Requirement`] from a human-readable ID and its
-    /// content.
+    /// Construct a new [`Requirement`] from a human-readable ID, title, and
+    /// body.
     ///
     /// A new UUID is automatically generated.
     #[must_use]
-    pub fn new(hrid: Hrid, content: String) -> Self {
-        Self::new_with_uuid(hrid, content, Uuid::new_v4())
+    pub fn new(hrid: Hrid, title: String, body: String) -> Self {
+        Self::new_with_uuid(hrid, title, body, Uuid::new_v4())
     }
 
-    pub(crate) fn new_with_uuid(hrid: Hrid, content: String, uuid: Uuid) -> Self {
+    pub(crate) fn new_with_uuid(hrid: Hrid, title: String, body: String, uuid: Uuid) -> Self {
         let content = Content {
-            content,
+            title,
+            body,
             tags: BTreeSet::default(),
         };
 
@@ -153,12 +160,18 @@ impl Requirement {
         Self { content, metadata }
     }
 
+    /// The title of the requirement.
+    #[must_use]
+    pub fn title(&self) -> &str {
+        &self.content.title
+    }
+
     /// The body of the requirement.
     ///
-    /// This should be a markdown document.
+    /// This is the markdown content after the heading.
     #[must_use]
-    pub fn content(&self) -> &str {
-        &self.content.content
+    pub fn body(&self) -> &str {
+        &self.content.body
     }
 
     /// The tags on the requirement
@@ -286,7 +299,8 @@ mod tests {
     #[test]
     fn fingerprint_does_not_panic() {
         let content = Content {
-            content: "Some string".to_string(),
+            title: "Title".to_string(),
+            body: "Some string".to_string(),
             tags: ["tag1".to_string(), "tag2".to_string()].into(),
         };
         content.fingerprint();
@@ -295,11 +309,13 @@ mod tests {
     #[test]
     fn fingerprint_is_stable_with_tag_order() {
         let content1 = Content {
-            content: "Some string".to_string(),
+            title: "Title".to_string(),
+            body: "Some string".to_string(),
             tags: ["tag1".to_string(), "tag2".to_string()].into(),
         };
         let content2 = Content {
-            content: "Some string".to_string(),
+            title: "Title".to_string(),
+            body: "Some string".to_string(),
             tags: ["tag2".to_string(), "tag1".to_string()].into(),
         };
         assert_eq!(content1.fingerprint(), content2.fingerprint());
@@ -308,26 +324,46 @@ mod tests {
     #[test]
     fn tags_affect_fingerprint() {
         let content1 = Content {
-            content: "Some string".to_string(),
+            title: "Title".to_string(),
+            body: "Some string".to_string(),
             tags: ["tag1".to_string()].into(),
         };
         let content2 = Content {
-            content: "Some string".to_string(),
+            title: "Title".to_string(),
+            body: "Some string".to_string(),
             tags: ["tag1".to_string(), "tag2".to_string()].into(),
         };
         assert_ne!(content1.fingerprint(), content2.fingerprint());
     }
 
     #[test]
-    fn content_affects_fingerprint() {
+    fn body_affects_fingerprint() {
         let content1 = Content {
-            content: "Some string".to_string(),
+            title: "Title".to_string(),
+            body: "Some string".to_string(),
             tags: BTreeSet::default(),
         };
         let content2 = Content {
-            content: "Other string".to_string(),
+            title: "Title".to_string(),
+            body: "Other string".to_string(),
             tags: BTreeSet::default(),
         };
         assert_ne!(content1.fingerprint(), content2.fingerprint());
+    }
+
+    #[test]
+    fn title_does_not_affect_fingerprint() {
+        let content1 = Content {
+            title: "Title One".to_string(),
+            body: "Some string".to_string(),
+            tags: BTreeSet::default(),
+        };
+        let content2 = Content {
+            title: "Title Two".to_string(),
+            body: "Some string".to_string(),
+            tags: BTreeSet::default(),
+        };
+        // Title changes should NOT affect fingerprint
+        assert_eq!(content1.fingerprint(), content2.fingerprint());
     }
 }
