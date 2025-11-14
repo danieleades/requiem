@@ -18,6 +18,7 @@ use walkdir::WalkDir;
 
 use crate::{
     domain::{hrid::KindString, requirement::LoadError, Config, Hrid, RequirementView, Tree},
+    storage::markdown::trim_empty_lines,
     Requirement,
 };
 
@@ -309,14 +310,16 @@ impl Directory {
             (String::new(), template_content)
         } else {
             // User-provided content - parse if it has a heading
-            let trimmed = content.trim();
-            if let Some(first_line_end) = trimmed.find('\n') {
-                let first_line = &trimmed[..first_line_end];
+            if let Some(first_line_end) = content.find('\n') {
+                let first_line = &content[..first_line_end];
                 if first_line.trim_start().starts_with('#') {
                     // Has a heading - extract title and body
                     let after_hashes = first_line.trim_start_matches('#').trim();
                     let title = after_hashes.to_string();
-                    let body = trimmed[first_line_end..].trim().to_string();
+                    // Skip newline after heading but preserve indentation in body
+                    let body = content[first_line_end + 1..].to_string();
+                    // Trim only empty lines from start/end, preserve indentation
+                    let body = trim_empty_lines(&body);
                     (title, body)
                 } else {
                     // No heading
@@ -324,6 +327,7 @@ impl Directory {
                 }
             } else {
                 // Single line - check if it's a heading
+                let trimmed = content.trim();
                 if trimmed.starts_with('#') {
                     let after_hashes = trimmed.trim_start_matches('#').trim();
                     (after_hashes.to_string(), String::new())

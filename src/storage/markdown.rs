@@ -163,6 +163,25 @@ impl MarkdownRequirement {
     }
 }
 
+/// Trim empty lines from the start and end of a string, preserving indentation.
+///
+/// Unlike `.trim()`, this function only removes completely empty lines from
+/// the beginning and end, keeping any leading/trailing whitespace on non-empty
+/// lines. This is crucial for preserving markdown structures like code blocks,
+/// lists, and blockquotes which rely on indentation.
+pub(crate) fn trim_empty_lines(s: &str) -> String {
+    let lines: Vec<&str> = s.lines().collect();
+
+    // Find first and last non-empty lines
+    let first_non_empty = lines.iter().position(|line| !line.trim().is_empty());
+    let last_non_empty = lines.iter().rposition(|line| !line.trim().is_empty());
+
+    match (first_non_empty, last_non_empty) {
+        (Some(start), Some(end)) => lines[start..=end].join("\n"),
+        _ => String::new(),
+    }
+}
+
 /// Parses markdown content into HRID, title, and body.
 ///
 /// The HRID must be the first token in the first heading (after the `#`
@@ -206,13 +225,13 @@ fn parse_content(content: &str) -> Result<(Hrid, String, String), LoadError> {
         .to_string();
 
     // The body is everything after the heading line
-    let body = content
+    // Preserve leading indentation but trim empty lines from start/end
+    let body_content: String = content
         .lines()
         .skip(heading_line_idx + 1)
         .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string();
+        .join("\n");
+    let body = trim_empty_lines(&body_content);
 
     Ok((hrid, title, body))
 }
@@ -776,5 +795,94 @@ Just plain text without a heading
         let result = MarkdownRequirement::read(&mut reader);
 
         assert!(matches!(result, Err(LoadError::Io(_))));
+    }
+
+    #[test]
+    fn trim_empty_lines_removes_only_empty_lines() {
+        assert_eq!(trim_empty_lines(""), "");
+        assert_eq!(trim_empty_lines("\n\n"), "");
+        assert_eq!(trim_empty_lines("content"), "content");
+        assert_eq!(trim_empty_lines("\n\ncontent\n\n"), "content");
+    }
+
+    #[test]
+    fn trim_empty_lines_preserves_leading_indentation() {
+        assert_eq!(trim_empty_lines("    indented"), "    indented");
+        assert_eq!(trim_empty_lines("\n    indented\n"), "    indented");
+        assert_eq!(
+            trim_empty_lines("    code block\n    more code"),
+            "    code block\n    more code"
+        );
+    }
+
+    #[test]
+    fn trim_empty_lines_preserves_internal_empty_lines() {
+        assert_eq!(trim_empty_lines("line1\n\nline2"), "line1\n\nline2");
+        assert_eq!(trim_empty_lines("\nline1\n\nline2\n"), "line1\n\nline2");
+    }
+
+    #[test]
+    fn trim_empty_lines_handles_markdown_structures() {
+        // Code block
+        let code = "    fn main() {\n        println!(\"hello\");\n    }";
+        assert_eq!(trim_empty_lines(code), code);
+
+        // List with indentation
+        let list = "- Item 1\n  - Sub item\n- Item 2";
+        assert_eq!(trim_empty_lines(list), list);
+
+        // Blockquote
+        let quote = "> This is a quote\n> with multiple lines";
+        assert_eq!(trim_empty_lines(quote), quote);
+    }
+
+    #[test]
+    fn trim_empty_lines_with_trailing_whitespace_lines() {
+        // Lines with only spaces should be treated as empty
+        assert_eq!(trim_empty_lines("   \n\ncontent\n   \n"), "content");
+    }
+
+    #[test]
+    fn parse_content_preserves_body_indentation() {
+        let content = "# REQ-001 Title\n\n    code block\n    more code";
+        let (hrid, title, body) = parse_content(content).unwrap();
+
+        assert_eq!(hrid.to_string(), "REQ-001");
+        assert_eq!(title, "Title");
+        assert_eq!(body, "    code block\n    more code");
+    }
+
+    #[test]
+    fn parse_content_trims_empty_lines_around_body() {
+        let content = "# REQ-001 Title\n\n\n\ncontent\n\n\n";
+        let (_hrid, _title, body) = parse_content(content).unwrap();
+
+        assert_eq!(body, "content");
+    }
+
+    #[test]
+    fn round_trip_preserves_indentation() {
+        let temp_dir = TempDir::new().unwrap();
+        let frontmatter = create_test_frontmatter();
+        let hrid = req_hrid();
+        let title = "Code Example".to_string();
+        let body = "Here's a code block:\n\n    fn main() {\n        println!(\"hello\");\n    \
+                    }\n\nAnd a list:\n\n- Item 1\n  - Sub item\n- Item 2"
+            .to_string();
+
+        let requirement = MarkdownRequirement {
+            frontmatter: frontmatter.clone(),
+            hrid: hrid.clone(),
+            title: title.clone(),
+            body: body.clone(),
+        };
+
+        // Save and reload
+        let config = crate::domain::Config::default();
+        requirement.save(temp_dir.path(), &config).unwrap();
+        let loaded = MarkdownRequirement::load(temp_dir.path(), &hrid, &config).unwrap();
+
+        // Verify indentation is preserved
+        assert_eq!(loaded.body, body);
     }
 }
