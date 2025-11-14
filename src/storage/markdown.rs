@@ -31,25 +31,37 @@ impl MarkdownRequirement {
         // Insert HRID at the beginning of the content if not already present
         let content_with_hrid = if self.content.trim_start().starts_with('#') {
             // Extract the first line to check if HRID is already there
-            if let Some(first_line_end) = self.content.find('\n') {
-                let first_line = &self.content[..first_line_end];
-                if first_line.contains(&self.hrid.to_string()) {
-                    // HRID already in title
-                    self.content.clone()
-                } else {
-                    // Add HRID to existing title
-                    let rest = &self.content[first_line_end..];
-                    format!("# {} {}{}", self.hrid, first_line.trim_start_matches('#').trim(), rest)
-                }
-            } else {
-                // Single line title
-                let first_line = &self.content;
-                if first_line.contains(&self.hrid.to_string()) {
-                    self.content.clone()
-                } else {
-                    format!("# {} {}", self.hrid, first_line.trim_start_matches('#').trim())
-                }
-            }
+            self.content.find('\n').map_or_else(
+                || {
+                    // Single line title
+                    let first_line = &self.content;
+                    if first_line.contains(&self.hrid.to_string()) {
+                        self.content.clone()
+                    } else {
+                        format!(
+                            "# {} {}",
+                            self.hrid,
+                            first_line.trim_start_matches('#').trim()
+                        )
+                    }
+                },
+                |first_line_end| {
+                    let first_line = &self.content[..first_line_end];
+                    if first_line.contains(&self.hrid.to_string()) {
+                        // HRID already in title
+                        self.content.clone()
+                    } else {
+                        // Add HRID to existing title
+                        let rest = &self.content[first_line_end..];
+                        format!(
+                            "# {} {}{}",
+                            self.hrid,
+                            first_line.trim_start_matches('#').trim(),
+                            rest
+                        )
+                    }
+                },
+            )
         } else {
             // No title, create one with HRID
             if self.content.is_empty() {
@@ -59,7 +71,7 @@ impl MarkdownRequirement {
             }
         };
 
-        let result = format!("---\n{frontmatter}---\n{}\n", content_with_hrid);
+        let result = format!("---\n{frontmatter}---\n{content_with_hrid}\n");
         writer.write_all(result.as_bytes())
     }
 
@@ -198,15 +210,9 @@ fn extract_hrid_from_content(content: &str) -> Result<Hrid, LoadError> {
             let after_hashes = trimmed.trim_start_matches('#').trim();
 
             // Extract the first token (should be the HRID)
-            let first_token = after_hashes
-                .split_whitespace()
-                .next()
-                .ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "No HRID found in title",
-                    )
-                })?;
+            let first_token = after_hashes.split_whitespace().next().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "No HRID found in title")
+            })?;
 
             // Parse the HRID
             return first_token.parse::<Hrid>().map_err(LoadError::from);
@@ -600,12 +606,20 @@ created: not-a-date
         // The frontmatter should not have an hrid field at the top level
         // (though parent entries still contain hrid fields)
         let lines: Vec<&str> = output.lines().collect();
-        let frontmatter_end = lines.iter().skip(1).position(|l| l.trim() == "---").unwrap() + 1;
+        let frontmatter_end = lines
+            .iter()
+            .skip(1)
+            .position(|l| l.trim() == "---")
+            .unwrap()
+            + 1;
         let frontmatter_lines = &lines[1..frontmatter_end];
-        let has_top_level_hrid = frontmatter_lines.iter().any(|line| {
-            line.starts_with("hrid:") && !line.contains("  ")
-        });
-        assert!(!has_top_level_hrid, "Frontmatter should not have top-level hrid field");
+        let has_top_level_hrid = frontmatter_lines
+            .iter()
+            .any(|line| line.starts_with("hrid:") && !line.contains("  "));
+        assert!(
+            !has_top_level_hrid,
+            "Frontmatter should not have top-level hrid field"
+        );
     }
 
     #[test]
