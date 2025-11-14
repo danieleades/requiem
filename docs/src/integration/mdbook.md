@@ -11,8 +11,6 @@ Requiem requirements are Markdown files, making them naturally compatible with M
 - Mix requirements with narrative documentation
 - Generate complete documentation sites with embedded requirements
 
-**HRID in Headings**: Requiem now stores HRIDs in the first markdown heading (e.g., `# USR-001 Title`) rather than in YAML frontmatter. This change was specifically made to improve compatibility with MdBook, as MdBook uses the first heading as the page title.
-
 ## Basic Setup
 
 ### Project Structure
