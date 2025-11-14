@@ -71,7 +71,7 @@ USR-001 → USR-001
 ### Cycle Detection Command
 
 ```bash
-req check-cycles
+req diagnose cycles
 ```
 
 **Output** (if cycles found):
@@ -100,7 +100,7 @@ No cycles detected. Requirement graph is acyclic.
 ### Detailed Cycle Information
 
 ```bash
-req check-cycles --detailed
+req diagnose cycles --detailed
 ```
 
 **Output**:
@@ -126,7 +126,7 @@ Cycle 1:
 Generate cycle diagrams:
 
 ```bash
-req check-cycles --visualize > cycles.dot
+req diagnose cycles --visualize > cycles.dot
 dot -Tpng cycles.dot -o cycles.png
 ```
 
@@ -181,10 +181,10 @@ SYS-002 → USR-001  (creates cycle)
 # .github/workflows/requirements.yml (planned)
 - name: Check for cycles
   run: |
-    req check-cycles
+    req diagnose cycles
     if [ $? -ne 0 ]; then
       echo "Cycles detected!"
-      req check-cycles --detailed
+      req diagnose cycles --detailed
       exit 1
     fi
 ```
@@ -201,7 +201,7 @@ SYS-002 → USR-001  (creates cycle)
 
 ```bash
 # Detect cycles
-req check-cycles --detailed
+req diagnose cycles --detailed
 
 # Output:
 # Cycle 1: USR-001 → SYS-001 → SYS-002 → USR-001
@@ -211,7 +211,7 @@ req check-cycles --detailed
 vim USR-001.md  # Remove SYS-002 from parents
 
 # Verify
-req check-cycles
+req diagnose cycles
 # No cycles detected
 ```
 
@@ -228,7 +228,7 @@ req check-cycles
 req link SWR-001 SYS-005
 
 # Check if cycle created
-req check-cycles
+req diagnose cycles
 
 # If cycle:
 # Error: Cycle detected: SYS-005 → ... → SWR-001 → SYS-005

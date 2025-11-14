@@ -35,7 +35,7 @@ Found 3 suspect link(s):
 
 Exit codes:
 - `0`: No suspect links (all current)
-- `1`: Suspect links found (useful for CI/CD)
+- `2`: Suspect links found (useful for CI/CD)
 
 **`req accept <CHILD> <PARENT>`** - Accept a suspect link after review
 
@@ -127,7 +127,7 @@ Requirements will have review states:
 
 ```bash
 # Check for requirements needing review
-req check
+req suspect
 
 # Mark requirement as under review
 req review start SYS-001
@@ -340,10 +340,10 @@ Total      | 148
 Suspect links: 3
 ```
 
-If the command exits with code `1`, use the suspect link total as your release checklist—clear
+If the command exits with code `2`, use the suspect link total as your release checklist—clear
 them before shipping:
 ```bash
-req check
+req suspect
 # Review each flagged requirement
 req review complete ...
 ```
@@ -423,7 +423,7 @@ Reviews tracked alongside code changes:
 vim USR-001.md
 
 # Flag affected requirements
-req check
+req suspect
 
 # Create PR with review tracking
 git checkout -b update-usr-001
@@ -442,7 +442,7 @@ git commit -m "Update USR-001: clarify email validation"
 # .github/workflows/requirements.yml (planned)
 - name: Check review status
   run: |
-    req check
+    req suspect
     if [ $? -ne 0 ]; then
       echo "Requirements need review"
       exit 1
@@ -454,8 +454,8 @@ git commit -m "Update USR-001: clarify email validation"
 Automatically create issues for flagged requirements:
 
 ```bash
-req check --create-issues
-# Creates GitHub/Jira issues for each requirement needing review
+req suspect --format json | ./scripts/create-issues
+# Use the JSON output to open tracking issues for each requirement needing review
 ```
 
 ## Current Workflow Examples

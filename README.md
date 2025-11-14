@@ -76,10 +76,14 @@ req --help
 
 Quick start:
 
+Requiem does not require a dedicated initialization command—create a directory (optionally a Git repository) and start adding requirements.
+
 ```sh
-# Initialize a new requirements repository
+# Create a new requirements repository directory
 mkdir my-requirements && cd my-requirements
-req init
+
+# (Optional) create git repository alongside your requirements
+# git init && git commit --allow-empty -m "Start requirements repo"
 
 # Add a couple of user requirements
 req add USR --title "User Login" --body "Users shall be able to log in"
@@ -95,8 +99,11 @@ req add SYS --parent USR-001 --title "Authentication Service"
 # Link an existing requirement to a parent
 req link SYS-001 USR-002
 
+# View repository status at any time
+req status
+
 # Check for suspect links (parent requirements that have changed)
-req check
+req suspect
 
 # Accept and update suspect links after review
 req accept SYS-001 USR-001
