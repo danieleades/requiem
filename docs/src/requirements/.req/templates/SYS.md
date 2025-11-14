@@ -1,7 +1,3 @@
-# HRID [Requirement Title]
-
-> Replace "HRID" with the actual requirement ID (e.g., SYS-001). The HRID must be the first token in the title.
-
 ## Statement
 
 The tool shall [describe what the system must do using precise, testable language].

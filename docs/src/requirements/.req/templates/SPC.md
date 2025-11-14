@@ -1,7 +1,3 @@
-# HRID [Specification Title]
-
-> Replace "HRID" with the actual specification ID (e.g., SPC-001). The HRID must be the first token in the title.
-
 ## Purpose
 
 [Describe the overall goal and scope of this specification. What user experience or system behavior is being designed? Who are the primary users/stakeholders?]

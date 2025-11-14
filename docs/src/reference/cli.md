@@ -179,23 +179,22 @@ req add USR -b "The system shall:
 
 #### Behavior
 
-1. Determines next available ID for the given KIND
-2. Determines content:
-   - If `-t` or `-b` flags are provided, uses that content
-   - Otherwise, checks for a template file at `.req/templates/<KIND>.md`
-   - If no template file exists, uses empty content
+1. Determines next available ID for the given KIND (e.g., `USR-001`)
+2. Determines title and body:
+   - Title from `-t/--title` flag, or empty if not provided
+   - Body from `-b/--body` flag, or template file, or empty
 3. Creates requirement file `<KIND>-<ID>.md` with:
-   - Automatically generated UUID
-   - Current timestamp
-   - Content (from flags, template, or empty)
-   - Parent links (if specified)
+   - Level-1 heading with HRID and title (e.g., `# USR-001 My Title`)
+   - YAML frontmatter (UUID, timestamp, tags, parents)
+   - Body content (from flag, template, or empty)
 4. Prints the HRID of created requirement
 
-**Template Priority**:
+**Template Behavior**:
+- Templates provide body content only (not HRID or title)
 - CLI flags (`-t`, `-b`) always override templates
-- Templates are matched by KIND (e.g., `USR`, `AUTH-USR`)
+- Templates are matched by KIND (e.g., `USR.md` for `USR` requirements)
 - Template files are stored in `.req/templates/` directory
-- See [Templates Guide](../working-with-requirements/templates.md) for template setup
+- See [Templates Guide](../working-with-requirements/templates.md) for details
 
 #### Examples
 
@@ -234,14 +233,29 @@ req add USR -t "User Authentication" -b "The system shall authenticate users."
 ```bash
 req add USR
 # Output: Added requirement USR-001
-# Content populated from .req/templates/USR.md
+# File structure:
+# ---
+# _version: '1'
+# uuid: ...
+# created: ...
+# ---
+# # USR-001
+#
+# [Template body content from .req/templates/USR.md]
 ```
 
-**Override template with CLI flags**:
+**Create with template and title**:
 ```bash
-req add USR -t "Custom Title"
+req add USR -t "User Authentication"
 # Output: Added requirement USR-001
-# Content from -t flag, template ignored
+# Uses title from -t flag, body from template
+```
+
+**Override template with body flag**:
+```bash
+req add USR -b "Custom content"
+# Output: Added requirement USR-001
+# Uses body from -b flag, template ignored
 ```
 
 #### Error Cases
