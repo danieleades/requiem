@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/danieleades/requiem/compare/v0.1.1...v0.1.2) - 2025-11-14
+
+### Fixed
+
+- *(cli)* update documentation for current CLI commands ([#62](https://github.com/danieleades/requiem/pull/62))
+
+### Other
+
+- Update Pages workflow to deploy on release tags ([#60](https://github.com/danieleades/requiem/pull/60))
+
 ## [0.1.1](https://github.com/danieleades/requiem/compare/v0.1.0...v0.1.1) - 2025-11-14
 
 ### Added
