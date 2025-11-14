@@ -871,9 +871,9 @@ Just plain text without a heading
             .to_string();
 
         let requirement = MarkdownRequirement {
-            frontmatter: frontmatter.clone(),
+            frontmatter,
             hrid: hrid.clone(),
-            title: title.clone(),
+            title,
             body: body.clone(),
         };
 
