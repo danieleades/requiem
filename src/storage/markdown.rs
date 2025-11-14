@@ -196,7 +196,8 @@ impl MarkdownRequirement {
 
 /// Extracts the HRID from the first heading line of markdown content.
 ///
-/// The HRID must be the first token in the first heading (after the `#` markers).
+/// The HRID must be the first token in the first heading (after the `#`
+/// markers).
 ///
 /// # Errors
 ///
