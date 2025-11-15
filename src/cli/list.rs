@@ -256,6 +256,7 @@ impl List {
         use crate::cli::terminal::Colorize;
 
         let directory = Directory::new(root)?;
+        let digits = directory.config().digits();
 
         let mut entries = collect_entries(&directory);
         let index_by_uuid: HashMap<Uuid, usize> = entries
@@ -281,7 +282,7 @@ impl List {
         let target_indices = if self.targets.is_empty() {
             (0..entries.len()).collect::<Vec<_>>()
         } else {
-            self.resolve_targets(&entries)?
+            self.resolve_targets(&entries, digits)?
         };
 
         let mut rows = match self.view {
@@ -326,13 +327,16 @@ impl List {
         }
 
         if self.view != View::Tree {
-            rows = apply_sort(rows, &entries, self.sort);
+            rows = apply_sort(rows, &entries, self.sort, digits);
         }
 
-        let effective_limit = self
-            .limit
-            .and_then(|value| (value > 0).then_some(value))
-            .or(Some(DEFAULT_LIMIT));
+        // Apply default limit only when user didn't specify --limit
+        // Allow --limit 0 to mean "unlimited"
+        let effective_limit = match self.limit {
+            None => Some(DEFAULT_LIMIT), // Not specified, use default
+            Some(0) => None,             // Explicitly 0, unlimited
+            Some(n) => Some(n),          // Explicit positive value
+        };
 
         let total_rows = rows.len();
         let truncated = total_rows > effective_limit.unwrap_or(usize::MAX);
@@ -407,6 +411,7 @@ impl List {
             self.view == View::Tree,
             self.ascii,
             &filters,
+            digits,
         )?;
 
         // Print footer if truncated
@@ -421,15 +426,15 @@ impl List {
         Ok(())
     }
 
-    fn resolve_targets(&self, entries: &[Entry]) -> anyhow::Result<Vec<usize>> {
+    fn resolve_targets(&self, entries: &[Entry], digits: usize) -> anyhow::Result<Vec<usize>> {
         let mut lookup = HashMap::new();
         for (idx, entry) in entries.iter().enumerate() {
-            lookup.insert(entry.hrid.to_string(), idx);
+            lookup.insert(entry.hrid.display(digits).to_string(), idx);
         }
 
         let mut indices = Vec::new();
         for hrid in &self.targets {
-            let key = hrid.to_string();
+            let key = hrid.display(digits).to_string();
             let idx = lookup
                 .get(&key)
                 .copied()
@@ -566,15 +571,20 @@ impl LinkRef {
 
 fn collect_entries(directory: &Directory) -> Vec<Entry> {
     let mut entries = Vec::new();
+    let digits = directory.config().digits();
 
     for requirement in directory.requirements() {
-        entries.push(entry_from_requirement(directory, &requirement));
+        entries.push(entry_from_requirement(directory, &requirement, digits));
     }
 
     entries
 }
 
-fn entry_from_requirement(directory: &Directory, requirement: &RequirementView) -> Entry {
+fn entry_from_requirement(
+    directory: &Directory,
+    requirement: &RequirementView,
+    digits: usize,
+) -> Entry {
     let parents = requirement
         .parents
         .iter()
@@ -582,7 +592,10 @@ fn entry_from_requirement(directory: &Directory, requirement: &RequirementView) 
         .collect::<Vec<_>>();
 
     let tags = requirement.tags.iter().cloned().collect::<Vec<_>>();
-    let path = directory.path_for(requirement.hrid);
+    let path = directory.path_for(requirement.hrid).map_or_else(
+        || directory.canonical_path_for(requirement.hrid),
+        std::path::Path::to_path_buf,
+    );
 
     Entry {
         uuid: *requirement.uuid,
@@ -592,7 +605,9 @@ fn entry_from_requirement(directory: &Directory, requirement: &RequirementView) 
         created: *requirement.created,
         content: format!(
             "# {} {}\n\n{}",
-            requirement.hrid, requirement.title, requirement.body
+            requirement.hrid.display(digits),
+            requirement.title,
+            requirement.body
         ),
         parents,
         children: Vec::new(),
@@ -873,32 +888,58 @@ fn append_unique_rows(rows: &mut Vec<Row>, new_rows: Vec<Row>) {
     }
 }
 
-fn apply_sort(mut rows: Vec<Row>, entries: &[Entry], sort_field: SortField) -> Vec<Row> {
-    rows.sort_by(|a, b| compare_rows(a, b, entries, sort_field));
+fn apply_sort(
+    mut rows: Vec<Row>,
+    entries: &[Entry],
+    sort_field: SortField,
+    digits: usize,
+) -> Vec<Row> {
+    rows.sort_by(|a, b| compare_rows(a, b, entries, sort_field, digits));
     rows
 }
 
-fn compare_rows(a: &Row, b: &Row, entries: &[Entry], sort_field: SortField) -> Ordering {
+fn compare_rows(
+    a: &Row,
+    b: &Row,
+    entries: &[Entry],
+    sort_field: SortField,
+    digits: usize,
+) -> Ordering {
     let entry_a = &entries[a.index];
     let entry_b = &entries[b.index];
 
     let primary = match sort_field {
-        SortField::Hrid => entry_a.hrid.to_string().cmp(&entry_b.hrid.to_string()),
-        SortField::Kind => entry_a
+        SortField::Hrid => entry_a
             .hrid
-            .kind()
-            .cmp(entry_b.hrid.kind())
-            .then_with(|| entry_a.hrid.to_string().cmp(&entry_b.hrid.to_string())),
+            .display(digits)
+            .to_string()
+            .cmp(&entry_b.hrid.display(digits).to_string()),
+        SortField::Kind => entry_a.hrid.kind().cmp(entry_b.hrid.kind()).then_with(|| {
+            entry_a
+                .hrid
+                .display(digits)
+                .to_string()
+                .cmp(&entry_b.hrid.display(digits).to_string())
+        }),
         SortField::Title => entry_a
             .title
             .as_deref()
             .unwrap_or_default()
             .cmp(entry_b.title.as_deref().unwrap_or_default())
-            .then_with(|| entry_a.hrid.to_string().cmp(&entry_b.hrid.to_string())),
-        SortField::Created => entry_a
-            .created
-            .cmp(&entry_b.created)
-            .then_with(|| entry_a.hrid.to_string().cmp(&entry_b.hrid.to_string())),
+            .then_with(|| {
+                entry_a
+                    .hrid
+                    .display(digits)
+                    .to_string()
+                    .cmp(&entry_b.hrid.display(digits).to_string())
+            }),
+        SortField::Created => entry_a.created.cmp(&entry_b.created).then_with(|| {
+            entry_a
+                .hrid
+                .display(digits)
+                .to_string()
+                .cmp(&entry_b.hrid.display(digits).to_string())
+        }),
     };
 
     if primary == Ordering::Equal {
@@ -934,26 +975,27 @@ fn render_rows(
     tree: bool,
     ascii: bool,
     filters: &Filters,
+    digits: usize,
 ) -> anyhow::Result<()> {
     if tree {
-        render_tree(&rows, entries, ascii);
+        render_tree(&rows, entries, ascii, digits);
         return Ok(());
     }
 
     match output {
         OutputFormat::Table => {
-            render_table(rows, entries, columns, quiet, filters);
+            render_table(rows, entries, columns, quiet, filters, digits);
             Ok(())
         }
-        OutputFormat::Json => render_json(rows, entries, columns),
+        OutputFormat::Json => render_json(rows, entries, columns, digits),
         OutputFormat::Csv => {
-            render_csv(rows, entries, columns, quiet);
+            render_csv(rows, entries, columns, quiet, digits);
             Ok(())
         }
     }
 }
 
-fn render_tree(rows: &[Row], entries: &[Entry], ascii: bool) {
+fn render_tree(rows: &[Row], entries: &[Entry], ascii: bool, digits: usize) {
     if rows.is_empty() {
         return;
     }
@@ -1054,7 +1096,7 @@ fn render_tree(rows: &[Row], entries: &[Entry], ascii: bool) {
         };
 
         let title = entry.title.as_deref().unwrap_or_default();
-        println!("{prefix}{marker}{} {title}", entry.hrid);
+        println!("{prefix}{marker}{} {title}", entry.hrid.display(digits));
     }
 }
 
@@ -1064,6 +1106,7 @@ fn render_table(
     columns: &[ListColumn],
     quiet: bool,
     filters: &Filters,
+    digits: usize,
 ) {
     let selected_columns = if columns.is_empty() {
         if quiet {
@@ -1097,7 +1140,7 @@ fn render_table(
         let mut row_data = Vec::new();
 
         for column in &selected_columns {
-            let mut value = column.value(entry);
+            let mut value = column.value(entry, digits);
             if *column == ListColumn::Hrid {
                 value = prefix_value(value, row.direction, row.depth);
             }
@@ -1201,7 +1244,12 @@ fn strip_ansi(text: &str) -> String {
     result
 }
 
-fn render_json(rows: Vec<Row>, entries: &[Entry], columns: &[ListColumn]) -> anyhow::Result<()> {
+fn render_json(
+    rows: Vec<Row>,
+    entries: &[Entry],
+    columns: &[ListColumn],
+    digits: usize,
+) -> anyhow::Result<()> {
     let selected_columns = if columns.is_empty() {
         vec![
             ListColumn::Hrid,
@@ -1221,7 +1269,7 @@ fn render_json(rows: Vec<Row>, entries: &[Entry], columns: &[ListColumn]) -> any
     let mut rows_out = Vec::new();
     for row in rows {
         let entry = &entries[row.index];
-        rows_out.push(build_serializable_row(entry, &selected_columns));
+        rows_out.push(build_serializable_row(entry, &selected_columns, digits));
     }
 
     serde_json::to_writer_pretty(std::io::stdout(), &rows_out)
@@ -1230,7 +1278,13 @@ fn render_json(rows: Vec<Row>, entries: &[Entry], columns: &[ListColumn]) -> any
     Ok(())
 }
 
-fn render_csv(rows: Vec<Row>, entries: &[Entry], columns: &[ListColumn], quiet: bool) {
+fn render_csv(
+    rows: Vec<Row>,
+    entries: &[Entry],
+    columns: &[ListColumn],
+    quiet: bool,
+    digits: usize,
+) {
     let selected_columns = if columns.is_empty() {
         vec![
             ListColumn::Hrid,
@@ -1259,7 +1313,7 @@ fn render_csv(rows: Vec<Row>, entries: &[Entry], columns: &[ListColumn], quiet: 
         let mut values = Vec::new();
 
         for column in &selected_columns {
-            let value = csv_escape(&column.value(entry));
+            let value = csv_escape(&column.value(entry, digits));
             values.push(value);
         }
 
@@ -1284,9 +1338,13 @@ fn prefix_value(mut value: String, direction: Direction, depth: usize) -> String
     value
 }
 
-fn build_serializable_row<'a>(entry: &'a Entry, columns: &[ListColumn]) -> SerializableRow<'a> {
+fn build_serializable_row<'a>(
+    entry: &'a Entry,
+    columns: &[ListColumn],
+    digits: usize,
+) -> SerializableRow<'a> {
     let mut row = SerializableRow {
-        hrid: entry.hrid.to_string(),
+        hrid: entry.hrid.display(digits).to_string(),
         title: None,
         kind: None,
         namespace: None,
@@ -1317,7 +1375,7 @@ fn build_serializable_row<'a>(entry: &'a Entry, columns: &[ListColumn]) -> Seria
                     let parents = entry
                         .parents
                         .iter()
-                        .map(|link| link.hrid.to_string())
+                        .map(|link| link.hrid.display(digits).to_string())
                         .collect::<Vec<_>>()
                         .join(", ");
                     row.parents = Some(parents);
@@ -1328,7 +1386,7 @@ fn build_serializable_row<'a>(entry: &'a Entry, columns: &[ListColumn]) -> Seria
                     let children = entry
                         .children
                         .iter()
-                        .map(|link| link.hrid.to_string())
+                        .map(|link| link.hrid.display(digits).to_string())
                         .collect::<Vec<_>>()
                         .join(", ");
                     row.children = Some(children);
@@ -1375,22 +1433,22 @@ impl ListColumn {
         }
     }
 
-    fn value(self, entry: &Entry) -> String {
+    fn value(self, entry: &Entry, digits: usize) -> String {
         match self {
-            Self::Hrid => entry.hrid.to_string(),
+            Self::Hrid => entry.hrid.display(digits).to_string(),
             Self::Title => entry.title.clone().unwrap_or_default(),
             Self::Kind => entry.hrid.kind().to_string(),
             Self::Namespace => entry.hrid.namespace().join("-"),
             Self::Parents => entry
                 .parents
                 .iter()
-                .map(|link| link.hrid.to_string())
+                .map(|link| link.hrid.display(digits).to_string())
                 .collect::<Vec<_>>()
                 .join(", "),
             Self::Children => entry
                 .children
                 .iter()
-                .map(|link| link.hrid.to_string())
+                .map(|link| link.hrid.display(digits).to_string())
                 .collect::<Vec<_>>()
                 .join(", "),
             Self::Tags => entry.tags.join(", "),
@@ -1642,7 +1700,7 @@ mod tests {
         assert_eq!(parents.len(), 2);
         assert!(parents
             .iter()
-            .any(|row| { fixtures.entries()[row.index].hrid.to_string() == "SYS-001" }));
+            .any(|row| { fixtures.entries()[row.index].hrid.display(3).to_string() == "SYS-001" }));
 
         let children = produce_direction_rows(
             View::Descendants,
@@ -1656,6 +1714,7 @@ mod tests {
         assert!(children.iter().any(|row| {
             fixtures.entries()[row.index]
                 .hrid
+                .display(3)
                 .to_string()
                 .contains("USR-007")
         }));
@@ -1684,10 +1743,11 @@ mod tests {
 
         assert!(rows
             .iter()
-            .any(|row| { fixtures.entries()[row.index].hrid.to_string() == "SYS-001" }));
+            .any(|row| { fixtures.entries()[row.index].hrid.display(3).to_string() == "SYS-001" }));
         assert!(rows.iter().any(|row| {
             fixtures.entries()[row.index]
                 .hrid
+                .display(3)
                 .to_string()
                 .contains("USR-007")
         }));
@@ -1715,21 +1775,27 @@ mod tests {
             row(fixtures.leaf_index(), Direction::None, 2),
         ];
 
-        let ordered = apply_sort(rows.clone(), entries, SortField::Hrid);
-        assert_eq!(entries[ordered[0].index].hrid.to_string(), "SYS-001");
+        let ordered = apply_sort(rows.clone(), entries, SortField::Hrid, 3);
+        assert_eq!(
+            entries[ordered[0].index].hrid.display(3).to_string(),
+            "SYS-001"
+        );
 
-        let ordered_kind = apply_sort(rows.clone(), entries, SortField::Kind);
+        let ordered_kind = apply_sort(rows.clone(), entries, SortField::Kind, 3);
         assert_eq!(entries[ordered_kind[0].index].hrid.kind(), "SYS");
 
-        let ordered_title = apply_sort(rows.clone(), entries, SortField::Title);
+        let ordered_title = apply_sort(rows.clone(), entries, SortField::Title, 3);
         assert_eq!(
             entries[ordered_title[0].index].title.as_deref(),
             Some("Child")
         );
 
-        let ordered_created = apply_sort(rows, entries, SortField::Created);
+        let ordered_created = apply_sort(rows, entries, SortField::Created, 3);
         assert_eq!(
-            entries[ordered_created[0].index].hrid.to_string(),
+            entries[ordered_created[0].index]
+                .hrid
+                .display(3)
+                .to_string(),
             "SYS-001"
         );
     }
@@ -1770,6 +1836,7 @@ mod tests {
             false,
             false,
             &empty_filters,
+            3,
         )
         .unwrap();
 
@@ -1782,6 +1849,7 @@ mod tests {
             false,
             false,
             &empty_filters,
+            3,
         )
         .unwrap();
 
@@ -1799,6 +1867,7 @@ mod tests {
             false,
             false,
             &empty_filters,
+            3,
         )
         .unwrap();
 
@@ -1811,6 +1880,7 @@ mod tests {
             false,
             false,
             &empty_filters,
+            3,
         )
         .unwrap();
 
@@ -1823,6 +1893,7 @@ mod tests {
             true,
             false,
             &empty_filters,
+            3,
         )
         .unwrap();
     }
@@ -1860,9 +1931,10 @@ mod tests {
                 ListColumn::Path,
                 ListColumn::Created,
             ],
+            3,
         );
 
-        assert_eq!(row.hrid, entry.hrid.to_string());
+        assert_eq!(row.hrid, entry.hrid.display(3).to_string());
         assert_eq!(row.title, entry.title.as_deref());
         assert_eq!(row.kind, Some(entry.hrid.kind()));
         assert_eq!(row.namespace.as_deref(), Some("SYSTEM-AUTH"));
@@ -1883,7 +1955,7 @@ mod tests {
     #[test]
     fn parse_hrid_accepts_valid_values() {
         let hrid = parse_hrid("SYS-001").unwrap();
-        assert_eq!(hrid.to_string(), "SYS-001");
+        assert_eq!(hrid.display(3).to_string(), "SYS-001");
     }
 
     #[test]

@@ -45,9 +45,6 @@ digits = 3
 
 # Allow non-requirement markdown files
 allow_unrecognised = false
-
-# Allow requirements with invalid formatting
-allow_invalid = false
 ```
 
 ## Configuration Options
@@ -221,60 +218,6 @@ $ req clean
 Error: Unrecognised file: README.md
 ```
 
-### `allow_invalid` (optional)
-
-```toml
-allow_invalid = false
-```
-
-**Type**: Boolean
-
-**Default**: `false`
-
-**Purpose**: Controls whether requirement files with invalid YAML frontmatter or formatting errors are allowed.
-
-**Behavior**:
-
-**`false` (default - strict mode)**:
-- Requirements must have valid YAML frontmatter
-- Missing required fields cause errors
-- Ensures data integrity
-
-**`true` (permissive mode)**:
-- Invalid requirements are skipped with warnings
-- Partial loading allows working with partially correct data
-- Useful during migration or recovery
-
-**Validation checks**:
-- Valid YAML syntax
-- Required fields present (`_version`, `uuid`, `created`)
-- Valid UUID format
-- Valid timestamp format
-- Valid parent structure (if present)
-
-**When to use `true`**:
-- Migrating from another tool (gradual fix-up)
-- Recovering from manual editing errors
-- Development/debugging
-
-**When to use `false` (default)**:
-- Production use
-- Ensure data quality
-- Catch errors early
-
-**Error example with `allow_invalid = false`**:
-```bash
-$ req clean
-Error: Invalid requirement USR-001.md: missing required field 'uuid'
-```
-
-**Warning example with `allow_invalid = true`**:
-```bash
-$ req clean
-Warning: Skipping invalid requirement USR-001.md: missing required field 'uuid'
-Successfully loaded 42 requirements (1 skipped)
-```
-
 ## Configuration Strategy
 
 ### Start Simple
@@ -294,7 +237,6 @@ Add constraints as your project matures.
 _version = "1"
 digits = 3
 allow_unrecognised = false
-allow_invalid = false
 ```
 
 **Large project (> 1000 requirements)**:
@@ -303,7 +245,6 @@ _version = "1"
 allowed_kinds = ["USR", "SYS", "SWR", "HWR", "TST", "DOC"]
 digits = 4
 allow_unrecognised = false
-allow_invalid = false
 ```
 
 **Integrated documentation project**:
@@ -312,15 +253,6 @@ _version = "1"
 allowed_kinds = ["USR", "SYS"]
 digits = 3
 allow_unrecognised = true  # Mixed with other docs
-allow_invalid = false
-```
-
-**Migration project**:
-```toml
-_version = "1"
-digits = 3
-allow_unrecognised = true
-allow_invalid = true  # Temporarily permissive during migration
 ```
 
 ## Validation
@@ -360,7 +292,6 @@ digits = 4
 
 # Strict validation
 allow_unrecognised = false
-allow_invalid = false
 ```
 
 ### Agile Software Project
@@ -374,9 +305,8 @@ allowed_kinds = ["USR", "SYS", "TST"]
 # Small/medium project
 digits = 3
 
-# Allow flexibility
+# Strict validation
 allow_unrecognised = false
-allow_invalid = false
 ```
 
 ### Multi-Component System
@@ -394,7 +324,6 @@ allowed_kinds = [
 
 digits = 3
 allow_unrecognised = false
-allow_invalid = false
 ```
 
 ## Troubleshooting
@@ -423,7 +352,7 @@ Use a TOML validator or linter if needed.
 **Solution**:
 1. Check `allowed_kinds` - ensure the kinds you're using are listed
 2. Check `allow_unrecognised` - set to `true` if mixing requirements with other docs
-3. Check `allow_invalid` - consider temporarily enabling for debugging
+3. Check requirement files for YAML formatting errors or missing required fields
 
 ## Future Configuration Options
 

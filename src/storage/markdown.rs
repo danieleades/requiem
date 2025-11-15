@@ -27,11 +27,11 @@ pub struct MarkdownRequirement {
 }
 
 impl MarkdownRequirement {
-    fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+    fn write<W: Write>(&self, writer: &mut W, digits: usize) -> io::Result<()> {
         let frontmatter = serde_yaml::to_string(&self.frontmatter).expect("this must never fail");
 
         // Construct the heading with HRID and title
-        let heading = format!("# {} {}", self.hrid, self.title);
+        let heading = format!("# {} {}", self.hrid.display(digits), self.title);
 
         // Combine frontmatter, heading, and body
         let result = if self.body.is_empty() {
@@ -109,7 +109,7 @@ impl MarkdownRequirement {
             config.digits(),
         );
 
-        self.save_to_path(&file_path)
+        self.save_to_path(&file_path, config.digits())
     }
 
     /// Writes the requirement to a specific file path.
@@ -119,7 +119,7 @@ impl MarkdownRequirement {
     /// # Errors
     ///
     /// Returns an error if the file cannot be created or written to.
-    pub fn save_to_path(&self, file_path: &Path) -> io::Result<()> {
+    pub fn save_to_path(&self, file_path: &Path, digits: usize) -> io::Result<()> {
         // Create parent directories if needed
         if let Some(parent) = file_path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -127,7 +127,7 @@ impl MarkdownRequirement {
 
         let file = File::create(file_path)?;
         let mut writer = BufWriter::new(file);
-        self.write(&mut writer)
+        self.write(&mut writer, digits)
     }
 
     /// Reads a requirement using the given configuration.
@@ -238,15 +238,21 @@ fn parse_content(content: &str) -> Result<(Hrid, String, String), LoadError> {
 
 /// Errors that can occur when loading a requirement from markdown.
 #[derive(Debug, thiserror::Error)]
-#[error("failed to read from markdown")]
 pub enum LoadError {
     /// The requirement file was not found.
+    #[error("requirement file not found")]
     NotFound,
+
     /// An I/O error occurred.
+    #[error("failed to read file: {0}")]
     Io(#[from] io::Error),
+
     /// The YAML frontmatter could not be parsed.
+    #[error("invalid YAML frontmatter: {0}")]
     Yaml(#[from] serde_yaml::Error),
+
     /// The HRID could not be parsed.
+    #[error("invalid HRID in title: {0}")]
     Hrid(#[from] HridError),
 }
 
@@ -281,7 +287,8 @@ pub fn hrid_as_string<S>(hrid: &Hrid, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
-    serializer.serialize_str(&hrid.to_string())
+    // Use default 3-digit formatting for frontmatter serialization
+    serializer.serialize_str(&hrid.display(3).to_string())
 }
 
 /// Deserialize an HRID from a string.
@@ -488,7 +495,7 @@ This is a paragraph.
         assert_eq!(requirement.hrid, req_hrid());
 
         let mut bytes: Vec<u8> = vec![];
-        requirement.write(&mut bytes).unwrap();
+        requirement.write(&mut bytes, 3).unwrap();
 
         let actual = String::from_utf8(bytes).unwrap();
         assert_eq!(input, &actual);
@@ -613,7 +620,7 @@ created: not-a-date
         };
 
         let mut buffer = Vec::new();
-        let result = requirement.write(&mut buffer);
+        let result = requirement.write(&mut buffer, 3);
 
         assert!(result.is_ok());
         let output = String::from_utf8(buffer).unwrap();
@@ -847,7 +854,7 @@ Just plain text without a heading
         let content = "# REQ-001 Title\n\n    code block\n    more code";
         let (hrid, title, body) = parse_content(content).unwrap();
 
-        assert_eq!(hrid.to_string(), "REQ-001");
+        assert_eq!(hrid.display(3).to_string(), "REQ-001");
         assert_eq!(title, "Title");
         assert_eq!(body, "    code block\n    more code");
     }
