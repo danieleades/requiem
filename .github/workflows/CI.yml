@@ -99,7 +99,14 @@ jobs:
       - name: Build Sphinx example
         run: uv run make SPHINXOPTS="-W --keep-going -n" html
         working-directory: examples/sphinx
-          
+
+  requirements:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check requirements health (suspect links and paths)
+        run: cargo run --release -- -r docs/src/requirements status
 
   dependabot:
     needs:
@@ -113,6 +120,7 @@ jobs:
         coverage,
         example-mdbook,
         example-sphinx,
+        requirements,
       ]
     permissions:
       contents: write
