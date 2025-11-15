@@ -140,7 +140,7 @@ impl fmt::Display for DirectoryLoadError {
 }
 
 fn load_config(root: &Path) -> Config {
-    let path = root.join("config.toml");
+    let path = root.join(".req/config.toml");
     Config::load(&path).unwrap_or_else(|e| {
         tracing::debug!("Failed to load config: {e}");
         Config::default()
@@ -710,20 +710,19 @@ mod tests {
         let root = tmp.path();
 
         // Create config with subfolders_are_namespaces = true
+        std::fs::create_dir_all(root.join(".req")).unwrap();
         std::fs::write(
-            root.join("config.toml"),
+            root.join(".req/config.toml"),
             "_version = \"1\"\nsubfolders_are_namespaces = true\n",
         )
         .unwrap();
 
-        // Create directory structure
-        std::fs::create_dir_all(root.join("system/auth")).unwrap();
-
-        // Create a requirement file in path-based format
-        std::fs::create_dir_all(root.join("SYSTEM/AUTH")).unwrap();
+        // Create a requirement file in canonical path-based format
+        // Canonical path: namespace/KIND/ID.md
+        std::fs::create_dir_all(root.join("SYSTEM/AUTH/REQ")).unwrap();
 
         std::fs::write(
-            root.join("SYSTEM/AUTH/REQ-001.md"),
+            root.join("SYSTEM/AUTH/REQ/001.md"),
             r"---
 _version: '1'
 uuid: 12345678-1234-1234-1234-123456789012
@@ -749,8 +748,9 @@ created: 2025-01-01T00:00:00Z
         let root = tmp.path();
 
         // Create config with subfolders_are_namespaces = true
+        std::fs::create_dir_all(root.join(".req")).unwrap();
         std::fs::write(
-            root.join("config.toml"),
+            root.join(".req/config.toml"),
             "_version = \"1\"\nsubfolders_are_namespaces = true\n",
         )
         .unwrap();
@@ -804,8 +804,9 @@ created: 2025-01-01T00:00:00Z
         let root = tmp.path();
 
         // Create config with subfolders_are_namespaces = true
+        std::fs::create_dir_all(root.join(".req")).unwrap();
         std::fs::write(
-            root.join("config.toml"),
+            root.join(".req/config.toml"),
             "_version = \"1\"\nsubfolders_are_namespaces = true\n",
         )
         .unwrap();
@@ -831,8 +832,8 @@ created: 2025-01-01T00:00:00Z
         // Save using config
         req.save(root, &dir.config).unwrap();
 
-        // File should be created at system/auth/REQ-001.md
-        assert!(root.join("SYSTEM/AUTH/REQ-001.md").exists());
+        // File should be created at system/auth/REQ/001.md
+        assert!(root.join("SYSTEM/AUTH/REQ/001.md").exists());
 
         // Should be able to reload it using config
         let loaded = Requirement::load(root, &hrid, &dir.config).unwrap();
