@@ -61,11 +61,12 @@ That's it! No initialization or hidden directories required.
 
 ## With Configuration
 
-Add a `config.toml` for project-specific settings:
+Add a `.req/config.toml` for project-specific settings:
 
 ```
 my-requirements/
-├── config.toml      ← Configuration
+├── .req/
+│   └── config.toml  ← Configuration
 ├── USR-001.md
 ├── USR-002.md
 ├── SYS-001.md
@@ -82,7 +83,8 @@ Requiem recursively searches subdirectories, enabling hierarchical organization.
 
 ```
 requirements/
-├── config.toml
+├── .req/
+│   └── config.toml
 ├── user/
 │   ├── USR-001.md
 │   ├── USR-002.md
@@ -107,7 +109,8 @@ requirements/
 
 ```
 requirements/
-├── config.toml
+├── .req/
+│   └── config.toml
 ├── authentication/
 │   ├── USR-001.md   # User login
 │   ├── SYS-001.md   # Auth service

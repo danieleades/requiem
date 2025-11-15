@@ -162,21 +162,54 @@ impl Hrid {
             format!("{}-{}", namespace_str, self.kind)
         }
     }
+
+    /// Returns a displayable representation with the specified digit width.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::num::NonZeroUsize;
+    ///
+    /// use requiem::{domain::hrid::KindString, Hrid};
+    ///
+    /// let kind = KindString::new("USR".to_string()).unwrap();
+    /// let id = NonZeroUsize::new(42).unwrap();
+    /// let hrid = Hrid::new(kind, id);
+    ///
+    /// assert_eq!(hrid.display(3).to_string(), "USR-042");
+    /// assert_eq!(hrid.display(4).to_string(), "USR-0042");
+    /// assert_eq!(hrid.display(2).to_string(), "USR-42");
+    /// ```
+    #[must_use]
+    pub const fn display(&self, digits: usize) -> FormattedHrid<'_> {
+        FormattedHrid { hrid: self, digits }
+    }
 }
 
-impl fmt::Display for Hrid {
+/// A wrapper type that formats an HRID with a specified digit width.
+///
+/// This type is returned by [`Hrid::display`] and implements [`fmt::Display`]
+/// to format the HRID with the configured number of digits.
+#[derive(Debug, Clone, Copy)]
+pub struct FormattedHrid<'a> {
+    hrid: &'a Hrid,
+    digits: usize,
+}
+
+impl fmt::Display for FormattedHrid<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let id_str = format!("{:03}", self.id);
-        if self.namespace.is_empty() {
-            write!(f, "{}-{}", self.kind, id_str)
+        let id_str = format!("{:0width$}", self.hrid.id, width = self.digits);
+        if self.hrid.namespace.is_empty() {
+            write!(f, "{}-{}", self.hrid.kind, id_str)
         } else {
             let namespace_str = self
+                .hrid
                 .namespace
                 .iter()
                 .map(KindString::as_str)
                 .collect::<Vec<_>>()
                 .join("-");
-            write!(f, "{}-{}-{}", namespace_str, self.kind, id_str)
+            write!(f, "{}-{}-{}", namespace_str, self.hrid.kind, id_str)
         }
     }
 }
@@ -306,72 +339,71 @@ mod tests {
         assert!(NonZeroUsize::new(0).is_none());
     }
 
-    #[test]
-    fn hrid_display_no_namespace() {
+    use test_case::test_case;
+
+    // Test digit width formatting - no namespace
+    #[test_case(2, 1, "SYS-01"; "2 digits id 1")]
+    #[test_case(2, 42, "SYS-42"; "2 digits id 42")]
+    #[test_case(2, 99, "SYS-99"; "2 digits at boundary")]
+    #[test_case(2, 100, "SYS-100"; "2 digits expansion")]
+    #[test_case(3, 1, "SYS-001"; "3 digits id 1")]
+    #[test_case(3, 42, "SYS-042"; "3 digits id 42")]
+    #[test_case(3, 999, "SYS-999"; "3 digits at boundary")]
+    #[test_case(3, 1000, "SYS-1000"; "3 digits expansion")]
+    #[test_case(4, 1, "SYS-0001"; "4 digits id 1")]
+    #[test_case(4, 9999, "SYS-9999"; "4 digits at boundary")]
+    #[test_case(4, 10000, "SYS-10000"; "4 digits expansion")]
+    #[test_case(5, 1, "SYS-00001"; "5 digits id 1")]
+    #[test_case(5, 99999, "SYS-99999"; "5 digits at boundary")]
+    fn hrid_display_no_namespace(digits: usize, id: usize, expected: &str) {
         let hrid = Hrid::new(
             KindString::new("SYS".to_string()).unwrap(),
-            NonZeroUsize::new(1).unwrap(),
+            NonZeroUsize::new(id).unwrap(),
         );
-        assert_eq!(format!("{hrid}"), "SYS-001");
-
-        let hrid = Hrid::new(
-            KindString::new("URS".to_string()).unwrap(),
-            NonZeroUsize::new(42).unwrap(),
-        );
-        assert_eq!(format!("{hrid}"), "URS-042");
-
-        let hrid = Hrid::new(
-            KindString::new("TEST".to_string()).unwrap(),
-            NonZeroUsize::new(999).unwrap(),
-        );
-        assert_eq!(format!("{hrid}"), "TEST-999");
+        assert_eq!(hrid.display(digits).to_string(), expected);
     }
 
-    #[test]
-    fn hrid_display_with_namespace() {
-        let hrid = Hrid::new_with_namespace(
-            vec![KindString::new("COMPONENT".to_string()).unwrap()],
-            KindString::new("SYS".to_string()).unwrap(),
-            NonZeroUsize::new(5).unwrap(),
-        );
-        assert_eq!(format!("{hrid}"), "COMPONENT-SYS-005");
-
-        let hrid = Hrid::new_with_namespace(
-            vec![
-                KindString::new("COMPONENT".to_string()).unwrap(),
-                KindString::new("SUBCOMPONENT".to_string()).unwrap(),
-            ],
-            KindString::new("SYS".to_string()).unwrap(),
-            NonZeroUsize::new(5).unwrap(),
-        );
-        assert_eq!(format!("{hrid}"), "COMPONENT-SUBCOMPONENT-SYS-005");
-
-        let hrid = Hrid::new_with_namespace(
+    // Test digit width formatting - with namespace
+    #[test_case(2, 5, "COMPONENT-SYS-05"; "2 digits single namespace")]
+    #[test_case(3, 5, "COMPONENT-SYS-005"; "3 digits single namespace")]
+    #[test_case(4, 5, "COMPONENT-SYS-0005"; "4 digits single namespace")]
+    #[test_case(3, 123, "A-B-C-REQ-123"; "3 digits multi namespace")]
+    fn hrid_display_with_namespace(digits: usize, id: usize, expected: &str) {
+        let namespace = if expected.starts_with("COMPONENT") {
+            vec![KindString::new("COMPONENT".to_string()).unwrap()]
+        } else {
             vec![
                 KindString::new("A".to_string()).unwrap(),
                 KindString::new("B".to_string()).unwrap(),
                 KindString::new("C".to_string()).unwrap(),
-            ],
-            KindString::new("REQ".to_string()).unwrap(),
-            NonZeroUsize::new(123).unwrap(),
-        );
-        assert_eq!(format!("{hrid}"), "A-B-C-REQ-123");
-    }
+            ]
+        };
 
-    #[test]
-    fn hrid_display_large_numbers() {
-        let hrid = Hrid::new(
-            KindString::new("BIG".to_string()).unwrap(),
-            NonZeroUsize::new(1000).unwrap(),
-        );
-        assert_eq!(format!("{hrid}"), "BIG-1000");
+        let kind = if expected.contains("SYS") {
+            "SYS"
+        } else {
+            "REQ"
+        };
 
         let hrid = Hrid::new_with_namespace(
-            vec![KindString::new("NS".to_string()).unwrap()],
-            KindString::new("HUGE".to_string()).unwrap(),
-            NonZeroUsize::new(12345).unwrap(),
+            namespace,
+            KindString::new(kind.to_string()).unwrap(),
+            NonZeroUsize::new(id).unwrap(),
         );
-        assert_eq!(format!("{hrid}"), "NS-HUGE-12345");
+        assert_eq!(hrid.display(digits).to_string(), expected);
+    }
+
+    // Test large number expansion
+    #[test_case(3, 1000, "BIG-1000"; "3 digits to 4")]
+    #[test_case(3, 12345, "BIG-12345"; "3 digits to 5")]
+    #[test_case(4, 10000, "BIG-10000"; "4 digits to 5")]
+    #[test_case(4, 100_000, "BIG-100000"; "4 digits to 6")]
+    fn hrid_display_large_numbers(digits: usize, id: usize, expected: &str) {
+        let hrid = Hrid::new(
+            KindString::new("BIG".to_string()).unwrap(),
+            NonZeroUsize::new(id).unwrap(),
+        );
+        assert_eq!(hrid.display(digits).to_string(), expected);
     }
 
     #[test]
@@ -561,7 +593,7 @@ mod tests {
             NonZeroUsize::new(123).unwrap(),
         );
 
-        let as_string = format!("{original}");
+        let as_string = original.display(3).to_string();
         let parsed = Hrid::try_from(as_string.as_str()).unwrap();
 
         assert_eq!(original, parsed);
@@ -578,7 +610,7 @@ mod tests {
             NonZeroUsize::new(5).unwrap(),
         );
 
-        let as_string = format!("{original}");
+        let as_string = original.display(3).to_string();
         let parsed = Hrid::try_from(as_string.as_str()).unwrap();
 
         assert_eq!(original, parsed);

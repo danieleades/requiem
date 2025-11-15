@@ -58,7 +58,12 @@ impl Directory {
         self.mark_dirty(outcome.child_uuid);
 
         if !outcome.already_linked {
-            tracing::info!("Linked {} ← {}", outcome.child_hrid, outcome.parent_hrid);
+            let digits = self.config.digits();
+            tracing::info!(
+                "Linked {} ← {}",
+                outcome.child_hrid.display(digits),
+                outcome.parent_hrid.display(digits)
+            );
         }
 
         self.tree
@@ -92,11 +97,31 @@ impl Directory {
             return Err(DirectoryLoadError::UnrecognisedFiles(unrecognised_paths));
         }
 
+        // Check for disallowed kinds if allowed_kinds is configured
+        if !config.allowed_kinds().is_empty() {
+            let disallowed: Vec<(PathBuf, String)> = requirements
+                .iter()
+                .filter(|(req, _path)| !config.is_kind_allowed(req.hrid().kind()))
+                .map(|(req, path)| (path.clone(), req.hrid().kind().to_string()))
+                .collect();
+
+            if !disallowed.is_empty() {
+                return Err(DirectoryLoadError::DisallowedKinds {
+                    files: disallowed,
+                    allowed_kinds: config.allowed_kinds().to_vec(),
+                });
+            }
+        }
+
         let mut tree = Tree::with_capacity(requirements.len());
         let mut paths = HashMap::with_capacity(requirements.len());
         for (req, path) in requirements {
             let uuid = req.uuid();
-            tree.insert(req);
+            tree.insert(req)
+                .map_err(|error| DirectoryLoadError::Duplicate {
+                    error,
+                    path: path.clone(),
+                })?;
             paths.insert(uuid, path);
         }
 
@@ -119,19 +144,57 @@ impl Directory {
 pub enum DirectoryLoadError {
     /// One or more files in the directory could not be recognized as valid
     /// requirements.
-    UnrecognisedFiles(Vec<PathBuf>),
+    UnrecognisedFiles(Vec<(PathBuf, LoadError)>),
+
+    /// A requirement has a duplicate UUID or HRID.
+    Duplicate {
+        /// The underlying tree insertion error
+        error: crate::domain::TreeInsertError,
+        /// The path of the file being inserted when the error occurred
+        path: PathBuf,
+    },
+
+    /// One or more requirements have kinds that are not in the allowed list.
+    DisallowedKinds {
+        /// The files with disallowed kinds
+        files: Vec<(PathBuf, String)>,
+        /// The list of allowed kinds
+        allowed_kinds: Vec<String>,
+    },
 }
 
 impl fmt::Display for DirectoryLoadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UnrecognisedFiles(paths) => {
-                write!(f, "Unrecognised files: ")?;
-                for (i, path) in paths.iter().enumerate() {
+            Self::UnrecognisedFiles(files) => {
+                write!(f, "Failed to load requirements:")?;
+                for (i, (path, error)) in files.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ",")?;
+                    }
+                    write!(f, "\n  {} ({})", path.display(), error)?;
+                }
+                Ok(())
+            }
+            Self::Duplicate { error, path } => {
+                write!(f, "Failed to load {}: {}", path.display(), error)
+            }
+            Self::DisallowedKinds {
+                files,
+                allowed_kinds,
+            } => {
+                write!(f, "Requirements with disallowed kinds found: ")?;
+                for (i, (path, kind)) in files.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", path.display())?;
+                    write!(f, "{} (kind: {})", path.display(), kind)?;
+                }
+                write!(f, ". Allowed kinds: ")?;
+                if allowed_kinds.is_empty() {
+                    write!(f, "none configured")?;
+                } else {
+                    write!(f, "{}", allowed_kinds.join(", "))?;
                 }
                 Ok(())
             }
@@ -181,7 +244,7 @@ fn load_template(root: &Path, hrid: &Hrid) -> String {
 
     tracing::debug!(
         "No template found for HRID {}, checked {} and {}",
-        hrid,
+        hrid.display(3),
         full_path.display(),
         kind_path.display()
     );
@@ -205,7 +268,7 @@ fn try_load_requirement(
     path: &Path,
     _root: &Path,
     config: &Config,
-) -> Result<(Requirement, PathBuf), PathBuf> {
+) -> Result<(Requirement, PathBuf), (PathBuf, LoadError)> {
     // Load the requirement from the file
     // The HRID is now read from the frontmatter, not parsed from the path
     match load_requirement_from_file(path, config) {
@@ -216,7 +279,7 @@ fn try_load_requirement(
                 path.display(),
                 e
             );
-            Err(path.to_path_buf())
+            Err((path.to_path_buf(), e))
         }
     }
 }
@@ -245,10 +308,13 @@ impl Directory {
         &self.root
     }
 
-    /// Returns the filesystem path for a requirement HRID using directory
-    /// configuration.
+    /// Returns the canonical/expected path for a requirement based on its HRID.
+    ///
+    /// This constructs the ideal path where the requirement *should* be located
+    /// according to the repository configuration. Use [`Self::path_for`] to get
+    /// the actual path where the file was loaded from.
     #[must_use]
-    pub fn path_for(&self, hrid: &Hrid) -> PathBuf {
+    pub fn canonical_path_for(&self, hrid: &Hrid) -> PathBuf {
         crate::storage::construct_path_from_hrid(
             &self.root,
             hrid,
@@ -259,12 +325,15 @@ impl Directory {
 
     /// Returns the actual filesystem path where a requirement was loaded from.
     ///
-    /// Returns `None` if the requirement is not found or was not loaded from
-    /// disk.
+    /// This returns the real path that was used to load the requirement,
+    /// which may differ from the canonical path returned by
+    /// [`Self::canonical_path_for`] if the file is misplaced.
     #[must_use]
-    pub fn actual_path_for(&self, hrid: &Hrid) -> Option<&Path> {
-        let uuid = self.tree.find_by_hrid(hrid)?.uuid;
-        self.paths.get(uuid).map(std::path::PathBuf::as_path)
+    pub fn path_for(&self, hrid: &Hrid) -> Option<&Path> {
+        self.tree
+            .find_by_hrid(hrid)
+            .and_then(|view| self.paths.get(view.uuid))
+            .map(PathBuf::as_path)
     }
 
     /// Returns an iterator over all requirements stored in the directory.
@@ -303,14 +372,56 @@ impl Directory {
         kind: &str,
         content: String,
     ) -> Result<Requirement, AddRequirementError> {
+        self.add_requirement_with_namespace(Vec::new(), kind, content)
+    }
+
+    /// Add a new requirement to the directory with an optional namespace.
+    ///
+    /// # Errors
+    ///
+    /// This method can fail if:
+    ///
+    /// - the provided `kind` or `namespace` segments are empty strings or
+    ///   invalid
+    /// - the requirement file cannot be written to
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tree returns an invalid ID (should never happen).
+    pub fn add_requirement_with_namespace(
+        &mut self,
+        namespace: Vec<String>,
+        kind: &str,
+        content: String,
+    ) -> Result<Requirement, AddRequirementError> {
         let tree = &mut self.tree;
 
         // Validate kind (CLI already normalized to uppercase)
         let kind_string =
             KindString::new(kind.to_string()).map_err(crate::domain::hrid::Error::from)?;
 
+        // Check if kind is allowed by configuration
+        if !self.config.is_kind_allowed(kind) {
+            let allowed_kinds = if self.config.allowed_kinds().is_empty() {
+                "none configured (all allowed)".to_string()
+            } else {
+                self.config.allowed_kinds().join(", ")
+            };
+            return Err(AddRequirementError::DisallowedKind {
+                kind: kind.to_string(),
+                allowed_kinds,
+            });
+        }
+
+        // Validate namespace segments (CLI already normalized to uppercase)
+        let namespace_strings: Result<Vec<_>, _> = namespace
+            .into_iter()
+            .map(|seg| KindString::new(seg).map_err(crate::domain::hrid::Error::from))
+            .collect();
+        let namespace_strings = namespace_strings?;
+
         let id = tree.next_index(&kind_string);
-        let hrid = Hrid::new(kind_string, id);
+        let hrid = Hrid::new_with_namespace(namespace_strings, kind_string, id);
 
         // Parse content to extract title and body
         // If no content is provided via CLI, check for a template
@@ -349,10 +460,13 @@ impl Directory {
 
         let requirement = Requirement::new(hrid, title, body);
 
-        tree.insert(requirement.clone());
+        tree.insert(requirement.clone())?;
         self.mark_dirty(requirement.uuid());
 
-        tracing::info!("Added requirement: {}", requirement.hrid());
+        tracing::info!(
+            "Added requirement: {}",
+            requirement.hrid().display(self.config.digits())
+        );
 
         Ok(requirement)
     }
@@ -425,14 +539,38 @@ impl Directory {
             return Err(AcceptSuspectLinkError::LinkNotFound { child, parent });
         }
 
-        let was_updated = self.tree.accept_suspect_link(child_uuid, parent_uuid);
+        let was_updated = self
+            .tree
+            .accept_suspect_link(child_uuid, parent_uuid)
+            .map_err(|e| match e {
+                crate::domain::AcceptLinkError::ParentNotFound(_) => {
+                    AcceptSuspectLinkError::ParentNotFound(LoadError::NotFound)
+                }
+                crate::domain::AcceptLinkError::ChildNotFound(uuid) => {
+                    // Shouldn't happen since we validated above, but handle it
+                    tracing::error!("Child {uuid} disappeared during accept operation");
+                    AcceptSuspectLinkError::ChildNotFound(child.clone())
+                }
+                crate::domain::AcceptLinkError::LinkNotFound {
+                    child: _,
+                    parent: _,
+                } => AcceptSuspectLinkError::LinkNotFound {
+                    child: child.clone(),
+                    parent: parent.clone(),
+                },
+            })?;
 
         if !was_updated {
             return Ok(AcceptResult::AlreadyUpToDate);
         }
 
         self.mark_dirty(child_uuid);
-        tracing::info!("Accepted suspect link {} ← {}", child_hrid, parent_hrid);
+        let digits = self.config.digits();
+        tracing::info!(
+            "Accepted suspect link {} ← {}",
+            child_hrid.display(digits),
+            parent_hrid.display(digits)
+        );
 
         Ok(AcceptResult::Updated)
     }
@@ -504,7 +642,7 @@ impl Directory {
                 PathBuf::clone,
             );
 
-            match requirement.save_to_path(&path) {
+            match requirement.save_to_path(&path, self.config.digits()) {
                 Ok(()) => {
                     self.dirty.remove(&uuid);
                     flushed.push(hrid);
@@ -529,6 +667,19 @@ pub enum AddRequirementError {
     /// The requirement kind or ID was invalid.
     #[error("failed to add requirement: {0}")]
     Hrid(#[from] crate::domain::HridError),
+
+    /// A requirement with this UUID or HRID already exists.
+    #[error("failed to add requirement: {0}")]
+    Duplicate(#[from] crate::domain::TreeInsertError),
+
+    /// The requirement kind is not in the allowed kinds list.
+    #[error("kind '{kind}' is not allowed (allowed kinds: {allowed_kinds})")]
+    DisallowedKind {
+        /// The kind that was rejected.
+        kind: String,
+        /// The list of allowed kinds.
+        allowed_kinds: String,
+    },
 }
 
 /// Error type for flush failures.
@@ -572,22 +723,49 @@ pub enum AcceptResult {
 }
 
 /// Error type for accepting suspect links.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum AcceptSuspectLinkError {
     /// The child requirement was not found.
-    #[error("child requirement {0} not found")]
     ChildNotFound(Hrid),
     /// The parent requirement was not found.
-    #[error("parent requirement not found")]
-    ParentNotFound(#[from] LoadError),
+    ParentNotFound(LoadError),
     /// The link between child and parent was not found.
-    #[error("link from {child} to {parent} not found")]
     LinkNotFound {
         /// The child requirement HRID.
         child: Hrid,
         /// The parent requirement HRID.
         parent: Hrid,
     },
+}
+
+impl std::fmt::Display for AcceptSuspectLinkError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ChildNotFound(hrid) => {
+                write!(f, "child requirement {} not found", hrid.display(3))
+            }
+            Self::ParentNotFound(e) => {
+                write!(f, "parent requirement not found: {e}")
+            }
+            Self::LinkNotFound { child, parent } => {
+                write!(
+                    f,
+                    "link from {} to {} not found",
+                    child.display(3),
+                    parent.display(3)
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for AcceptSuspectLinkError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::ParentNotFound(e) => Some(e),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -610,7 +788,7 @@ mod tests {
 
         dir.flush().expect("flush should succeed");
 
-        assert_eq!(r1.hrid().to_string(), "REQ-001");
+        assert_eq!(r1.hrid().display(3).to_string(), "REQ-001");
 
         let loaded = Requirement::load(&dir.root, r1.hrid(), &dir.config)
             .expect("should load saved requirement");
@@ -625,8 +803,8 @@ mod tests {
 
         dir.flush().expect("flush should succeed");
 
-        assert_eq!(r1.hrid().to_string(), "REQ-001");
-        assert_eq!(r2.hrid().to_string(), "REQ-002");
+        assert_eq!(r1.hrid().display(3).to_string(), "REQ-001");
+        assert_eq!(r2.hrid().display(3).to_string(), "REQ-002");
     }
 
     #[test]
@@ -717,8 +895,15 @@ mod tests {
         )
         .unwrap();
 
+<<<<<<< HEAD
         // Create a requirement file in canonical path-based format
         // Canonical path: namespace/KIND/ID.md
+=======
+        // Create directory structure
+        std::fs::create_dir_all(root.join("system/auth")).unwrap();
+
+        // Create a requirement file in path-based format (new structure: KIND/ID.md)
+>>>>>>> 9909346 (fix: general bug fixing)
         std::fs::create_dir_all(root.join("SYSTEM/AUTH/REQ")).unwrap();
 
         std::fs::write(
@@ -846,7 +1031,8 @@ created: 2025-01-01T00:00:00Z
         let root = tmp.path();
 
         // Create config with subfolders_are_namespaces = false (default)
-        std::fs::write(root.join("config.toml"), "_version = \"1\"\n").unwrap();
+        std::fs::create_dir_all(root.join(".req")).unwrap();
+        std::fs::write(root.join(".req/config.toml"), "_version = \"1\"\n").unwrap();
 
         // Create nested directory structure
         std::fs::create_dir_all(root.join("some/random/path")).unwrap();
@@ -898,7 +1084,8 @@ created: 2025-01-01T00:00:00Z
         let root = tmp.path();
 
         // Create default config (filename-based)
-        std::fs::write(root.join("config.toml"), "_version = \"1\"\n").unwrap();
+        std::fs::create_dir_all(root.join(".req")).unwrap();
+        std::fs::write(root.join(".req/config.toml"), "_version = \"1\"\n").unwrap();
 
         // Load directory
         let dir = Directory::new(root.to_path_buf()).unwrap();
@@ -920,5 +1107,107 @@ created: 2025-01-01T00:00:00Z
         // File should be created in root with full HRID
         assert!(root.join("SYSTEM-AUTH-REQ-001.md").exists());
         assert!(!root.join("system/auth/REQ-001.md").exists());
+    }
+
+    #[test]
+    fn add_requirement_rejects_disallowed_kind() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        // Create config with allowed_kinds
+        std::fs::create_dir_all(root.join(".req")).unwrap();
+        std::fs::write(
+            root.join(".req/config.toml"),
+            "_version = \"1\"\nallowed_kinds = [\"USR\", \"SYS\"]\n",
+        )
+        .unwrap();
+
+        let mut dir = Directory::new(root.to_path_buf()).unwrap();
+
+        // Try to add a requirement with a disallowed kind
+        let result = dir.add_requirement("REQ", "# Test".to_string());
+
+        // Should fail with DisallowedKind error
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        match error {
+            AddRequirementError::DisallowedKind { kind, .. } => {
+                assert_eq!(kind, "REQ");
+            }
+            _ => panic!("Expected DisallowedKind error, got: {error:?}"),
+        }
+    }
+
+    #[test]
+    fn add_requirement_allows_configured_kind() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        // Create config with allowed_kinds
+        std::fs::create_dir_all(root.join(".req")).unwrap();
+        std::fs::write(
+            root.join(".req/config.toml"),
+            "_version = \"1\"\nallowed_kinds = [\"USR\", \"SYS\"]\n",
+        )
+        .unwrap();
+
+        let mut dir = Directory::new(root.to_path_buf()).unwrap();
+
+        // Try to add a requirement with an allowed kind
+        let result = dir.add_requirement("USR", "# Test".to_string());
+
+        // Should succeed
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn directory_new_rejects_disallowed_kinds() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        // First create an empty directory and add a REQ requirement
+        let mut dir = Directory::new(root.to_path_buf()).unwrap();
+        dir.add_requirement("REQ", "# Test\n\nContent".to_string())
+            .unwrap();
+        dir.flush().unwrap();
+
+        // Now update config to disallow REQ
+        std::fs::create_dir_all(root.join(".req")).unwrap();
+        std::fs::write(
+            root.join(".req/config.toml"),
+            "_version = \"1\"\nallowed_kinds = [\"USR\", \"SYS\"]\n",
+        )
+        .unwrap();
+
+        // Try to load directory
+        let result = Directory::new(root.to_path_buf());
+
+        // Should fail with DisallowedKinds error
+        match result {
+            Err(DirectoryLoadError::DisallowedKinds { files, .. }) => {
+                assert_eq!(files.len(), 1);
+                assert_eq!(files[0].1, "REQ");
+            }
+            Ok(_) => panic!("Expected DisallowedKinds error, but directory loaded successfully"),
+            Err(e) => panic!("Expected DisallowedKinds error, got: {e}"),
+        }
+    }
+
+    #[test]
+    fn directory_new_allows_when_no_kinds_configured() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        // Create a requirement file using add_requirement
+        let mut dir = Directory::new(root.to_path_buf()).unwrap();
+        dir.add_requirement("REQ", "# Test\n\nContent".to_string())
+            .unwrap();
+        dir.flush().unwrap();
+
+        // Reload directory - should succeed with empty allowed_kinds (all allowed)
+        let result = Directory::new(root.to_path_buf());
+
+        // Should succeed
+        assert!(result.is_ok());
     }
 }

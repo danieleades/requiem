@@ -44,13 +44,14 @@ pub fn construct_path_from_hrid(
         // Add KIND as a subdirectory
         path.push(hrid.kind());
 
-        // Add ID as filename (numeric only)
+        // Add filename as numeric ID only
         let filename = format!("{:0width$}", hrid.id(), width = digits);
         path.push(filename);
         path.with_extension("md")
     } else {
         // Filename-based: root/FULL-HRID.md
-        root.join(hrid.to_string()).with_extension("md")
+        root.join(hrid.display(digits).to_string())
+            .with_extension("md")
     }
 }
 

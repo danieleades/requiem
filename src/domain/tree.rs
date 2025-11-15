@@ -24,6 +24,74 @@ use crate::{
     Requirement,
 };
 
+/// Error type for tree insertion operations.
+#[derive(Debug)]
+pub enum TreeInsertError {
+    /// Attempted to insert a requirement with a UUID that already exists in the
+    /// tree.
+    DuplicateUuid {
+        /// The duplicate UUID
+        uuid: Uuid,
+    },
+    /// Attempted to insert a requirement with an HRID that already exists in
+    /// the tree.
+    DuplicateHrid {
+        /// The duplicate HRID
+        hrid: Hrid,
+        /// The UUID of the requirement being inserted
+        new_uuid: Uuid,
+        /// The UUID of the existing requirement with this HRID
+        existing_uuid: Uuid,
+    },
+}
+
+impl std::fmt::Display for TreeInsertError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DuplicateUuid { uuid } => {
+                write!(f, "Duplicate requirement UUID: {uuid}")
+            }
+            Self::DuplicateHrid {
+                hrid,
+                new_uuid,
+                existing_uuid,
+            } => {
+                write!(
+                    f,
+                    "Duplicate requirement HRID: {} (attempting to insert UUID {}, but HRID \
+                     already maps to UUID {})",
+                    hrid.display(3),
+                    new_uuid,
+                    existing_uuid
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for TreeInsertError {}
+
+/// Error type for accepting suspect links.
+#[derive(Debug, thiserror::Error)]
+pub enum AcceptLinkError {
+    /// The child requirement was not found in the tree.
+    #[error("Child requirement {0} not found")]
+    ChildNotFound(Uuid),
+
+    /// The parent requirement was not found in the tree.
+    #[error("Parent requirement {0} not found (may have failed to load or been deleted)")]
+    ParentNotFound(Uuid),
+
+    /// The link between child and parent does not exist.
+    #[error("No link exists between child {child} and parent {parent}")]
+    LinkNotFound {
+        /// The child UUID
+        child: Uuid,
+        /// The parent UUID
+        parent: Uuid,
+    },
+}
+
 /// Data stored on each edge in the dependency graph.
 ///
 /// Each edge represents a parent-child relationship, pointing from child to
@@ -110,17 +178,28 @@ impl Tree {
 
     /// Inserts a requirement into the tree.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if a requirement with the same UUID already exists.
-    pub fn insert(&mut self, requirement: Requirement) {
+    /// Returns an error if a requirement with the same UUID or HRID already
+    /// exists.
+    pub fn insert(&mut self, requirement: Requirement) -> Result<(), TreeInsertError> {
         let uuid = requirement.metadata.uuid;
-        assert!(
-            !self.requirements.contains_key(&uuid),
-            "Duplicate requirement UUID: {uuid}"
-        );
+
+        // Check for duplicate UUID
+        if self.requirements.contains_key(&uuid) {
+            return Err(TreeInsertError::DuplicateUuid { uuid });
+        }
 
         let hrid = requirement.metadata.hrid.clone();
+
+        // Check for duplicate HRID
+        if let Some(&existing_uuid) = self.hrid_to_uuid.get(&hrid) {
+            return Err(TreeInsertError::DuplicateHrid {
+                hrid,
+                new_uuid: uuid,
+                existing_uuid,
+            });
+        }
 
         // Add node to graph (if it doesn't already exist from being referenced as a
         // parent)
@@ -144,6 +223,8 @@ impl Tree {
         // Store decomposed data
         let data = RequirementData::from(requirement);
         self.requirements.insert(uuid, data);
+
+        Ok(())
     }
 
     /// Retrieves just the HRID for a requirement by UUID.
@@ -430,10 +511,14 @@ impl Tree {
         for child_uuid in self.graph.nodes() {
             for (_, parent_uuid, edge_data) in self.graph.edges(child_uuid) {
                 // Get the current HRID of the parent
-                let current_parent_hrid = self
-                    .hrids
-                    .get(&parent_uuid)
-                    .unwrap_or_else(|| panic!("Parent requirement {parent_uuid} not found!"));
+                // Skip edges with missing parents (e.g., failed to load)
+                let Some(current_parent_hrid) = self.hrids.get(&parent_uuid) else {
+                    tracing::warn!(
+                        "Skipping edge with missing parent: child={child_uuid}, \
+                         parent={parent_uuid}"
+                    );
+                    continue;
+                };
 
                 // Check if the stored HRID is outdated
                 if &edge_data.parent_hrid != current_parent_hrid {
@@ -446,8 +531,14 @@ impl Tree {
         // Apply the updates to EdgeData only
         for (child_uuid, parent_uuid) in edges_to_update {
             // Look up the HRID again (HashMap lookup is O(1) and cheaper than cloning
-            // earlier)
-            let current_parent_hrid = self.hrids.get(&parent_uuid).unwrap();
+            // earlier). Should always succeed since we already checked above.
+            let Some(current_parent_hrid) = self.hrids.get(&parent_uuid) else {
+                // Parent disappeared between collection and update - skip
+                tracing::warn!(
+                    "Parent {parent_uuid} disappeared during HRID update for child {child_uuid}"
+                );
+                continue;
+            };
             if let Some(edge_data) = self.graph.edge_weight_mut(child_uuid, parent_uuid) {
                 // Update EdgeData (the sole source of truth)
                 edge_data.parent_hrid = current_parent_hrid.clone();
@@ -476,18 +567,21 @@ impl Tree {
 
             for (_, parent_uuid, edge_data) in self.graph.edges(child_uuid) {
                 // Access RequirementData directly to avoid full RequirementView construction
-                let Some(parent_data) = self.requirements.get(&parent_uuid) else {
-                    continue;
-                };
+                let parent_data = self.requirements.get(&parent_uuid);
 
-                // Calculate fingerprint directly from RequirementData
-                let current_fingerprint = ContentRef {
-                    title: &parent_data.title,
-                    body: &parent_data.body,
-                    tags: &parent_data.tags,
-                }
-                .fingerprint();
+                // Calculate current fingerprint, or use empty string if parent is missing
+                // Empty string indicates a dangling/broken reference (parent failed to load or
+                // was deleted)
+                let current_fingerprint = parent_data.map_or_else(String::new, |data| {
+                    ContentRef {
+                        title: &data.title,
+                        body: &data.body,
+                        tags: &data.tags,
+                    }
+                    .fingerprint()
+                });
 
+                // Report as suspect if fingerprints don't match, OR if parent is missing
                 if edge_data.fingerprint != current_fingerprint {
                     suspect.push(SuspectLink {
                         child_uuid,
@@ -506,50 +600,79 @@ impl Tree {
 
     /// Update the fingerprint for a specific parent link.
     ///
-    /// Returns `true` if the fingerprint was updated.
+    /// Returns `Ok(true)` if the fingerprint was updated, `Ok(false)` if
+    /// already up to date.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the child or parent requirement is not found.
-    pub fn accept_suspect_link(&mut self, child_uuid: Uuid, parent_uuid: Uuid) -> bool {
+    /// Returns an error if the child or parent requirement is not found, or if
+    /// the link doesn't exist.
+    pub fn accept_suspect_link(
+        &mut self,
+        child_uuid: Uuid,
+        parent_uuid: Uuid,
+    ) -> Result<bool, AcceptLinkError> {
+        // Check if child exists in graph
+        if !self.graph.contains_node(child_uuid) {
+            return Err(AcceptLinkError::ChildNotFound(child_uuid));
+        }
+
+        // Check if parent exists and get its fingerprint
         let parent = self
             .requirement(parent_uuid)
-            .unwrap_or_else(|| panic!("Parent requirement {parent_uuid} not found!"));
+            .ok_or(AcceptLinkError::ParentNotFound(parent_uuid))?;
         let current_fingerprint = parent.fingerprint();
 
-        // Check if child and parent exist in graph
-        assert!(
-            self.graph.contains_node(child_uuid),
-            "Child requirement {child_uuid} not found!"
-        );
-        assert!(
-            self.graph.contains_node(parent_uuid),
-            "Parent requirement {parent_uuid} not found!"
-        );
+        // Check if parent exists in graph
+        if !self.graph.contains_node(parent_uuid) {
+            return Err(AcceptLinkError::ParentNotFound(parent_uuid));
+        }
 
         // Find and update the edge
         if let Some(edge_data) = self.graph.edge_weight_mut(child_uuid, parent_uuid) {
             if edge_data.fingerprint == current_fingerprint {
-                return false; // Already up to date
+                return Ok(false); // Already up to date
             }
 
             // Update EdgeData (the sole source of truth)
             edge_data.fingerprint.clone_from(&current_fingerprint);
 
-            true
+            Ok(true)
         } else {
-            panic!("Parent link {parent_uuid} not found in child {child_uuid}");
+            Err(AcceptLinkError::LinkNotFound {
+                child: child_uuid,
+                parent: parent_uuid,
+            })
         }
     }
 
     /// Update all suspect fingerprints in the tree.
+    ///
+    /// Skips links where the parent is missing (logs a warning instead of
+    /// failing).
     pub fn accept_all_suspect_links(&mut self) -> Vec<(Uuid, Uuid)> {
         let suspect = self.suspect_links();
         let mut updated = Vec::new();
 
         for link in suspect {
-            if self.accept_suspect_link(link.child_uuid, link.parent_uuid) {
-                updated.push((link.child_uuid, link.parent_uuid));
+            match self.accept_suspect_link(link.child_uuid, link.parent_uuid) {
+                Ok(true) => {
+                    updated.push((link.child_uuid, link.parent_uuid));
+                }
+                Ok(false) => {
+                    // Already up to date, skip
+                }
+                Err(AcceptLinkError::ParentNotFound(parent_uuid)) => {
+                    // Parent missing - log but don't fail the entire operation
+                    tracing::warn!(
+                        "Cannot accept suspect link: parent {parent_uuid} not found (child: {})",
+                        link.child_uuid
+                    );
+                }
+                Err(e) => {
+                    // Other errors are unexpected but also shouldn't stop the batch
+                    tracing::error!("Failed to accept suspect link: {e}");
+                }
             }
         }
 
@@ -571,5 +694,8 @@ pub struct SuspectLink {
     /// The fingerprint stored in the child's parent reference.
     pub stored_fingerprint: String,
     /// The current fingerprint of the parent requirement.
+    ///
+    /// If empty, indicates the parent requirement is missing (failed to load or
+    /// was deleted).
     pub current_fingerprint: String,
 }

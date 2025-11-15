@@ -238,9 +238,6 @@ digits = 3
 
 # Allow markdown files that aren't requirements
 allow_unrecognised = false
-
-# Allow requirements with invalid format
-allow_invalid = false
 ```
 
 This balances flexibility (customize as needed) with safety (defaults prevent common errors).
