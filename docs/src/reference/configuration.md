@@ -35,7 +35,6 @@ _version = "1"
 allowed_kinds = ["USR", "SYS", "SWR", "TST"]
 digits = 3
 allow_unrecognised = false
-allow_invalid = false
 subfolders_are_namespaces = false
 ```
 
@@ -393,19 +392,21 @@ requirements/
 requirements/
 ├── system/
 │   └── auth/
-│       ├── REQ-001.md           → HRID: system-auth-REQ-001
+│       ├── REQ/
+│       │   └── 001.md           → HRID: system-auth-REQ-001 (from heading)
 │       └── USR/
-│           └── 002.md           → HRID: system-auth-USR-002
+│           └── 002.md           → HRID: system-auth-USR-002 (from heading)
 └── payment/
-    └── USR-003.md               → HRID: payment-USR-003
+    └── USR/
+        └── 003.md               → HRID: payment-USR-003 (from heading)
 ```
 
-- **HRID**: Namespace from folder path + KIND-ID from filename
-- **Folders**: Encode namespace segments
-- **Format inference**:
-  - Numeric filename (`002.md`) → KIND from parent folder
-  - KIND-ID filename (`USR-003.md`) → KIND from filename
-- **Constraint**: Moving files changes their HRID
+- **HRID Source**: Always from the markdown heading (e.g., `# system-auth-USR-002`)
+- **Canonical Path**: `namespace/KIND/ID.md` for new files
+- **Folder Structure**: Namespace segments → KIND directory → numeric filename
+- **Loading**: Files can exist anywhere; HRID read from heading content
+- **Saving New Files**: Written to canonical path structure
+- **Existing Files**: Stay at their current location (no automatic migration)
 
 **Use Cases**:
 
@@ -463,101 +464,6 @@ subfolders_are_namespaces = "yes"  # Wrong: string instead of boolean
 Error: Failed to parse config file: invalid type: string, expected a bool
 ```
 
-### `allow_invalid`
-
-Allow requirements with invalid YAML frontmatter or formatting.
-
-**Type**: Boolean
-
-**Required**: No
-
-**Default**: `false`
-
-**Valid Values**: `true`, `false`
-
-**Example**:
-```toml
-allow_invalid = true
-```
-
-**Purpose**:
-- Control strictness of requirement validation
-- Enable partial loading during migration or recovery
-
-**Behavior**:
-
-**allow_invalid = false** (default, strict):
-```
-requirements/
-├── USR-001.md    ← Valid frontmatter, loaded
-├── USR-002.md    ← Invalid frontmatter (missing uuid)
-└── USR-003.md    ← Valid frontmatter
-```
-
-Error during `req clean`:
-```
-Error: Invalid requirement USR-002.md: missing required field 'uuid'
-```
-
-Loading fails; no requirements processed.
-
-**allow_invalid = true** (permissive):
-```
-requirements/
-├── USR-001.md    ← Valid, loaded
-├── USR-002.md    ← Invalid, skipped with warning
-└── USR-003.md    ← Valid, loaded
-```
-
-Warning during `req clean`:
-```
-Warning: Skipping invalid requirement USR-002.md: missing required field 'uuid'
-Successfully loaded 2 requirements (1 skipped)
-```
-
-Loading continues; valid requirements processed.
-
-**Use Cases**:
-
-**Use `false` (default)**:
-- Production use
-- Ensure data quality
-- Catch errors immediately
-
-**Use `true`**:
-- Migrating from another tool (gradual fix-up)
-- Recovering from manual editing errors
-- Development/debugging
-- Partial validation during cleanup
-
-**Examples**:
-
-Production (strict):
-```toml
-_version = "1"
-allow_invalid = false
-```
-
-Migration (permissive):
-```toml
-_version = "1"
-allow_invalid = true  # Temporarily allow invalid requirements
-```
-
-**Validation**:
-- Must be boolean
-- Case-sensitive: `true` or `false` (lowercase)
-
-**Errors**:
-
-Wrong type:
-```toml
-allow_invalid = "yes"  # Wrong: string instead of boolean
-```
-```
-Error: Failed to parse config file: invalid type: string, expected a bool
-```
-
 ## Minimal Configuration
 
 Smallest valid configuration:
@@ -570,7 +476,6 @@ All other fields use defaults:
 - `allowed_kinds = []` (all kinds allowed)
 - `digits = 3`
 - `allow_unrecognised = false`
-- `allow_invalid = false`
 - `subfolders_are_namespaces = false`
 
 ## Default Configuration
@@ -582,7 +487,6 @@ _version = "1"
 allowed_kinds = []
 digits = 3
 allow_unrecognised = false
-allow_invalid = false
 subfolders_are_namespaces = false
 ```
 
@@ -594,7 +498,6 @@ subfolders_are_namespaces = false
 _version = "1"
 digits = 3
 allow_unrecognised = false
-allow_invalid = false
 ```
 
 ### Large Project
@@ -604,7 +507,6 @@ _version = "1"
 allowed_kinds = ["USR", "SYS", "SWR", "HWR", "TST", "DOC"]
 digits = 4  # Expect 1000+ requirements per kind
 allow_unrecognised = false
-allow_invalid = false
 ```
 
 ### Integrated Documentation
@@ -614,7 +516,6 @@ _version = "1"
 allowed_kinds = ["USR", "SYS"]
 digits = 3
 allow_unrecognised = true  # Allow MdBook/Sphinx files
-allow_invalid = false
 ```
 
 ### Migration Project
@@ -623,7 +524,6 @@ allow_invalid = false
 _version = "1"
 digits = 3
 allow_unrecognised = true   # Mixed content during migration
-allow_invalid = true         # Some requirements may be incomplete
 ```
 
 ### Aerospace (DO-178C)
@@ -633,7 +533,6 @@ _version = "1"
 allowed_kinds = ["URQT", "SRQT", "SWRQT", "HWRQT", "TRQT"]
 digits = 4
 allow_unrecognised = false
-allow_invalid = false
 ```
 
 ### Multi-Component System
@@ -648,7 +547,6 @@ allowed_kinds = [
 ]
 digits = 3
 allow_unrecognised = false
-allow_invalid = false
 ```
 
 ## Validation
@@ -709,7 +607,6 @@ Fields:
 - `allowed_kinds` (optional)
 - `digits` (optional)
 - `allow_unrecognised` (optional)
-- `allow_invalid` (optional)
 - `subfolders_are_namespaces` (optional)
 
 ### Future Versions
@@ -724,7 +621,6 @@ _version = "2"
 allowed_kinds = ["USR", "SYS"]
 digits = 3
 allow_unrecognised = false
-allow_invalid = false
 
 # New fields
 [namespaces]
@@ -808,14 +704,12 @@ allowed_kinds = []  # Allow all kinds
 - `allowed_kinds`: Restrict requirement kinds (default: `[]`, allow all)
 - `digits`: HRID digit padding (default: `3`)
 - `allow_unrecognised`: Allow non-HRID files (default: `false`)
-- `allow_invalid`: Allow invalid requirements (default: `false`)
 - `subfolders_are_namespaces`: Use path-based structure (default: `false`)
 
 **Defaults**:
 - All kinds allowed
 - 3-digit HRID padding
-- Strict file validation
-- Strict requirement validation
+- Strict file validation (non-HRID files rejected)
 - Filename-based directory structure
 
 ## Next Steps

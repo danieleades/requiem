@@ -447,14 +447,11 @@ Error: Unknown schema version: '<value>'
 
 ### Strict vs. Permissive
 
-Requiem parsing is strict by default:
+Requiem parsing is strict:
 - All required fields must be present
 - All fields must be valid
 - Unknown fields in schema version 1 cause errors (currently)
-
-Controlled by `allow_invalid` config option:
-- `allow_invalid = false` (default): Strict parsing, fail on errors
-- `allow_invalid = true`: Skip invalid requirements with warnings
+- Invalid requirements cause loading to fail with descriptive errors
 
 ## Serialization Rules
 
@@ -583,9 +580,9 @@ authentication tokens can be delivered reliably.
 - `parents`: Array of parent objects (uuid, fingerprint, hrid)
 
 **Validation**:
-- Strict by default
-- Controlled by `allow_invalid` config option
+- Strict validation enforced
 - Includes syntactic, semantic, and referential checks
+- Invalid requirements cause loading to fail with detailed error messages
 
 ## Next Steps
 

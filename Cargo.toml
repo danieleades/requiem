@@ -46,6 +46,7 @@ terminal_size = "0.4.1"
 [dev-dependencies]
 criterion = "0.7.0"
 tempfile = "3.20.0"
+test-case = "3.3.1"
 
 [[bench]]
 name = "add_many"

@@ -12,11 +12,11 @@ pub use config::Config;
 
 /// Human-readable identifier (HRID) types and parsing.
 pub mod hrid;
-pub use hrid::{Error as HridError, Hrid};
+pub use hrid::{Error as HridError, FormattedHrid, Hrid};
 
 /// In-memory tree structure for requirements.
 pub mod tree;
-pub use tree::{SuspectLink, Tree};
+pub use tree::{AcceptLinkError, SuspectLink, Tree, TreeInsertError};
 
 /// Borrowed view of requirements for efficient access.
 pub mod requirement_view;
