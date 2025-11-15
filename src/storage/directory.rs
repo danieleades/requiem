@@ -259,7 +259,8 @@ impl Directory {
 
     /// Returns the actual filesystem path where a requirement was loaded from.
     ///
-    /// Returns `None` if the requirement is not found or was not loaded from disk.
+    /// Returns `None` if the requirement is not found or was not loaded from
+    /// disk.
     #[must_use]
     pub fn actual_path_for(&self, hrid: &Hrid) -> Option<&Path> {
         let uuid = self.tree.find_by_hrid(hrid)?.uuid;

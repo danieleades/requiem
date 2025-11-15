@@ -153,7 +153,10 @@ impl Status {
         if suspect_count == 0 {
             println!("  Suspect links: {} ✅", "0".success());
         } else {
-            println!("  Suspect links: {} ⚠️", suspect_count.to_string().warning());
+            println!(
+                "  Suspect links: {} ⚠️",
+                suspect_count.to_string().warning()
+            );
         }
 
         // Path issues summary with emoji
@@ -167,7 +170,10 @@ impl Status {
         if suspect_count > 0 || path_issues > 0 {
             println!();
             if suspect_count > 0 {
-                println!("{}", "Run 'req suspect' to investigate suspect links.".dim());
+                println!(
+                    "{}",
+                    "Run 'req suspect' to investigate suspect links.".dim()
+                );
             }
             if path_issues > 0 {
                 println!("{}", "Run 'req diagnose paths' to see path details.".dim());
@@ -193,7 +199,8 @@ mod tests {
         fs::create_dir(&config_dir).unwrap();
         fs::write(
             config_dir.join("config.toml"),
-            "_version = \"1\"\nsubfolders_are_namespaces = true\ndigits = 3\nallow_unrecognised = true\n",
+            "_version = \"1\"\nsubfolders_are_namespaces = true\ndigits = 3\nallow_unrecognised = \
+             true\n",
         )
         .unwrap();
 
@@ -281,7 +288,8 @@ mod tests {
         fs::create_dir(&config_dir).unwrap();
         fs::write(
             config_dir.join("config.toml"),
-            "_version = \"1\"\nsubfolders_are_namespaces = false\ndigits = 3\nallow_unrecognised = true\n",
+            "_version = \"1\"\nsubfolders_are_namespaces = false\ndigits = 3\nallow_unrecognised \
+             = true\n",
         )
         .unwrap();
 
@@ -315,6 +323,9 @@ This is a test.
             }
         }
 
-        assert!(path_issues > 0, "Should detect path issues in filename mode");
+        assert!(
+            path_issues > 0,
+            "Should detect path issues in filename mode"
+        );
     }
 }
