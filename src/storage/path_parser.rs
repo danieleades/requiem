@@ -33,7 +33,7 @@ pub fn construct_path_from_hrid(
     digits: usize,
 ) -> PathBuf {
     if subfolders_are_namespaces {
-        // Path-based: root/namespace/folders/KIND-ID.md
+        // Path-based: root/namespace/folders/KIND/ID.md
         let mut path = root.to_path_buf();
 
         // Add namespace as subdirectories
@@ -41,8 +41,11 @@ pub fn construct_path_from_hrid(
             path.push(segment);
         }
 
-        // Add filename as KIND-ID.md
-        let filename = format!("{}-{:0width$}", hrid.kind(), hrid.id(), width = digits);
+        // Add KIND as a subdirectory
+        path.push(hrid.kind());
+
+        // Add ID as filename (numeric only)
+        let filename = format!("{:0width$}", hrid.id(), width = digits);
         path.push(filename);
         path.with_extension("md")
     } else {
@@ -72,7 +75,7 @@ mod tests {
         let hrid = Hrid::try_from("SYSTEM-AUTH-REQ-001").unwrap();
 
         let path = construct_path_from_hrid(&root, &hrid, true, 3);
-        assert_eq!(path, root.join("SYSTEM/AUTH/REQ-001.md"));
+        assert_eq!(path, root.join("SYSTEM/AUTH/REQ/001.md"));
     }
 
     #[test]
@@ -81,7 +84,7 @@ mod tests {
         let hrid = Hrid::try_from("REQ-001").unwrap();
 
         let path = construct_path_from_hrid(&root, &hrid, true, 3);
-        assert_eq!(path, root.join("REQ-001.md"));
+        assert_eq!(path, root.join("REQ/001.md"));
     }
 
     #[test]
@@ -90,6 +93,6 @@ mod tests {
         let hrid = Hrid::try_from("REQ-001").unwrap();
 
         let path = construct_path_from_hrid(&root, &hrid, true, 5);
-        assert_eq!(path, root.join("REQ-00001.md"));
+        assert_eq!(path, root.join("REQ/00001.md"));
     }
 }
