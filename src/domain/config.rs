@@ -29,10 +29,6 @@ pub struct Config {
     /// with names that are not valid HRIDs
     pub allow_unrecognised: bool,
 
-    /// Whether to allow markdown files with names that are valid HRIDs that are
-    /// not correctly formatted
-    pub allow_invalid: bool,
-
     /// Whether subfolder paths contribute to the namespace of requirements.
     ///
     /// When `false` (default): The full HRID is encoded in the filename.
@@ -53,7 +49,6 @@ impl Default for Config {
             allowed_kinds: Vec::new(),
             digits: default_digits(),
             allow_unrecognised: false,
-            allow_invalid: false,
             subfolders_are_namespaces: false,
         }
     }
@@ -96,6 +91,15 @@ impl Config {
         &self.allowed_kinds
     }
 
+    /// Checks if a kind is allowed by the configuration.
+    ///
+    /// If `allowed_kinds` is empty, all kinds are allowed.
+    /// Otherwise, the kind must be in the allowed list.
+    #[must_use]
+    pub fn is_kind_allowed(&self, kind: &str) -> bool {
+        self.allowed_kinds.is_empty() || self.allowed_kinds.iter().any(|k| k == kind)
+    }
+
     /// Sets the `subfolders_are_namespaces` configuration option.
     pub const fn set_subfolders_are_namespaces(&mut self, value: bool) {
         self.subfolders_are_namespaces = value;
@@ -129,7 +133,9 @@ enum Versions {
         #[serde(default)]
         allow_unrecognised: bool,
 
-        #[serde(default)]
+        /// Deprecated: This field is no longer used but kept for backward
+        /// compatibility
+        #[serde(default, skip_serializing)]
         allow_invalid: bool,
 
         #[serde(default)]
@@ -144,13 +150,12 @@ impl From<Versions> for super::Config {
                 allowed_kinds,
                 digits,
                 allow_unrecognised,
-                allow_invalid,
+                allow_invalid: _, // Ignored for backward compatibility
                 subfolders_are_namespaces,
             } => Self {
                 allowed_kinds,
                 digits,
                 allow_unrecognised,
-                allow_invalid,
                 subfolders_are_namespaces,
             },
         }
@@ -163,7 +168,7 @@ impl From<super::Config> for Versions {
             allowed_kinds: config.allowed_kinds,
             digits: config.digits,
             allow_unrecognised: config.allow_unrecognised,
-            allow_invalid: config.allow_invalid,
+            allow_invalid: false, // No longer used
             subfolders_are_namespaces: config.subfolders_are_namespaces,
         }
     }
@@ -179,7 +184,7 @@ mod tests {
     fn load_reads_valid_file() {
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(
-            b"_version = \"1\"\nallowed_kinds = [\"USR\", \"SYS\"]\ndigits = 4\nallow_unrecognised = true\nallow_invalid = true\nsubfolders_are_namespaces = true\n",
+            b"_version = \"1\"\nallowed_kinds = [\"USR\", \"SYS\"]\ndigits = 4\nallow_unrecognised = true\nsubfolders_are_namespaces = true\n",
         )
         .unwrap();
 
@@ -191,7 +196,6 @@ mod tests {
         );
         assert_eq!(config.digits(), 4);
         assert!(config.allow_unrecognised);
-        assert!(config.allow_invalid);
         assert!(config.subfolders_are_namespaces);
     }
 

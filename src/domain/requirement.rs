@@ -285,8 +285,8 @@ impl Requirement {
     /// # Errors
     ///
     /// Returns an error if the file cannot be written.
-    pub fn save_to_path(&self, path: &Path) -> io::Result<()> {
-        MarkdownRequirement::from(self.clone()).save_to_path(path)
+    pub fn save_to_path(&self, path: &Path, digits: usize) -> io::Result<()> {
+        MarkdownRequirement::from(self.clone()).save_to_path(path, digits)
     }
 }
 

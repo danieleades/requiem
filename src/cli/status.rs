@@ -43,8 +43,8 @@ impl Status {
         // Check for path issues (files not at canonical locations)
         let mut path_issues = 0;
         for req in directory.requirements() {
-            if let Some(actual_path) = directory.actual_path_for(req.hrid) {
-                let canonical_path = directory.path_for(req.hrid);
+            if let Some(actual_path) = directory.path_for(req.hrid) {
+                let canonical_path = directory.canonical_path_for(req.hrid);
                 if actual_path != canonical_path {
                     path_issues += 1;
                 }
@@ -212,7 +212,7 @@ mod tests {
         directory.flush().unwrap();
 
         // Now move the file to a non-canonical location
-        let canonical_path = directory.path_for(req.hrid());
+        let canonical_path = directory.canonical_path_for(req.hrid());
         let non_canonical_path = root.join("moved").join("REQ-001.md");
         fs::create_dir_all(non_canonical_path.parent().unwrap()).unwrap();
         fs::rename(&canonical_path, &non_canonical_path).unwrap();
@@ -223,8 +223,8 @@ mod tests {
         // Run status check
         let mut path_issues = 0;
         for req in directory.requirements() {
-            if let Some(actual_path) = directory.actual_path_for(req.hrid) {
-                let canonical_path = directory.path_for(req.hrid);
+            if let Some(actual_path) = directory.path_for(req.hrid) {
+                let canonical_path = directory.canonical_path_for(req.hrid);
                 if actual_path != canonical_path {
                     path_issues += 1;
                 }
@@ -264,8 +264,8 @@ mod tests {
         // Run status check
         let mut path_issues = 0;
         for req in directory.requirements() {
-            if let Some(actual_path) = directory.actual_path_for(req.hrid) {
-                let canonical_path = directory.path_for(req.hrid);
+            if let Some(actual_path) = directory.path_for(req.hrid) {
+                let canonical_path = directory.canonical_path_for(req.hrid);
                 if actual_path != canonical_path {
                     path_issues += 1;
                 }
@@ -315,8 +315,8 @@ This is a test.
         // Check for path issues
         let mut path_issues = 0;
         for req in directory.requirements() {
-            if let Some(actual_path) = directory.actual_path_for(req.hrid) {
-                let canonical_path = directory.path_for(req.hrid);
+            if let Some(actual_path) = directory.path_for(req.hrid) {
+                let canonical_path = directory.canonical_path_for(req.hrid);
                 if actual_path != canonical_path {
                     path_issues += 1;
                 }

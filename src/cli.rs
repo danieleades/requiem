@@ -75,6 +75,9 @@ pub enum Command {
     /// Show repository status (default)
     Status(Status),
 
+    /// Initialize a new requirements repository
+    Init,
+
     /// Add a new requirement
     Add(Add),
 
@@ -91,6 +94,12 @@ pub enum Command {
     /// Suspect links are those where the parent requirement has changed
     /// since the link was created or last reviewed.
     Suspect(Suspect),
+
+    /// Check for suspect links (alias for suspect)
+    ///
+    /// Suspect links are those where the parent requirement has changed
+    /// since the link was created or last reviewed.
+    Check(Suspect),
 
     /// Accept suspect links after review
     ///
@@ -111,10 +120,11 @@ impl Command {
     fn run(self, root: PathBuf) -> anyhow::Result<()> {
         match self {
             Self::Status(command) => command.run(root)?,
+            Self::Init => Init::run(&root)?,
             Self::Add(command) => command.run(root)?,
             Self::Link(command) => command.run(root)?,
             Self::Clean => Clean::run(root)?,
-            Self::Suspect(command) => command.run(root)?,
+            Self::Suspect(command) | Self::Check(command) => command.run(root)?,
             Self::Accept(command) => command.run(root)?,
             Self::List(command) => command.run(root)?,
             Self::Config(command) => command.run(&root)?,
@@ -125,10 +135,77 @@ impl Command {
 }
 
 #[derive(Debug, clap::Parser)]
+pub struct Init {}
+
+impl Init {
+    #[instrument]
+    fn run(root: &PathBuf) -> anyhow::Result<()> {
+        use std::fs;
+
+        // Create .req directory
+        let req_dir = root.join(".req");
+        if req_dir.exists() {
+            anyhow::bail!("Repository already initialized (found existing .req directory)");
+        }
+
+        fs::create_dir_all(&req_dir)
+            .map_err(|e| anyhow::anyhow!("Failed to create .req directory: {e}"))?;
+
+        // Create config.toml with defaults
+        let config_path = req_dir.join("config.toml");
+        let config = requiem::Config::default();
+        config
+            .save(&config_path)
+            .map_err(|e| anyhow::anyhow!("Failed to create config.toml: {e}"))?;
+
+        // Create templates directory
+        let templates_dir = req_dir.join("templates");
+        fs::create_dir_all(&templates_dir)
+            .map_err(|e| anyhow::anyhow!("Failed to create templates directory: {e}"))?;
+
+        // Create example templates
+        let usr_template = templates_dir.join("USR.md");
+        fs::write(
+            &usr_template,
+            "## Statement\n\nThe system shall [describe what must be accomplished from user \
+             perspective].\n\n## Rationale\n\n[Explain why this requirement exists]\n\n## \
+             Acceptance Criteria\n\n- [Criterion 1: Specific, measurable condition that must be \
+             met]\n- [Criterion 2: Observable behavior or outcome]\n",
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to create USR template: {e}"))?;
+
+        let sys_template = templates_dir.join("SYS.md");
+        fs::write(
+            &sys_template,
+            "## Description\n\n[Describe the system-level requirement or implementation \
+             approach]\n\n## Technical Details\n\n[Technical specifications, constraints, or \
+             implementation notes]\n",
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to create SYS template: {e}"))?;
+
+        println!("Initialized requirements repository in {}", root.display());
+        println!("  Created: .req/config.toml");
+        println!("  Created: .req/templates/USR.md");
+        println!("  Created: .req/templates/SYS.md");
+        println!();
+        println!("Next steps:");
+        println!("  req add USR --title \"Your First Requirement\"");
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, clap::Parser)]
 pub struct Add {
-    /// The kind of requirement to create.
+    /// The kind of requirement to create, optionally with namespace.
     ///
-    /// eg. 'USR' or 'SYS'.
+    /// Accepts a dash-separated list where the last token is the kind
+    /// and any preceding tokens form the namespace.
+    ///
+    /// Examples:
+    /// - 'USR' creates a requirement with kind USR and no namespace
+    /// - 'SYSTEM-AUTH-USR' creates a requirement with namespace [SYSTEM, AUTH]
+    ///   and kind USR
     kind: String,
 
     /// The human-readable IDs of the parent requirements.
@@ -148,6 +225,7 @@ impl Add {
     #[instrument]
     fn run(self, root: PathBuf) -> anyhow::Result<()> {
         let mut directory = Directory::new(root)?;
+        let digits = directory.config().digits();
 
         // Construct content from title and body
         let content = match (&self.title, &self.body) {
@@ -157,9 +235,30 @@ impl Add {
             (None, None) => String::new(),
         };
 
-        // Normalize kind to uppercase (CLI boundary)
-        let kind = self.kind.to_uppercase();
-        let requirement = directory.add_requirement(&kind, content)?;
+        // Parse kind string as dash-separated tokens (CLI boundary - normalize to
+        // uppercase)
+        let tokens: nonempty::NonEmpty<String> = {
+            let parts: Vec<String> = self
+                .kind
+                .split('-')
+                .map(|s| s.trim().to_uppercase())
+                .collect();
+            nonempty::NonEmpty::from_vec(parts)
+                .ok_or_else(|| anyhow::anyhow!("kind must contain at least one token"))?
+        };
+
+        // Last token is the kind, everything before is the namespace
+        let (namespace, kind) = {
+            let mut parts: Vec<String> = tokens.into();
+            let kind = parts.pop().expect("nonempty has at least one element");
+            (parts, kind)
+        };
+
+        let requirement = if namespace.is_empty() {
+            directory.add_requirement(&kind, content)?
+        } else {
+            directory.add_requirement_with_namespace(namespace, &kind, content)?
+        };
 
         for parent in &self.parent {
             // TODO: the linkage should be done before the requirement is saved by the
@@ -168,7 +267,7 @@ impl Add {
         }
         directory.flush()?;
 
-        println!("Added requirement {}", requirement.hrid());
+        println!("Added requirement {}", requirement.hrid().display(digits));
         Ok(())
     }
 }
@@ -188,9 +287,14 @@ impl Link {
     #[instrument]
     fn run(self, root: PathBuf) -> anyhow::Result<()> {
         let mut directory = Directory::new(root)?;
+        let digits = directory.config().digits();
         let child = &self.child;
         let parent = &self.parent;
-        let msg = format!("Linked {child} to {parent}");
+        let msg = format!(
+            "Linked {} to {}",
+            child.display(digits),
+            parent.display(digits)
+        );
 
         directory.link_requirement(&self.child, &self.parent)?;
         directory.flush()?;
@@ -270,6 +374,7 @@ impl Suspect {
         use terminal::Colorize;
 
         let directory = Directory::new(path)?;
+        let digits = directory.config().digits();
         let mut suspect_links = directory.suspect_links();
 
         // Apply filters
@@ -298,26 +403,30 @@ impl Suspect {
         // Quiet mode bypasses all formatting
         if self.quiet {
             for link in &suspect_links {
-                println!("{} {}", link.child_hrid, link.parent_hrid);
+                println!(
+                    "{} {}",
+                    link.child_hrid.display(digits),
+                    link.parent_hrid.display(digits)
+                );
             }
             std::process::exit(2);
         }
 
         // Show stats if requested
         if self.stats {
-            Self::output_stats(&suspect_links, &directory);
+            Self::output_stats(&suspect_links, &directory, digits);
             println!();
         }
 
         match self.format {
             SuspectFormat::Json => {
-                Self::output_json(&suspect_links, &directory)?;
+                Self::output_json(&suspect_links, &directory, digits)?;
             }
             SuspectFormat::Ndjson => {
-                Self::output_ndjson(&suspect_links, &directory)?;
+                Self::output_ndjson(&suspect_links, &directory, digits)?;
             }
             SuspectFormat::Table => {
-                self.output_table(&suspect_links, &directory)?;
+                self.output_table(&suspect_links, &directory, digits);
             }
         }
 
@@ -325,16 +434,16 @@ impl Suspect {
         std::process::exit(2);
     }
 
-    fn output_stats(suspect_links: &[requiem::SuspectLink], _directory: &Directory) {
+    fn output_stats(suspect_links: &[requiem::SuspectLink], _directory: &Directory, digits: usize) {
         use std::collections::{HashMap, HashSet};
 
         let unique_parents: HashSet<_> = suspect_links
             .iter()
-            .map(|l| l.parent_hrid.to_string())
+            .map(|l| l.parent_hrid.display(digits).to_string())
             .collect();
         let unique_children: HashSet<_> = suspect_links
             .iter()
-            .map(|l| l.child_hrid.to_string())
+            .map(|l| l.child_hrid.display(digits).to_string())
             .collect();
 
         println!("Suspect Link Statistics");
@@ -366,7 +475,7 @@ impl Suspect {
         let mut parent_counts: HashMap<String, usize> = HashMap::new();
         for link in suspect_links {
             *parent_counts
-                .entry(link.parent_hrid.to_string())
+                .entry(link.parent_hrid.display(digits).to_string())
                 .or_insert(0) += 1;
         }
 
@@ -384,6 +493,7 @@ impl Suspect {
     fn output_json(
         suspect_links: &[requiem::SuspectLink],
         directory: &Directory,
+        digits: usize,
     ) -> anyhow::Result<()> {
         use std::collections::{HashMap, HashSet};
 
@@ -391,11 +501,11 @@ impl Suspect {
 
         let unique_parents: HashSet<_> = suspect_links
             .iter()
-            .map(|l| l.parent_hrid.to_string())
+            .map(|l| l.parent_hrid.display(digits).to_string())
             .collect();
         let unique_children: HashSet<_> = suspect_links
             .iter()
-            .map(|l| l.child_hrid.to_string())
+            .map(|l| l.child_hrid.display(digits).to_string())
             .collect();
 
         let mut by_kind: HashMap<String, usize> = HashMap::new();
@@ -413,15 +523,21 @@ impl Suspect {
 
                 json!({
                     "child": {
-                        "hrid": link.child_hrid.to_string(),
+                        "hrid": link.child_hrid.display(digits).to_string(),
                         "title": child_req.map(|r| r.title().to_string()),
-                        "path": directory.path_for(&link.child_hrid).display().to_string(),
+                        "path": directory.path_for(&link.child_hrid).map_or_else(
+                            || directory.canonical_path_for(&link.child_hrid).display().to_string(),
+                            |p| p.display().to_string()
+                        ),
                         "kind": link.child_hrid.kind(),
                     },
                     "parent": {
-                        "hrid": link.parent_hrid.to_string(),
+                        "hrid": link.parent_hrid.display(digits).to_string(),
                         "title": parent_req.map(|r| r.title().to_string()),
-                        "path": directory.path_for(&link.parent_hrid).display().to_string(),
+                        "path": directory.path_for(&link.parent_hrid).map_or_else(
+                            || directory.canonical_path_for(&link.parent_hrid).display().to_string(),
+                            |p| p.display().to_string()
+                        ),
                         "kind": link.parent_hrid.kind(),
                     },
                     "status": "fingerprint drift",
@@ -448,6 +564,7 @@ impl Suspect {
     fn output_ndjson(
         suspect_links: &[requiem::SuspectLink],
         directory: &Directory,
+        digits: usize,
     ) -> anyhow::Result<()> {
         use serde_json::json;
 
@@ -457,15 +574,21 @@ impl Suspect {
 
             let obj = json!({
                 "child": {
-                    "hrid": link.child_hrid.to_string(),
+                    "hrid": link.child_hrid.display(digits).to_string(),
                     "title": child_req.map(|r| r.title().to_string()),
-                    "path": directory.path_for(&link.child_hrid).display().to_string(),
+                    "path": directory.path_for(&link.child_hrid).map_or_else(
+                        || directory.canonical_path_for(&link.child_hrid).display().to_string(),
+                        |p| p.display().to_string()
+                    ),
                     "kind": link.child_hrid.kind(),
                 },
                 "parent": {
-                    "hrid": link.parent_hrid.to_string(),
+                    "hrid": link.parent_hrid.display(digits).to_string(),
                     "title": parent_req.map(|r| r.title().to_string()),
-                    "path": directory.path_for(&link.parent_hrid).display().to_string(),
+                    "path": directory.path_for(&link.parent_hrid).map_or_else(
+                        || directory.canonical_path_for(&link.parent_hrid).display().to_string(),
+                        |p| p.display().to_string()
+                    ),
                     "kind": link.parent_hrid.kind(),
                 },
                 "status": "fingerprint drift",
@@ -481,7 +604,8 @@ impl Suspect {
         &self,
         suspect_links: &[requiem::SuspectLink],
         directory: &Directory,
-    ) -> anyhow::Result<()> {
+        digits: usize,
+    ) {
         use terminal::Colorize;
 
         if self.detail {
@@ -502,16 +626,36 @@ impl Suspect {
                     .map(|r| r.title().to_string())
                     .unwrap_or_default();
 
-                println!("  CHILD:   {}  {}", link.child_hrid, child_title);
+                println!(
+                    "  CHILD:   {}  {}",
+                    link.child_hrid.display(digits),
+                    child_title
+                );
                 println!(
                     "           Path:     {}",
-                    directory.path_for(&link.child_hrid).display()
+                    directory.path_for(&link.child_hrid).map_or_else(
+                        || directory
+                            .canonical_path_for(&link.child_hrid)
+                            .display()
+                            .to_string(),
+                        |p| p.display().to_string()
+                    )
                 );
                 println!();
-                println!("  PARENT:  {}  {}", link.parent_hrid, parent_title);
+                println!(
+                    "  PARENT:  {}  {}",
+                    link.parent_hrid.display(digits),
+                    parent_title
+                );
                 println!(
                     "           Path:     {}",
-                    directory.path_for(&link.parent_hrid).display()
+                    directory.path_for(&link.parent_hrid).map_or_else(
+                        || directory
+                            .canonical_path_for(&link.parent_hrid)
+                            .display()
+                            .to_string(),
+                        |p| p.display().to_string()
+                    )
                 );
                 println!();
                 println!("  REASON:  Parent content changed (fingerprint drift)");
@@ -522,12 +666,13 @@ impl Suspect {
                 println!("  ACTIONS:");
                 println!(
                     "    req accept {} {} --apply",
-                    link.child_hrid, link.parent_hrid
+                    link.child_hrid.display(digits),
+                    link.parent_hrid.display(digits)
                 );
                 println!("{}", "━".repeat(70).dim());
             }
-        } else if self.group_by.is_some() {
-            self.output_grouped(suspect_links, directory)?;
+        } else if matches!(self.group_by, Some(GroupBy::Parent | GroupBy::Child)) {
+            self.output_grouped(suspect_links, directory, digits);
         } else {
             // Enhanced table format with titles
             println!("Suspect Links Found: {}", suspect_links.len());
@@ -551,9 +696,9 @@ impl Suspect {
 
                 println!(
                     "{:<12} {} {:<12}     {} {} {}",
-                    link.child_hrid,
+                    link.child_hrid.display(digits),
                     "→".dim(),
-                    link.parent_hrid,
+                    link.parent_hrid.display(digits),
                     child_title,
                     "→".dim(),
                     parent_title
@@ -570,15 +715,14 @@ impl Suspect {
                 "Run 'req accept --all --apply' to accept all changes".dim()
             );
         }
-
-        Ok(())
     }
 
     fn output_grouped(
         &self,
         suspect_links: &[requiem::SuspectLink],
         directory: &Directory,
-    ) -> anyhow::Result<()> {
+        digits: usize,
+    ) {
         use std::collections::HashMap;
 
         match self.group_by {
@@ -586,7 +730,7 @@ impl Suspect {
                 let mut by_parent: HashMap<String, Vec<&requiem::SuspectLink>> = HashMap::new();
                 for link in suspect_links {
                     by_parent
-                        .entry(link.parent_hrid.to_string())
+                        .entry(link.parent_hrid.display(digits).to_string())
                         .or_default()
                         .push(link);
                 }
@@ -615,7 +759,12 @@ impl Suspect {
                         } else {
                             "├─"
                         };
-                        println!("{}  {}  {}", prefix, link.child_hrid, child_title);
+                        println!(
+                            "{}  {}  {}",
+                            prefix,
+                            link.child_hrid.display(digits),
+                            child_title
+                        );
                     }
                     println!();
                 }
@@ -624,7 +773,7 @@ impl Suspect {
                 let mut by_child: HashMap<String, Vec<&requiem::SuspectLink>> = HashMap::new();
                 for link in suspect_links {
                     by_child
-                        .entry(link.child_hrid.to_string())
+                        .entry(link.child_hrid.display(digits).to_string())
                         .or_default()
                         .push(link);
                 }
@@ -652,18 +801,22 @@ impl Suspect {
                         } else {
                             "├─"
                         };
-                        println!("{}  {}  {}", prefix, link.parent_hrid, parent_title);
+                        println!(
+                            "{}  {}  {}",
+                            prefix,
+                            link.parent_hrid.display(digits),
+                            parent_title
+                        );
                     }
                     println!();
                 }
             }
             _ => {
-                // Fallback to normal table
-                return self.output_table(suspect_links, directory);
+                // This should be unreachable since we only call output_grouped
+                // for Parent and Child variants
+                unreachable!("output_grouped called with invalid group_by variant")
             }
         }
-
-        Ok(())
     }
 }
 
@@ -697,11 +850,13 @@ pub struct Accept {
 
 impl Accept {
     #[instrument]
+    #[allow(clippy::too_many_lines)]
     fn run(self, path: PathBuf) -> anyhow::Result<()> {
         use dialoguer::Confirm;
         use terminal::Colorize;
 
         let mut directory = Directory::new(path)?;
+        let digits = directory.config().digits();
 
         if self.all {
             let suspect_links = directory.suspect_links();
@@ -716,7 +871,7 @@ impl Accept {
             // Count unique files (children that have suspect links)
             let mut files = std::collections::HashSet::new();
             for link in &suspect_links {
-                files.insert(link.child_hrid.to_string());
+                files.insert(link.child_hrid.display(digits).to_string());
             }
             let file_count = files.len();
 
@@ -729,7 +884,11 @@ impl Accept {
                 println!("Pending updates: {count} suspect links");
                 println!("\nPreview:");
                 for link in &suspect_links {
-                    println!("  {} ← {}", link.child_hrid, link.parent_hrid);
+                    println!(
+                        "  {} ← {}",
+                        link.child_hrid.display(digits),
+                        link.parent_hrid.display(digits)
+                    );
                 }
                 println!("\n{}", "Use --apply to write changes.".dim());
                 std::process::exit(2);
@@ -755,7 +914,11 @@ impl Accept {
             // Apply the updates
             let start = std::time::Instant::now();
             for link in &suspect_links {
-                println!("Updating {} ← {}", link.child_hrid, link.parent_hrid);
+                println!(
+                    "Updating {} ← {}",
+                    link.child_hrid.display(digits),
+                    link.parent_hrid.display(digits)
+                );
             }
 
             let updated = directory.accept_all_suspect_links();
@@ -784,7 +947,11 @@ impl Accept {
             if let Some(link) = link {
                 // Show confirmation banner if link is suspect
                 if !self.yes {
-                    println!("Reviewing: {child} → {parent}");
+                    println!(
+                        "Reviewing: {} → {}",
+                        child.display(digits),
+                        parent.display(digits)
+                    );
                     println!("Stored:    {}", link.stored_fingerprint);
                     println!("Current:   {}", link.current_fingerprint);
 
@@ -803,7 +970,15 @@ impl Accept {
             match directory.accept_suspect_link(child.clone(), parent.clone())? {
                 requiem::AcceptResult::Updated => {
                     directory.flush()?;
-                    println!("{}", format!("Accepted {child} ← {parent}").success());
+                    println!(
+                        "{}",
+                        format!(
+                            "Accepted {} ← {}",
+                            child.display(digits),
+                            parent.display(digits)
+                        )
+                        .success()
+                    );
                 }
                 requiem::AcceptResult::AlreadyUpToDate => {
                     println!("No changes: link already up-to-date.");
@@ -841,7 +1016,7 @@ impl Config {
     fn run(self, root: &Path) -> anyhow::Result<()> {
         use terminal::Colorize;
 
-        let config_path = root.join("config.toml");
+        let config_path = root.join(".req/config.toml");
 
         match self.command {
             ConfigCommand::Show => {
@@ -863,7 +1038,6 @@ impl Config {
                 );
                 println!("  digits: {}", config.digits());
                 println!("  allow_unrecognised: {}", config.allow_unrecognised);
-                println!("  allow_invalid: {}", config.allow_invalid);
                 if !config.allowed_kinds().is_empty() {
                     println!("  allowed_kinds: {:?}", config.allowed_kinds());
                 }
@@ -957,48 +1131,33 @@ impl Diagnose {
 
         match self.command {
             DiagnoseCommand::Paths => {
-                let config_path = root.join("config.toml");
-                let config = if config_path.exists() {
-                    requiem::Config::load(&config_path).map_err(|e| anyhow::anyhow!("{e}"))?
-                } else {
-                    requiem::Config::default()
-                };
-
                 let directory = Directory::new(root.to_path_buf())?;
+                let digits = directory.config().digits();
                 let mut issues: Vec<String> = Vec::new();
 
                 for req in directory.requirements() {
-                    let current_path = directory.path_for(req.hrid);
+                    // Get the actual path where this requirement was loaded from
+                    let Some(actual_path) = directory.path_for(req.hrid) else {
+                        continue; // Skip if path not found (shouldn't happen)
+                    };
 
-                    if config.subfolders_are_namespaces {
-                        let expected_path =
-                            compute_path_based_location(root, req.hrid, config.digits());
+                    // Get the expected canonical path based on config
+                    let expected_path = directory.canonical_path_for(req.hrid);
 
-                        if current_path != expected_path {
-                            let hrid = req.hrid;
-                            let expected_display = expected_path
-                                .strip_prefix(root)
-                                .unwrap_or(&expected_path)
-                                .display();
-                            let current_display = current_path
-                                .strip_prefix(root)
-                                .unwrap_or(&current_path)
-                                .display();
-                            issues.push(format!(
-                                "{hrid}: Expected '{expected_display}', found '{current_display}'"
-                            ));
-                        }
-                    } else {
-                        // In filename mode, check that HRID is fully in filename
-                        if let Some(filename) = current_path.file_name() {
-                            let filename_str = filename.to_string_lossy();
-                            if !filename_str.contains(req.hrid.kind()) {
-                                let hrid = req.hrid;
-                                issues.push(format!(
-                                    "{hrid}: Filename '{filename_str}' should contain full HRID"
-                                ));
-                            }
-                        }
+                    if actual_path != expected_path {
+                        let hrid = req.hrid;
+                        let expected_display = expected_path
+                            .strip_prefix(root)
+                            .unwrap_or(&expected_path)
+                            .display();
+                        let actual_display = actual_path
+                            .strip_prefix(root)
+                            .unwrap_or(actual_path)
+                            .display();
+                        issues.push(format!(
+                            "{}: Expected '{expected_display}', found '{actual_display}'",
+                            hrid.display(digits)
+                        ));
                     }
                 }
 
@@ -1024,24 +1183,6 @@ impl Diagnose {
             }
         }
     }
-}
-
-fn compute_path_based_location(root: &Path, hrid: &requiem::Hrid, digits: usize) -> PathBuf {
-    let mut path = root.to_path_buf();
-
-    // Add namespace folders
-    for segment in hrid.namespace() {
-        path.push(segment);
-    }
-
-    // Add KIND folder
-    path.push(hrid.kind());
-
-    // Add ID as filename
-    let id_str = format!("{:0width$}.md", hrid.id(), width = digits);
-    path.push(id_str);
-
-    path
 }
 
 #[cfg(test)]
@@ -1111,6 +1252,38 @@ mod tests {
         let directory = Directory::new(root).expect("failed to load directory");
         let child = collect_child(&directory, "USR");
         assert_eq!(child.body, "## Template body");
+    }
+
+    #[test]
+    fn add_run_creates_namespaced_requirement() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+
+        let add = Add {
+            kind: "SYSTEM-AUTH-USR".to_string(),
+            parent: Vec::new(),
+            title: Some("Namespaced Requirement".to_string()),
+            body: Some("test body".to_string()),
+        };
+
+        add.run(root.clone()).expect("add command should succeed");
+
+        let directory = Directory::new(root).expect("failed to load directory");
+
+        // Find the requirement by kind USR with namespace SYSTEM-AUTH
+        let requirements: Vec<_> = directory
+            .requirements()
+            .filter(|r| r.hrid.kind() == "USR" && r.hrid.namespace() == ["SYSTEM", "AUTH"])
+            .map(|view| view.to_requirement())
+            .collect();
+
+        assert_eq!(requirements.len(), 1);
+        let req = &requirements[0];
+
+        // Verify namespace and kind
+        assert_eq!(req.hrid().namespace(), &["SYSTEM", "AUTH"]);
+        assert_eq!(req.hrid().kind(), "USR");
+        assert_eq!(req.title(), "Namespaced Requirement");
     }
 
     #[test]
