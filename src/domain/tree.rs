@@ -319,28 +319,34 @@ impl Tree {
         })
     }
 
-    /// Returns the next available index for a requirement of the given kind.
+    /// Returns the next available index for a requirement of the given
+    /// namespace and kind.
     ///
     /// This method uses a range query on the `hrid_to_uuid` `BTreeMap` to find
-    /// the maximum ID for the given kind. Time complexity is O(log n) where n
-    /// is the total number of requirements.
-    ///
-    /// The input `kind` will be normalized to uppercase.
+    /// the maximum ID for the given namespace and kind combination. Time
+    /// complexity is O(log n) where n is the total number of requirements.
     ///
     /// # Panics
     ///
     /// Panics if the provided kind is invalid (empty or contains non-alphabetic
     /// characters).
     #[must_use]
-    pub fn next_index(&self, kind: &KindString) -> NonZeroUsize {
-        // Construct range bounds for this kind
-        // Start: kind with ID 1 (MIN), End: kind with ID MAX
-        let start =
-            crate::domain::Hrid::new_with_namespace(Vec::new(), kind.clone(), NonZeroUsize::MIN);
-        let end =
-            crate::domain::Hrid::new_with_namespace(Vec::new(), kind.clone(), NonZeroUsize::MAX);
+    pub fn next_index(&self, namespace: &[KindString], kind: &KindString) -> NonZeroUsize {
+        // Construct range bounds for this namespace+kind combination
+        // Start: namespace+kind with ID 1 (MIN), End: namespace+kind with ID MAX
+        let start = crate::domain::Hrid::new_with_namespace(
+            namespace.to_vec(),
+            kind.clone(),
+            NonZeroUsize::MIN,
+        );
+        let end = crate::domain::Hrid::new_with_namespace(
+            namespace.to_vec(),
+            kind.clone(),
+            NonZeroUsize::MAX,
+        );
 
-        // Use range query to find all HRIDs of this kind, then get the last one
+        // Use range query to find all HRIDs of this namespace+kind, then get the last
+        // one
         self.hrid_to_uuid
             .range(start..=end)
             .next_back()

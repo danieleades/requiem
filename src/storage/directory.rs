@@ -420,7 +420,7 @@ impl Directory {
             .collect();
         let namespace_strings = namespace_strings?;
 
-        let id = tree.next_index(&kind_string);
+        let id = tree.next_index(&namespace_strings, &kind_string);
         let hrid = Hrid::new_with_namespace(namespace_strings, kind_string, id);
 
         // Parse content to extract title and body
@@ -895,15 +895,7 @@ mod tests {
         )
         .unwrap();
 
-<<<<<<< HEAD
-        // Create a requirement file in canonical path-based format
-        // Canonical path: namespace/KIND/ID.md
-=======
-        // Create directory structure
-        std::fs::create_dir_all(root.join("system/auth")).unwrap();
-
-        // Create a requirement file in path-based format (new structure: KIND/ID.md)
->>>>>>> 9909346 (fix: general bug fixing)
+        // Create directory structure and requirement file in path-based format
         std::fs::create_dir_all(root.join("SYSTEM/AUTH/REQ")).unwrap();
 
         std::fs::write(
@@ -1209,5 +1201,38 @@ created: 2025-01-01T00:00:00Z
 
         // Should succeed
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn add_namespaced_requirements_increments_ids_correctly() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        let mut dir = Directory::new(root.to_path_buf()).unwrap();
+
+        // Add first namespaced requirement
+        let req1 = dir
+            .add_requirement_with_namespace(
+                vec!["SYSTEM".to_string(), "AUTH".to_string()],
+                "USR",
+                "# First requirement".to_string(),
+            )
+            .unwrap();
+
+        // Add second namespaced requirement with same namespace and kind
+        let req2 = dir
+            .add_requirement_with_namespace(
+                vec!["SYSTEM".to_string(), "AUTH".to_string()],
+                "USR",
+                "# Second requirement".to_string(),
+            )
+            .unwrap();
+
+        // Verify IDs are different and incrementing
+        assert_eq!(req1.hrid().display(3).to_string(), "SYSTEM-AUTH-USR-001");
+        assert_eq!(req2.hrid().display(3).to_string(), "SYSTEM-AUTH-USR-002");
+
+        // Verify both can be flushed without error
+        assert!(dir.flush().is_ok());
     }
 }
