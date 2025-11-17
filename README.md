@@ -1,6 +1,6 @@
 # Requiem
 
-[![codecov](https://codecov.io/gh/danieleades/requirements/graph/badge.svg?token=xZLcLKU4D8)](https://codecov.io/gh/danieleades/requirements)
+[![codecov](https://codecov.io/gh/danieleades/requiem/graph/badge.svg?token=xZLcLKU4D8)](https://codecov.io/gh/danieleades/requiem)
 [![Continuous integration](https://github.com/danieleades/requirements/actions/workflows/CI.yml/badge.svg)](https://github.com/danieleades/requirements/actions/workflows/CI.yml)
 
 Requiem is a plain-text requirements management tool. It is a spiritual successor to [Doorstop](https://github.com/doorstop-dev/doorstop), but aims to-
