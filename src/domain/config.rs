@@ -104,6 +104,37 @@ impl Config {
     pub const fn set_subfolders_are_namespaces(&mut self, value: bool) {
         self.subfolders_are_namespaces = value;
     }
+
+    /// Adds a kind to the allowed kinds list.
+    ///
+    /// If the kind already exists, it is not added again.
+    /// Kinds are normalized to uppercase before adding.
+    ///
+    /// Returns `true` if the kind was added, `false` if it already existed.
+    pub fn add_kind(&mut self, kind: String) -> bool {
+        let kind = kind.to_uppercase();
+        if self.allowed_kinds.contains(&kind) {
+            false
+        } else {
+            self.allowed_kinds.push(kind);
+            true
+        }
+    }
+
+    /// Removes a kind from the allowed kinds list.
+    ///
+    /// Kinds are normalized to uppercase before removal.
+    ///
+    /// Returns `true` if the kind was removed, `false` if it didn't exist.
+    pub fn remove_kind(&mut self, kind: &str) -> bool {
+        let kind = kind.to_uppercase();
+        if let Some(pos) = self.allowed_kinds.iter().position(|k| k == &kind) {
+            self.allowed_kinds.remove(pos);
+            true
+        } else {
+            false
+        }
+    }
 }
 
 const fn default_digits() -> usize {
