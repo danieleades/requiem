@@ -4,7 +4,7 @@ User requirements (USR) define the high-level capabilities that Requiem must pro
 
 ## Overview
 
-Requiem has 7 user requirements that establish the core value proposition:
+Requiem has 11 user requirements that establish the core value proposition:
 
 | ID | Title | Summary |
 |----|-------|---------|
@@ -15,6 +15,9 @@ Requiem has 7 user requirements that establish the core value proposition:
 | [USR-005](./USR-005.md) | Static Site Generator Integration | Compatibility with MdBook and Sphinx |
 | [USR-006](./USR-006.md) | Requirement Templates | Support for templates when creating new requirements |
 | [USR-007](./USR-007.md) | Requirement Visibility and Navigation | CLI listing and graph exploration for working sets |
+| [USR-009](./USR-009.md) | Command Line Interface Lifecycle Management | CLI commands for complete requirement lifecycle without manual editing |
+| [USR-010](./USR-010.md) | Repository Validation and Health | Unified command for comprehensive repository health checking |
+| [USR-011](./USR-011.md) | Requirement Kind Management | CLI commands for managing requirement kinds explicitly |
 
 ## Detailed Requirements
 
@@ -102,6 +105,42 @@ The tool shall let users quickly locate, inspect, and summarize requirements fro
 
 ---
 
+### USR-009: Command Line Interface Lifecycle Management
+
+The tool shall provide CLI commands for managing the complete lifecycle of requirements (create, delete, move, rename) without requiring manual file editing.
+
+**Why this matters**: Manual file editing is error-prone and can break metadata integrity. CLI commands enforce invariants, prevent data corruption, and enable automation in CI/CD pipelines.
+
+**Child requirements**: SYS-024, SYS-025, SYS-026, SYS-027
+
+[Read full requirement →](./USR-009.md)
+
+---
+
+### USR-010: Repository Validation and Health
+
+The tool shall provide a unified CLI command for validating repository health and integrity across all requirements.
+
+**Why this matters**: Requirements repositories can become inconsistent through manual editing, file moves, deletions, or circular dependencies. A single unified validation command makes it clear where to check for problems and is essential for CI/CD gating.
+
+**Child requirements**: SYS-028
+
+[Read full requirement →](./USR-010.md)
+
+---
+
+### USR-011: Requirement Kind Management
+
+The tool shall provide CLI commands for managing requirement kinds (types) explicitly.
+
+**Why this matters**: Explicit kind management commands make the tool more discoverable and consistent, eliminating the need for manual config file editing and reducing errors.
+
+**Child requirements**: SYS-029
+
+[Read full requirement →](./USR-011.md)
+
+---
+
 ## Traceability
 
 Each USR requirement traces down to one or more SYS (system) requirements that provide technical implementation details:
@@ -139,7 +178,21 @@ USR-007 (Requirement Visibility and Navigation)
   ├── SYS-017 (Requirements Listing CLI Command)
   ├── SYS-018 (Listing Filters and Scopes)
   ├── SYS-019 (Relationship Navigation Views)
-  └── SYS-020 (Status Dashboard CLI Command)
+  ├── SYS-020 (Status Dashboard CLI Command)
+  ├── SYS-031 (Show Command)
+  └── SYS-032 (Graph Visualization Command)
+
+USR-009 (Command Line Interface Lifecycle Management)
+  ├── SYS-024 (Delete Requirement Command)
+  ├── SYS-025 (Move Requirement Command)
+  ├── SYS-026 (Rename Requirement Command)
+  └── SYS-027 (Unlink Command)
+
+USR-010 (Repository Validation and Health)
+  └── SYS-028 (Validate Command)
+
+USR-011 (Requirement Kind Management)
+  └── SYS-029 (Kind Management Command)
 ```
 
 This hierarchy demonstrates requirement decomposition from user needs down to technical implementation.

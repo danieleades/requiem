@@ -32,6 +32,8 @@ pub struct Directory {
     /// Source paths for requirements that were loaded from disk.
     /// Used to save requirements back to their original location.
     paths: HashMap<Uuid, PathBuf>,
+    /// Paths to delete on flush.
+    deletions: HashSet<PathBuf>,
 }
 
 impl Directory {
@@ -69,6 +71,28 @@ impl Directory {
         self.tree
             .requirement(outcome.child_uuid)
             .ok_or(LoadError::NotFound)
+    }
+
+    /// Unlink two requirements, removing the parent-child relationship.
+    ///
+    /// # Errors
+    ///
+    /// This method can fail if:
+    ///
+    /// - either the child or parent requirement does not exist
+    /// - the link between child and parent does not exist
+    pub fn unlink_requirement(&mut self, child: &Hrid, parent: &Hrid) -> anyhow::Result<()> {
+        let child_uuid = self.tree.unlink_requirement(child, parent)?;
+        self.mark_dirty(child_uuid);
+
+        let digits = self.config.digits();
+        tracing::info!(
+            "Unlinked {} from parent {}",
+            child.display(digits),
+            parent.display(digits)
+        );
+
+        Ok(())
     }
 
     /// Opens a directory at the given path.
@@ -135,6 +159,7 @@ impl Directory {
             config,
             dirty: HashSet::new(),
             paths,
+            deletions: HashSet::new(),
         })
     }
 }
@@ -355,6 +380,155 @@ impl Directory {
             .map(|view| view.to_requirement())
     }
 
+    /// Find a requirement by its HRID, returning a view.
+    #[must_use]
+    pub fn find_by_hrid(&self, hrid: &Hrid) -> Option<RequirementView<'_>> {
+        self.tree.find_by_hrid(hrid)
+    }
+
+    /// Get the HRIDs of all children of a requirement.
+    #[must_use]
+    pub fn children_of(&self, hrid: &Hrid) -> Vec<Hrid> {
+        let Some(view) = self.tree.find_by_hrid(hrid) else {
+            return vec![];
+        };
+
+        view.children
+            .iter()
+            .filter_map(|uuid| self.tree.hrid(*uuid).cloned())
+            .collect()
+    }
+
+    /// Delete a requirement from the directory.
+    ///
+    /// This removes the requirement from the tree and marks it for deletion from disk.
+    /// The requirement must not have any children, or this will fail.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the requirement has children.
+    pub fn delete_requirement(&mut self, hrid: &Hrid) -> anyhow::Result<()> {
+        // Find the requirement
+        let Some(view) = self.tree.find_by_hrid(hrid) else {
+            anyhow::bail!("Requirement {} not found", hrid.display(self.config.digits()));
+        };
+
+        // Check if it has children
+        if !view.children.is_empty() {
+            anyhow::bail!(
+                "Cannot delete {}: requirement has {} children",
+                hrid.display(self.config.digits()),
+                view.children.len()
+            );
+        }
+
+        let uuid = *view.uuid;
+
+        // Remove from tree
+        self.tree.remove_requirement(uuid)?;
+
+        // Mark file for deletion
+        if let Some(path) = self.paths.remove(&uuid) {
+            self.deletions.insert(path);
+        }
+
+        Ok(())
+    }
+
+    /// Delete a requirement and unlink it from all children.
+    ///
+    /// This removes the requirement from the tree and marks it for deletion from disk.
+    /// All children will have this requirement removed from their parent list.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the requirement doesn't exist.
+    pub fn delete_and_orphan(&mut self, hrid: &Hrid) -> anyhow::Result<()> {
+        // Find the requirement
+        let Some(view) = self.tree.find_by_hrid(hrid) else {
+            anyhow::bail!("Requirement {} not found", hrid.display(self.config.digits()));
+        };
+
+        let uuid = *view.uuid;
+
+        // Collect children UUIDs before removing
+        let children = view.children;
+
+        // Remove from tree (this also removes edges)
+        self.tree.remove_requirement(uuid)?;
+
+        // Mark children as dirty since their parent lists changed
+        for child_uuid in children {
+            self.mark_dirty(child_uuid);
+        }
+
+        // Mark file for deletion
+        if let Some(path) = self.paths.remove(&uuid) {
+            self.deletions.insert(path);
+        }
+
+        Ok(())
+    }
+
+    /// Find all descendants that would become orphans if this requirement were deleted.
+    ///
+    /// Returns a list of HRIDs for requirements that would have no parents if the
+    /// given requirement (and its orphaned descendants) were deleted. This implements
+    /// smart cascade deletion logic.
+    #[must_use]
+    pub fn find_orphaned_descendants(&self, hrid: &Hrid) -> Vec<Hrid> {
+        use std::collections::{HashSet, VecDeque};
+
+        let Some(view) = self.tree.find_by_hrid(hrid) else {
+            return vec![];
+        };
+
+        let mut to_delete = HashSet::new();
+        to_delete.insert(*view.uuid);
+
+        let mut queue = VecDeque::new();
+        queue.push_back(*view.uuid);
+
+        // BFS to find all descendants that would be orphaned
+        while let Some(current_uuid) = queue.pop_front() {
+            let Some(current_view) = self.tree.find_by_uuid(current_uuid) else {
+                continue;
+            };
+
+            for &child_uuid in &current_view.children {
+                // Skip if we're already planning to delete this child
+                if to_delete.contains(&child_uuid) {
+                    continue;
+                }
+
+                // Count how many parents this child has that we're NOT deleting
+                let Some(child_view) = self.tree.find_by_uuid(child_uuid) else {
+                    continue;
+                };
+
+                let remaining_parents = child_view
+                    .parents
+                    .iter()
+                    .filter(|p| !to_delete.contains(&p.0))
+                    .count();
+
+                // If this child would have no parents left, it's orphaned
+                if remaining_parents == 0 {
+                    to_delete.insert(child_uuid);
+                    queue.push_back(child_uuid);
+                }
+            }
+        }
+
+        // Convert to HRIDs and return in deterministic order
+        let mut result: Vec<_> = to_delete
+            .into_iter()
+            .filter_map(|uuid| self.tree.hrid(uuid).cloned())
+            .collect();
+        result.sort();
+        result
+    }
+
     /// Add a new requirement to the directory.
     ///
     /// # Errors
@@ -469,6 +643,85 @@ impl Directory {
         );
 
         Ok(requirement)
+    }
+
+    /// Check which requirements have stale parent HRIDs without modifying them.
+    ///
+    /// Returns a list of HRIDs for requirements that would be updated by
+    /// [`Self::update_hrids`].
+    #[must_use]
+    pub fn check_hrid_drift(&self) -> Vec<Hrid> {
+        self.tree
+            .check_hrid_drift()
+            .filter_map(|uuid| self.tree.hrid(uuid))
+            .cloned()
+            .collect()
+    }
+
+    /// Check which requirements are in non-canonical locations.
+    ///
+    /// Returns a list of (HRID, current_path, canonical_path) tuples for requirements
+    /// that are not stored at their canonical location.
+    #[must_use]
+    pub fn check_path_drift(&self) -> Vec<(Hrid, PathBuf, PathBuf)> {
+        let mut misplaced = Vec::new();
+
+        for req in self.tree.iter() {
+            let hrid = req.hrid.clone();
+            let canonical = self.canonical_path_for(&hrid);
+
+            if let Some(current) = self.paths.get(req.uuid) {
+                // Simple comparison - if paths differ, it's misplaced
+                // We compare the actual paths, not canonicalized, because we want to detect
+                // when a file is not at its canonical location
+                if current != &canonical {
+                    misplaced.push((hrid, current.clone(), canonical));
+                }
+            }
+        }
+
+        misplaced
+    }
+
+    /// Move requirements to their canonical locations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any files cannot be moved.
+    pub fn sync_paths(&mut self) -> anyhow::Result<Vec<(Hrid, PathBuf, PathBuf)>> {
+        let misplaced = self.check_path_drift();
+
+        if misplaced.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut moved = Vec::new();
+
+        for (hrid, current_path, canonical_path) in misplaced {
+            // Create parent directory if it doesn't exist
+            if let Some(parent) = canonical_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+
+            // Move the file
+            std::fs::rename(&current_path, &canonical_path)
+                .map_err(|e| anyhow::anyhow!(
+                    "Failed to move {} from {} to {}: {}",
+                    hrid.display(self.config.digits()),
+                    current_path.display(),
+                    canonical_path.display(),
+                    e
+                ))?;
+
+            // Update the paths map
+            if let Some(uuid) = self.tree.find_by_hrid(&hrid).map(|v| *v.uuid) {
+                self.paths.insert(uuid, canonical_path.clone());
+            }
+
+            moved.push((hrid, current_path, canonical_path));
+        }
+
+        Ok(moved)
     }
 
     /// Update the human-readable IDs (HRIDs) of all 'parents' references in the

@@ -4,7 +4,7 @@ System requirements (SYS) define the technical implementation details for Requie
 
 ## Overview
 
-Requiem has 20 system requirements organized by functional area:
+Requiem has 29 system requirements organized by functional area:
 
 ### File Format & Identifiers
 
@@ -47,6 +47,18 @@ Requiem has 20 system requirements organized by functional area:
 |----|-------|--------|---------|
 | [SYS-016](./SYS-016.md) | Directory Structure Modes | — | Toggle between filename and path-based HRID conventions — spec: [SPC-004](./SPC-004.md) |
 
+### CLI Lifecycle Management
+
+| ID | Title | Parent | Summary |
+|----|-------|--------|---------|
+| [SYS-024](./SYS-024.md) | Delete Requirement Command | USR-009 | `req delete` safely deletes with cascade and orphan modes |
+| [SYS-025](./SYS-025.md) | Move Requirement Command | USR-009 | `req move` relocates requirements with HRID consistency |
+| [SYS-026](./SYS-026.md) | Rename Requirement Command | USR-009 | `req rename` changes HRIDs and updates references |
+| [SYS-027](./SYS-027.md) | Unlink Command | USR-009 | `req unlink` removes parent-child links |
+| [SYS-028](./SYS-028.md) | Validate Command | USR-010 | `req validate` unified repository health checking |
+| [SYS-029](./SYS-029.md) | Kind Management Command | USR-011 | `req kind` manages requirement kinds |
+| [SYS-030](./SYS-030.md) | Sync Command Enhancement | - | `req sync` enhanced with --what flag for paths and parents |
+
 ### CLI Visibility & Navigation
 
 | ID | Title | Parent | Summary |
@@ -55,6 +67,8 @@ Requiem has 20 system requirements organized by functional area:
 | [SYS-018](./SYS-018.md) | Listing Filters and Scopes | USR-007 | Filters restrict results by kind, namespace, tags, text — spec: [SPC-002](./SPC-002.md) |
 | [SYS-019](./SYS-019.md) | Relationship Navigation Views | USR-007 | Options expose parents, children, ancestors, descendants — spec: [SPC-002](./SPC-002.md) |
 | [SYS-020](./SYS-020.md) | Status Dashboard CLI Command | USR-007 | `req status` shows counts by kind and suspect total — spec: [SPC-003](./SPC-003.md) |
+| [SYS-031](./SYS-031.md) | Show Command | USR-007 | `req show` displays detailed information about a requirement |
+| [SYS-032](./SYS-032.md) | Graph Visualization Command | USR-007 | `req graph` generates visual representations of the graph |
 ## Detailed Requirements
 
 ### File Format & Identifiers

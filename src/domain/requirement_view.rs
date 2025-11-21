@@ -35,6 +35,10 @@ pub struct RequirementView<'a> {
     ///
     /// Note: This is constructed on-demand from the graph, so it owns the data.
     pub parents: Vec<(Uuid, Parent)>,
+    /// Child requirement UUIDs.
+    ///
+    /// Note: This is constructed on-demand from the graph, so it owns the data.
+    pub children: Vec<Uuid>,
 }
 
 impl RequirementView<'_> {

@@ -81,30 +81,25 @@ pub enum Command {
     /// Add a new requirement
     Add(Add),
 
+    /// Delete a requirement
+    Delete(Delete),
+
     /// Create a link between two requirements
     ///
     /// Links are parent-child relationships.
     Link(Link),
 
-    /// Correct parent HRIDs
-    Clean,
+    /// Remove a link between two requirements
+    Unlink(Unlink),
 
-    /// List all suspect links
+    /// Synchronize parent HRIDs and file paths
+    Sync(Sync),
+
+    /// Review suspect links
     ///
     /// Suspect links are those where the parent requirement has changed
     /// since the link was created or last reviewed.
-    Suspect(Suspect),
-
-    /// Check for suspect links (alias for suspect)
-    ///
-    /// Suspect links are those where the parent requirement has changed
-    /// since the link was created or last reviewed.
-    Check(Suspect),
-
-    /// Accept suspect links after review
-    ///
-    /// Updates fingerprints to mark requirements as reviewed and valid.
-    Accept(Accept),
+    Review(Review),
 
     /// List requirements with filters and relationship views
     List(List),
@@ -122,10 +117,11 @@ impl Command {
             Self::Status(command) => command.run(root)?,
             Self::Init => Init::run(&root)?,
             Self::Add(command) => command.run(root)?,
+            Self::Delete(command) => command.run(root)?,
             Self::Link(command) => command.run(root)?,
-            Self::Clean => Clean::run(root)?,
-            Self::Suspect(command) | Self::Check(command) => command.run(root)?,
-            Self::Accept(command) => command.run(root)?,
+            Self::Unlink(command) => command.run(root)?,
+            Self::Sync(command) => command.run(root)?,
+            Self::Review(command) => command.run(root)?,
             Self::List(command) => command.run(root)?,
             Self::Config(command) => command.run(&root)?,
             Self::Diagnose(command) => command.run(&root)?,
@@ -273,6 +269,128 @@ impl Add {
 }
 
 #[derive(Debug, clap::Parser)]
+pub struct Delete {
+    /// The human-readable ID of the requirement to delete
+    #[clap(value_parser = parse_hrid)]
+    hrid: Hrid,
+
+    /// Delete requirement and orphaned descendants (children with no other parents)
+    #[arg(long)]
+    cascade: bool,
+
+    /// Delete requirement and unlink from children (children remain)
+    #[arg(long, conflicts_with = "cascade")]
+    orphan: bool,
+
+    /// Show what would be deleted without deleting
+    #[arg(long)]
+    dry_run: bool,
+
+    /// Skip confirmation prompts
+    #[arg(long, short)]
+    yes: bool,
+}
+
+impl Delete {
+    #[instrument]
+    fn run(self, root: PathBuf) -> anyhow::Result<()> {
+        use terminal::Colorize;
+
+        let mut directory = Directory::new(root)?;
+        let digits = directory.config().digits();
+
+        // Find the requirement
+        let Some(req) = directory.find_by_hrid(&self.hrid) else {
+            anyhow::bail!("Requirement {} not found", self.hrid.display(digits));
+        };
+
+        let hrid = req.hrid.clone();
+        let children = directory.children_of(&hrid);
+
+        // Check if requirement has children
+        if !children.is_empty() && !self.cascade && !self.orphan {
+            eprintln!(
+                "{}",
+                format!(
+                    "⚠️  Cannot delete {}: requirement has {} children",
+                    hrid.display(digits),
+                    children.len()
+                )
+                .warning()
+            );
+            eprintln!("\nChildren:");
+            for child in &children {
+                eprintln!("  • {}", child.display(digits));
+            }
+            eprintln!(
+                "\n{}",
+                "Use --cascade to delete with orphaned descendants, or --orphan to unlink children"
+                    .dim()
+            );
+            anyhow::bail!("Cannot delete requirement with children");
+        }
+
+        // Determine what will be deleted
+        let to_delete = if self.cascade {
+            // Smart cascade: find descendants that would become orphans
+            directory.find_orphaned_descendants(&hrid)
+        } else {
+            vec![hrid.clone()]
+        };
+
+        // Show preview
+        if !self.yes && !self.dry_run {
+            println!("Will delete {} requirement(s):", to_delete.len());
+            for delete_hrid in &to_delete {
+                println!("  • {}", delete_hrid.display(digits));
+            }
+
+            if self.orphan && !children.is_empty() {
+                println!("\nWill unlink from {} children:", children.len());
+                for child in &children {
+                    println!("  • {}", child.display(digits));
+                }
+            }
+
+            // Get confirmation
+            eprint!("\nProceed? (y/N) ");
+            use std::io::{self, BufRead};
+            let stdin = io::stdin();
+            let mut line = String::new();
+            stdin.lock().read_line(&mut line)?;
+            if !line.trim().eq_ignore_ascii_case("y") {
+                println!("Cancelled");
+                std::process::exit(130);
+            }
+        }
+
+        if self.dry_run {
+            println!("{}",format!("Would delete {} requirement(s)", to_delete.len()).dim());
+            return Ok(());
+        }
+
+        // Perform deletion
+        if self.orphan {
+            directory.delete_and_orphan(&hrid)?;
+        } else if self.cascade {
+            for delete_hrid in &to_delete {
+                directory.delete_requirement(delete_hrid)?;
+            }
+        } else {
+            directory.delete_requirement(&hrid)?;
+        }
+
+        directory.flush()?;
+
+        println!(
+            "{}",
+            format!("✅ Deleted {} requirement(s)", to_delete.len()).success()
+        );
+        Ok(())
+    }
+}
+
+#[derive(Debug, clap::Parser)]
 pub struct Link {
     /// The human-readable ID of the child document
     #[clap(value_parser = parse_hrid)]
@@ -306,34 +424,387 @@ impl Link {
 }
 
 #[derive(Debug, clap::Parser)]
-pub struct Clean {}
+pub struct Unlink {
+    /// The human-readable ID of the child document
+    #[clap(value_parser = parse_hrid)]
+    child: Hrid,
 
-impl Clean {
+    /// The human-readable ID of the parent document to remove
+    #[clap(value_parser = parse_hrid)]
+    parent: Hrid,
+
+    /// Skip confirmation prompts
+    #[arg(long, short)]
+    yes: bool,
+}
+
+impl Unlink {
     #[instrument]
-    fn run(path: PathBuf) -> anyhow::Result<()> {
-        let mut directory = Directory::new(path)?;
-        directory.update_hrids();
+    fn run(self, root: PathBuf) -> anyhow::Result<()> {
+        use terminal::Colorize;
+
+        let mut directory = Directory::new(root)?;
+        let digits = directory.config().digits();
+
+        // Validate both requirements exist
+        let Some(_child_req) = directory.find_by_hrid(&self.child) else {
+            anyhow::bail!("Child requirement {} not found", self.child.display(digits));
+        };
+
+        let Some(_parent_req) = directory.find_by_hrid(&self.parent) else {
+            anyhow::bail!("Parent requirement {} not found", self.parent.display(digits));
+        };
+
+        // Show confirmation prompt unless --yes was specified
+        if !self.yes {
+            println!(
+                "Will unlink {} from parent {}",
+                self.child.display(digits),
+                self.parent.display(digits)
+            );
+            eprint!("\nProceed? (y/N) ");
+            use std::io::{self, BufRead};
+            let stdin = io::stdin();
+            let mut line = String::new();
+            stdin.lock().read_line(&mut line)?;
+            if !line.trim().eq_ignore_ascii_case("y") {
+                println!("Cancelled");
+                std::process::exit(130);
+            }
+        }
+
+        // Perform the unlink
+        directory.unlink_requirement(&self.child, &self.parent)?;
         directory.flush()?;
+
+        println!(
+            "{}",
+            format!(
+                "✅ Unlinked {} from {}",
+                self.child.display(digits),
+                self.parent.display(digits)
+            )
+            .success()
+        );
+
         Ok(())
     }
 }
 
+/// What to synchronize
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum SyncWhat {
+    /// Update parent HRIDs in child requirements (default)
+    Parents,
+    /// Move files to canonical locations
+    Paths,
+    /// Update both parent HRIDs and file paths
+    All,
+}
+
 #[derive(Debug, clap::Parser)]
-pub struct Suspect {
-    /// Show detailed information including fingerprints and paths
+pub struct Sync {
+    /// What to synchronize
+    #[arg(long, default_value = "parents")]
+    what: SyncWhat,
+
+    /// Check for drift without making changes (exits with code 2 if drift found)
     #[arg(long)]
+    check: bool,
+
+    /// Show what would be changed without making changes
+    #[arg(long)]
+    dry_run: bool,
+
+    /// Skip confirmation prompts
+    #[arg(long, short)]
+    yes: bool,
+
+    /// Suppress output
+    #[arg(long, short)]
+    quiet: bool,
+}
+
+impl Sync {
+    #[instrument]
+    fn run(self, root: PathBuf) -> anyhow::Result<()> {
+        use terminal::Colorize;
+
+        let mut directory = Directory::new(root)?;
+
+        match (self.what, self.check, self.dry_run) {
+            // Check mode for parent HRIDs: report drift without making changes
+            (SyncWhat::Parents, true, _) => {
+                let would_update = directory.check_hrid_drift();
+                if would_update.is_empty() {
+                    if !self.quiet {
+                        println!("{}", "✅ No HRID drift detected.".success());
+                    }
+                    Ok(())
+                } else {
+                    if !self.quiet {
+                        println!(
+                            "{}",
+                            format!("⚠️  {} requirements have stale parent HRIDs", would_update.len())
+                                .warning()
+                        );
+                        for hrid in &would_update {
+                            println!("  • {}", hrid.display(directory.config().digits()));
+                        }
+                    }
+                    std::process::exit(2);
+                }
+            }
+
+            // Update parent HRIDs
+            (SyncWhat::Parents, false, dry_run) => {
+                let updated = directory.update_hrids();
+
+                if updated.is_empty() {
+                    if !self.quiet {
+                        println!("{}", "✅ All parent HRIDs are current.".success());
+                    }
+                    return Ok(());
+                }
+
+                if dry_run {
+                    if !self.quiet {
+                        println!("Would update {} parent HRIDs:", updated.len());
+                        for hrid in &updated {
+                            println!("  • {}", hrid.display(directory.config().digits()));
+                        }
+                    }
+                    return Ok(());
+                }
+
+                directory.flush()?;
+
+                if !self.quiet {
+                    println!(
+                        "{}",
+                        format!("✅ Updated {} parent HRIDs", updated.len()).success()
+                    );
+                }
+                Ok(())
+            }
+
+            // Check mode for paths: report drift without making changes
+            (SyncWhat::Paths, true, _) => {
+                let misplaced = directory.check_path_drift();
+                if misplaced.is_empty() {
+                    if !self.quiet {
+                        println!("{}", "✅ All requirements are in canonical locations.".success());
+                    }
+                    Ok(())
+                } else {
+                    if !self.quiet {
+                        println!(
+                            "{}",
+                            format!("⚠️  {} requirements are misplaced", misplaced.len()).warning()
+                        );
+                        for (hrid, current, canonical) in &misplaced {
+                            println!(
+                                "  • {} ({} → {})",
+                                hrid.display(directory.config().digits()),
+                                current.display(),
+                                canonical.display()
+                            );
+                        }
+                    }
+                    std::process::exit(2);
+                }
+            }
+
+            // Move files to canonical locations
+            (SyncWhat::Paths, false, dry_run) => {
+                let misplaced = directory.check_path_drift();
+
+                if misplaced.is_empty() {
+                    if !self.quiet {
+                        println!("{}", "✅ All requirements are in canonical locations.".success());
+                    }
+                    return Ok(());
+                }
+
+                if dry_run {
+                    if !self.quiet {
+                        println!("Would move {} files:", misplaced.len());
+                        for (hrid, current, canonical) in &misplaced {
+                            println!(
+                                "  • {}: {} → {}",
+                                hrid.display(directory.config().digits()),
+                                current.display(),
+                                canonical.display()
+                            );
+                        }
+                    }
+                    return Ok(());
+                }
+
+                // Confirm before moving files
+                if !self.yes {
+                    println!("Will move {} files to canonical locations:", misplaced.len());
+                    for (hrid, current, canonical) in &misplaced {
+                        println!(
+                            "  • {}: {} → {}",
+                            hrid.display(directory.config().digits()),
+                            current.display(),
+                            canonical.display()
+                        );
+                    }
+
+                    eprint!("\nProceed? (y/N) ");
+                    use std::io::{self, BufRead};
+                    let stdin = io::stdin();
+                    let mut line = String::new();
+                    stdin.lock().read_line(&mut line)?;
+                    if !line.trim().eq_ignore_ascii_case("y") {
+                        println!("Cancelled");
+                        std::process::exit(130);
+                    }
+                }
+
+                let moved = directory.sync_paths()?;
+
+                if !self.quiet {
+                    println!(
+                        "{}",
+                        format!("✅ Moved {} files", moved.len()).success()
+                    );
+                }
+                Ok(())
+            }
+
+            // Sync both parents and paths
+            (SyncWhat::All, check, dry_run) => {
+                let hrid_drift = directory.check_hrid_drift();
+                let path_drift = directory.check_path_drift();
+
+                if check {
+                    // Check mode: report both types of drift
+                    let has_drift = !hrid_drift.is_empty() || !path_drift.is_empty();
+
+                    if !self.quiet {
+                        if !hrid_drift.is_empty() {
+                            println!(
+                                "{}",
+                                format!("⚠️  {} requirements have stale parent HRIDs", hrid_drift.len())
+                                    .warning()
+                            );
+                        }
+                        if !path_drift.is_empty() {
+                            println!(
+                                "{}",
+                                format!("⚠️  {} requirements are misplaced", path_drift.len()).warning()
+                            );
+                        }
+                        if !has_drift {
+                            println!("{}", "✅ Everything is synchronized.".success());
+                        }
+                    }
+
+                    if has_drift {
+                        std::process::exit(2);
+                    }
+                    return Ok(());
+                }
+
+                if dry_run {
+                    // Dry run: show what would be changed
+                    if !self.quiet {
+                        if !hrid_drift.is_empty() {
+                            println!("Would update {} parent HRIDs", hrid_drift.len());
+                        }
+                        if !path_drift.is_empty() {
+                            println!("Would move {} files", path_drift.len());
+                        }
+                        if hrid_drift.is_empty() && path_drift.is_empty() {
+                            println!("{}", "✅ Everything is synchronized.".success());
+                        }
+                    }
+                    return Ok(());
+                }
+
+                // Confirm before making changes
+                if !self.yes && (!hrid_drift.is_empty() || !path_drift.is_empty()) {
+                    println!("Will synchronize:");
+                    if !hrid_drift.is_empty() {
+                        println!("  • Update {} parent HRIDs", hrid_drift.len());
+                    }
+                    if !path_drift.is_empty() {
+                        println!("  • Move {} files", path_drift.len());
+                    }
+
+                    eprint!("\nProceed? (y/N) ");
+                    use std::io::{self, BufRead};
+                    let stdin = io::stdin();
+                    let mut line = String::new();
+                    stdin.lock().read_line(&mut line)?;
+                    if !line.trim().eq_ignore_ascii_case("y") {
+                        println!("Cancelled");
+                        std::process::exit(130);
+                    }
+                }
+
+                // Perform both updates
+                let updated_hrids = directory.update_hrids();
+                if !updated_hrids.is_empty() {
+                    directory.flush()?;
+                }
+
+                let moved = directory.sync_paths()?;
+
+                if !self.quiet {
+                    if !updated_hrids.is_empty() {
+                        println!(
+                            "{}",
+                            format!("✅ Updated {} parent HRIDs", updated_hrids.len()).success()
+                        );
+                    }
+                    if !moved.is_empty() {
+                        println!(
+                            "{}",
+                            format!("✅ Moved {} files", moved.len()).success()
+                        );
+                    }
+                    if updated_hrids.is_empty() && moved.is_empty() {
+                        println!("{}", "✅ Everything is synchronized.".success());
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+#[derive(Debug, clap::Parser)]
+pub struct Review {
+    /// Accept suspect links (update fingerprints)
+    #[arg(long)]
+    accept: bool,
+
+    /// Accept all suspect links matching filters
+    #[arg(long, requires = "accept")]
+    all: bool,
+
+    /// Skip confirmation prompts when accepting
+    #[arg(long, short, requires = "accept")]
+    yes: bool,
+
+    /// Show detailed information including fingerprints and paths
+    #[arg(long, conflicts_with = "accept")]
     detail: bool,
 
     /// Output format (table, json, ndjson)
-    #[arg(long, value_name = "FORMAT", default_value = "table")]
+    #[arg(long, value_name = "FORMAT", default_value = "table", conflicts_with = "accept")]
     format: SuspectFormat,
 
     /// Show summary statistics
-    #[arg(long)]
+    #[arg(long, conflicts_with = "accept")]
     stats: bool,
 
     /// Quiet mode: output only CHILD PARENT pairs (no headers, no colors)
-    #[arg(long, short, conflicts_with = "detail", conflicts_with = "stats")]
+    #[arg(long, short, conflicts_with = "detail", conflicts_with = "stats", conflicts_with = "accept")]
     quiet: bool,
 
     /// Filter by child requirement HRID
@@ -349,7 +820,7 @@ pub struct Suspect {
     kind: Option<String>,
 
     /// Group output by field (parent, child, none)
-    #[arg(long, value_name = "FIELD")]
+    #[arg(long, value_name = "FIELD", conflicts_with = "accept")]
     group_by: Option<GroupBy>,
 }
 
@@ -368,11 +839,17 @@ enum GroupBy {
     None,
 }
 
-impl Suspect {
+impl Review {
     #[instrument]
     fn run(self, path: PathBuf) -> anyhow::Result<()> {
         use terminal::Colorize;
 
+        // If --accept flag is used, handle accept logic
+        if self.accept {
+            return self.run_accept(path);
+        }
+
+        // Otherwise, show suspect links
         let directory = Directory::new(path)?;
         let digits = directory.config().digits();
         let mut suspect_links = directory.suspect_links();
@@ -818,71 +1295,45 @@ impl Suspect {
             }
         }
     }
-}
 
-#[derive(Debug, clap::Parser)]
-#[allow(clippy::struct_excessive_bools)]
-pub struct Accept {
-    /// Accept all suspect links
-    #[arg(long)]
-    all: bool,
-
-    /// Apply changes (write to disk). Without this flag, shows preview only.
-    #[arg(long, conflicts_with = "dry_run")]
-    apply: bool,
-
-    /// Preview changes without writing (default for --all)
-    #[arg(long)]
-    dry_run: bool,
-
-    /// Skip confirmation prompts
-    #[arg(long, alias = "force")]
-    yes: bool,
-
-    /// Accept a specific link from child to parent
-    #[arg(value_name = "CHILD", required_unless_present = "all", value_parser = parse_hrid)]
-    child: Option<Hrid>,
-
-    /// Parent requirement HRID
-    #[arg(value_name = "PARENT", required_unless_present = "all", value_parser = parse_hrid)]
-    parent: Option<Hrid>,
-}
-
-impl Accept {
+    /// Handle accepting suspect links
     #[instrument]
-    #[allow(clippy::too_many_lines)]
-    fn run(self, path: PathBuf) -> anyhow::Result<()> {
-        use dialoguer::Confirm;
+    fn run_accept(self, path: PathBuf) -> anyhow::Result<()> {
         use terminal::Colorize;
 
         let mut directory = Directory::new(path)?;
         let digits = directory.config().digits();
+        let mut suspect_links = directory.suspect_links();
 
+        // Apply filters (same as display mode)
+        if let Some(ref child_filter) = self.child {
+            suspect_links.retain(|link| &link.child_hrid == child_filter);
+        }
+        if let Some(ref parent_filter) = self.parent {
+            suspect_links.retain(|link| &link.parent_hrid == parent_filter);
+        }
+        if let Some(ref kind_filter) = self.kind {
+            let kind_upper = kind_filter.to_uppercase();
+            suspect_links.retain(|link| link.child_hrid.kind() == kind_upper);
+        }
+
+        if suspect_links.is_empty() {
+            println!("No suspect links to accept.");
+            return Ok(());
+        }
+
+        // Handle --all flag
         if self.all {
-            let suspect_links = directory.suspect_links();
-
-            if suspect_links.is_empty() {
-                println!("Nothing to update. All suspect links are already accepted.");
-                return Ok(());
-            }
-
             let count = suspect_links.len();
-
-            // Count unique files (children that have suspect links)
             let mut files = std::collections::HashSet::new();
             for link in &suspect_links {
                 files.insert(link.child_hrid.display(digits).to_string());
             }
             let file_count = files.len();
 
-            // Determine if we're in dry-run or apply mode
-            // Default is dry-run for --all unless --apply is specified
-            let is_dry_run = !self.apply;
-
-            if is_dry_run {
-                // Dry-run mode: show preview
-                println!("Pending updates: {count} suspect links");
-                println!("\nPreview:");
+            // Show preview and confirm
+            if !self.yes {
+                println!("Will accept {count} suspect links across {file_count} files:");
                 for link in &suspect_links {
                     println!(
                         "  {} ← {}",
@@ -890,78 +1341,57 @@ impl Accept {
                         link.parent_hrid.display(digits)
                     );
                 }
-                println!("\n{}", "Use --apply to write changes.".dim());
-                std::process::exit(2);
-            }
 
-            // Apply mode: confirm and execute
-            if !self.yes {
-                let prompt = format!(
-                    "Apply updates to {count} suspect links across {file_count} files? (y/N)"
-                );
-
-                let confirmed = Confirm::new()
-                    .with_prompt(prompt)
-                    .default(false)
-                    .interact()?;
-
-                if !confirmed {
-                    println!("Cancelled.");
+                eprint!("\nProceed? (y/N) ");
+                use std::io::{self, BufRead};
+                let stdin = io::stdin();
+                let mut line = String::new();
+                stdin.lock().read_line(&mut line)?;
+                if !line.trim().eq_ignore_ascii_case("y") {
+                    println!("Cancelled");
                     std::process::exit(130);
                 }
             }
 
-            // Apply the updates
-            let start = std::time::Instant::now();
-            for link in &suspect_links {
-                println!(
-                    "Updating {} ← {}",
-                    link.child_hrid.display(digits),
-                    link.parent_hrid.display(digits)
-                );
-            }
-
+            // Accept all
             let updated = directory.accept_all_suspect_links();
             directory.flush()?;
-            let duration = start.elapsed();
 
             println!(
-                "\n{} | Links updated: {} | Files touched: {} | Duration: {:.1}s",
-                "Complete".success(),
-                updated.len(),
-                file_count,
-                duration.as_secs_f64()
+                "{}",
+                format!("✅ Accepted {} suspect links", updated.len()).success()
             );
         } else {
-            let child = self.child.expect("child is required when --all is not set");
-            let parent = self
-                .parent
-                .expect("parent is required when --all is not set");
+            // Single link mode - require both child and parent
+            let child = self.child.ok_or_else(|| {
+                anyhow::anyhow!("--child is required when accepting without --all")
+            })?;
+            let parent = self.parent.ok_or_else(|| {
+                anyhow::anyhow!("--parent is required when accepting without --all")
+            })?;
 
-            // For single link, check if it's suspect
-            let suspect_links = directory.suspect_links();
+            // Check if the link is actually suspect
             let link = suspect_links
                 .iter()
                 .find(|l| l.child_hrid == child && l.parent_hrid == parent);
 
             if let Some(link) = link {
-                // Show confirmation banner if link is suspect
                 if !self.yes {
                     println!(
-                        "Reviewing: {} → {}",
+                        "Reviewing: {} ← {}",
                         child.display(digits),
                         parent.display(digits)
                     );
                     println!("Stored:    {}", link.stored_fingerprint);
                     println!("Current:   {}", link.current_fingerprint);
 
-                    let confirmed = Confirm::new()
-                        .with_prompt("Accept this link? (y/N)")
-                        .default(false)
-                        .interact()?;
-
-                    if !confirmed {
-                        println!("Cancelled.");
+                    eprint!("\nAccept this link? (y/N) ");
+                    use std::io::{self, BufRead};
+                    let stdin = io::stdin();
+                    let mut line = String::new();
+                    stdin.lock().read_line(&mut line)?;
+                    if !line.trim().eq_ignore_ascii_case("y") {
+                        println!("Cancelled");
                         std::process::exit(130);
                     }
                 }
@@ -973,7 +1403,7 @@ impl Accept {
                     println!(
                         "{}",
                         format!(
-                            "Accepted {} ← {}",
+                            "✅ Accepted {} ← {}",
                             child.display(digits),
                             parent.display(digits)
                         )

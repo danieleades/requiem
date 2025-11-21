@@ -304,6 +304,13 @@ impl Tree {
             })
             .collect();
 
+        // Reconstruct children by finding incoming edges (edges point child→parent)
+        let children: Vec<Uuid> = self
+            .graph
+            .edges_directed(uuid, petgraph::Direction::Incoming)
+            .map(|(child_uuid, _, _)| child_uuid)
+            .collect();
+
         // Get a reference to the UUID from the requirements HashMap key
         // This is safe because we know it exists (we just got data from it)
         let uuid_ref = self.requirements.get_key_value(&uuid)?.0;
@@ -316,6 +323,7 @@ impl Tree {
             body: &data.body,
             tags: &data.tags,
             parents,
+            children,
         })
     }
 
@@ -374,6 +382,12 @@ impl Tree {
                 })
                 .collect();
 
+            let children: Vec<Uuid> = self
+                .graph
+                .edges_directed(*uuid, petgraph::Direction::Incoming)
+                .map(|(child_uuid, _, _)| child_uuid)
+                .collect();
+
             Some(RequirementView {
                 uuid,
                 hrid,
@@ -382,6 +396,7 @@ impl Tree {
                 body: &data.body,
                 tags: &data.tags,
                 parents,
+                children,
             })
         })
     }
@@ -391,6 +406,45 @@ impl Tree {
     pub fn find_by_hrid(&self, hrid: &Hrid) -> Option<RequirementView<'_>> {
         let uuid = self.hrid_to_uuid.get(hrid)?;
         self.requirement(*uuid)
+    }
+
+    /// Finds a requirement by its UUID.
+    #[must_use]
+    pub fn find_by_uuid(&self, uuid: Uuid) -> Option<RequirementView<'_>> {
+        self.requirement(uuid)
+    }
+
+    /// Remove a requirement from the tree.
+    ///
+    /// This removes the requirement node and all its edges (both incoming and outgoing).
+    /// Parent requirements will have this requirement removed from their children lists.
+    /// Child requirements will have this requirement removed from their parent lists.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the requirement doesn't exist.
+    pub fn remove_requirement(&mut self, uuid: Uuid) -> anyhow::Result<()> {
+        // Check if requirement exists
+        if !self.requirements.contains_key(&uuid) {
+            anyhow::bail!("Requirement with UUID {uuid} not found");
+        }
+
+        // Get HRID before removing
+        let Some(hrid) = self.hrids.get(&uuid).cloned() else {
+            anyhow::bail!("Requirement UUID {uuid} has no HRID mapping");
+        };
+
+        // Remove all edges connected to this node
+        self.graph.remove_node(uuid);
+
+        // Remove from requirements map
+        self.requirements.remove(&uuid);
+
+        // Remove from HRID map
+        self.hrid_to_uuid.remove(&hrid);
+        self.hrids.remove(&uuid);
+
+        Ok(())
     }
 
     /// Link two requirements identified by their HRIDs.
@@ -428,6 +482,44 @@ impl Tree {
             parent_hrid,
             already_linked,
         })
+    }
+
+    /// Unlink two requirements identified by their HRIDs.
+    ///
+    /// Removes the parent-child relationship between the two requirements.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when:
+    /// - Either HRID does not exist in the tree
+    /// - The link between child and parent does not exist
+    pub fn unlink_requirement(&mut self, child: &Hrid, parent: &Hrid) -> anyhow::Result<Uuid> {
+        let child_uuid = self
+            .hrid_to_uuid
+            .get(child)
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("Child requirement {} not found", child.display(3)))?;
+
+        let parent_uuid = self
+            .hrid_to_uuid
+            .get(parent)
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("Parent requirement {} not found", parent.display(3)))?;
+
+        // Check if the edge exists
+        if !self.graph.contains_edge(child_uuid, parent_uuid) {
+            anyhow::bail!(
+                "No link exists between {} and {}",
+                child.display(3),
+                parent.display(3)
+            );
+        }
+
+        // Remove the edge
+        self.graph.remove_edge(child_uuid, parent_uuid);
+
+        // Return child UUID so Directory can mark it dirty
+        Ok(child_uuid)
     }
 
     /// Get all children of a requirement.
@@ -497,8 +589,41 @@ impl Tree {
         self.graph.add_edge(child_uuid, parent_uuid, edge).is_some()
     }
 
-    /// Read all the requirements and update any incorrect parent HRIDs.
-    /// Returns an iterator of UUIDs whose parents were updated.
+    /// Check which requirements have stale parent HRIDs without modifying them.
+    ///
+    /// Returns an iterator of child UUIDs that have at least one parent link
+    /// with an outdated HRID.
+    #[must_use]
+    #[instrument(skip(self))]
+    pub fn check_hrid_drift(&self) -> impl Iterator<Item = Uuid> + '_ {
+        use std::collections::HashSet;
+
+        let mut drifted_uuids = HashSet::new();
+
+        for child_uuid in self.graph.nodes() {
+            for (_, parent_uuid, edge_data) in self.graph.edges(child_uuid) {
+                // Get the current HRID of the parent
+                let Some(current_parent_hrid) = self.hrids.get(&parent_uuid) else {
+                    continue;
+                };
+
+                // Check if the stored HRID is outdated
+                if &edge_data.parent_hrid != current_parent_hrid {
+                    drifted_uuids.insert(child_uuid);
+                }
+            }
+        }
+
+        drifted_uuids.into_iter()
+    }
+
+    /// Update parent HRIDs in all requirements.
+    ///
+    /// When requirements are renamed or moved, the stored parent HRIDs in child
+    /// requirements can become stale. This method updates all outdated parent
+    /// HRIDs to match their current values.
+    ///
+    /// Returns an iterator of child UUIDs that were updated.
     ///
     /// # Panics
     ///
