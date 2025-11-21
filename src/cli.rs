@@ -80,7 +80,7 @@ pub enum Command {
     Status(Status),
 
     /// Initialize a new requirements repository
-    Init,
+    Init(Init),
 
     /// Create a new requirement
     Create(Create),
@@ -128,7 +128,7 @@ impl Command {
     fn run(self, root: PathBuf) -> anyhow::Result<()> {
         match self {
             Self::Status(command) => command.run(root)?,
-            Self::Init => Init::run(&root)?,
+            Self::Init(command) => command.run(&root)?,
             Self::Create(command) => command.run(root)?,
             Self::Delete(command) => command.run(root)?,
             Self::Link(command) => command.run(root)?,
@@ -147,11 +147,15 @@ impl Command {
 }
 
 #[derive(Debug, clap::Parser)]
-pub struct Init {}
+pub struct Init {
+    /// Requirement kinds to create templates for
+    #[arg(long, value_name = "KIND", num_args = 0..)]
+    kinds: Vec<String>,
+}
 
 impl Init {
     #[instrument]
-    fn run(root: &PathBuf) -> anyhow::Result<()> {
+    fn run(self, root: &PathBuf) -> anyhow::Result<()> {
         use std::fs;
 
         // Create .req directory
@@ -163,7 +167,7 @@ impl Init {
         fs::create_dir_all(&req_dir)
             .map_err(|e| anyhow::anyhow!("Failed to create .req directory: {e}"))?;
 
-        // Create config.toml with defaults
+        // Create config.toml with defaults (no kinds configured)
         let config_path = req_dir.join("config.toml");
         let config = requiem::Config::default();
         config
@@ -175,35 +179,73 @@ impl Init {
         fs::create_dir_all(&templates_dir)
             .map_err(|e| anyhow::anyhow!("Failed to create templates directory: {e}"))?;
 
-        // Create example templates
-        let usr_template = templates_dir.join("USR.md");
-        fs::write(
-            &usr_template,
-            "## Statement\n\nThe system shall [describe what must be accomplished from user \
-             perspective].\n\n## Rationale\n\n[Explain why this requirement exists]\n\n## \
-             Acceptance Criteria\n\n- [Criterion 1: Specific, measurable condition that must be \
-             met]\n- [Criterion 2: Observable behavior or outcome]\n",
-        )
-        .map_err(|e| anyhow::anyhow!("Failed to create USR template: {e}"))?;
-
-        let sys_template = templates_dir.join("SYS.md");
-        fs::write(
-            &sys_template,
-            "## Description\n\n[Describe the system-level requirement or implementation \
-             approach]\n\n## Technical Details\n\n[Technical specifications, constraints, or \
-             implementation notes]\n",
-        )
-        .map_err(|e| anyhow::anyhow!("Failed to create SYS template: {e}"))?;
-
         println!("Initialized requirements repository in {}", root.display());
         println!("  Created: .req/config.toml");
-        println!("  Created: .req/templates/USR.md");
-        println!("  Created: .req/templates/SYS.md");
+        println!("  Created: .req/templates/ (empty)");
+
+        // Create templates for specified kinds
+        let mut created_templates = Vec::new();
+        for kind in &self.kinds {
+            let kind_upper = kind.to_uppercase();
+
+            // Validate kind format
+            if !kind_upper.chars().all(|c| c.is_ascii_uppercase()) {
+                anyhow::bail!("Invalid kind '{kind}': kinds must contain only letters (A-Z)");
+            }
+
+            let template_path = templates_dir.join(format!("{kind_upper}.md"));
+            let template_content = Self::default_template_for_kind(&kind_upper);
+
+            fs::write(&template_path, template_content)
+                .map_err(|e| anyhow::anyhow!("Failed to create {kind_upper} template: {e}"))?;
+
+            created_templates.push(kind_upper);
+        }
+
+        if !created_templates.is_empty() {
+            for kind in &created_templates {
+                println!("  Created: .req/templates/{kind}.md");
+            }
+        }
+
         println!();
         println!("Next steps:");
-        println!("  req create USR --title \"Your First Requirement\"");
+        if created_templates.is_empty() {
+            println!("  req kind add USR SYS  # Register requirement kinds");
+            println!("  req create USR --title \"Your First Requirement\"");
+        } else {
+            println!(
+                "  req create {} --title \"Your First Requirement\"",
+                created_templates[0]
+            );
+        }
 
         Ok(())
+    }
+
+    /// Returns default template content for a given kind.
+    fn default_template_for_kind(kind: &str) -> String {
+        match kind {
+            "USR" => {
+                "## Statement\n\nThe system shall [describe what must be accomplished from user \
+                 perspective].\n\n## Rationale\n\n[Explain why this requirement exists]\n\n## \
+                 Acceptance Criteria\n\n- [Criterion 1: Specific, measurable condition that must \
+                 be met]\n- [Criterion 2: Observable behavior or outcome]\n"
+                    .to_string()
+            }
+            "SYS" => {
+                "## Description\n\n[Describe the system-level requirement or implementation \
+                 approach]\n\n## Technical Details\n\n[Technical specifications, constraints, or \
+                 implementation notes]\n"
+                    .to_string()
+            }
+            _ => {
+                format!(
+                    "## Description\n\n[Description of {kind} requirement]\n\n## \
+                     Details\n\n[Additional details and specifications]\n"
+                )
+            }
+        }
     }
 }
 
