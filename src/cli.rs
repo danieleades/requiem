@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 mod list;
+mod show;
 mod status;
 mod terminal;
 mod validate;
@@ -8,6 +9,7 @@ mod validate;
 use clap::ArgAction;
 use list::List;
 use requiem::{Directory, Hrid};
+use show::Show;
 use status::Status;
 use tracing::instrument;
 use validate::Validate;
@@ -106,6 +108,9 @@ pub enum Command {
     /// Validate repository health
     Validate(Validate),
 
+    /// Show detailed information about a requirement
+    Show(Show),
+
     /// List requirements with filters and relationship views
     List(List),
 
@@ -128,6 +133,7 @@ impl Command {
             Self::Sync(command) => command.run(root)?,
             Self::Review(command) => command.run(root)?,
             Self::Validate(command) => command.run(root)?,
+            Self::Show(command) => command.run(root)?,
             Self::List(command) => command.run(root)?,
             Self::Config(command) => command.run(&root)?,
             Self::Diagnose(command) => command.run(&root)?,
