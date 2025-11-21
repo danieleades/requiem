@@ -547,7 +547,7 @@ impl Directory {
     pub fn rename_requirement(
         &mut self,
         old_hrid: &Hrid,
-        new_hrid: Hrid,
+        new_hrid: &Hrid,
     ) -> anyhow::Result<Vec<Hrid>> {
         // Check kind is allowed
         if !self.config.is_kind_allowed(new_hrid.kind()) {
@@ -558,7 +558,7 @@ impl Directory {
         }
 
         // Perform rename in tree (this updates all parent references)
-        let (uuid, children_uuids) = self.tree.rename_requirement(old_hrid, new_hrid.clone())?;
+        let (uuid, children_uuids) = self.tree.rename_requirement(old_hrid, new_hrid)?;
 
         // Update file path mapping
         if let Some(old_path) = self.paths.remove(&uuid) {
@@ -566,7 +566,7 @@ impl Directory {
             self.deletions.insert(old_path);
 
             // Calculate new path
-            let new_path = self.canonical_path_for(&new_hrid);
+            let new_path = self.canonical_path_for(new_hrid);
             self.paths.insert(uuid, new_path);
         }
 
@@ -616,12 +616,14 @@ impl Directory {
 
         // Extract HRID from new path
         let new_hrid = hrid_from_path(&new_path, &self.root, &self.config)
-            .map_err(|e| anyhow::anyhow!("Failed to parse HRID from path: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to parse HRID from path: {e}"))?;
 
         // Check if HRID changed
-        let children_updated = if &new_hrid != hrid {
+        let children_updated = if &new_hrid == hrid {
+            None
+        } else {
             // HRID changed - perform rename
-            let (_, children_uuids) = self.tree.rename_requirement(hrid, new_hrid.clone())?;
+            let (_, children_uuids) = self.tree.rename_requirement(hrid, &new_hrid)?;
 
             // Collect children HRIDs
             let children_hrids: Vec<Hrid> = children_uuids
@@ -635,8 +637,6 @@ impl Directory {
             }
 
             Some(children_hrids)
-        } else {
-            None
         };
 
         // Update file path mapping
@@ -785,22 +785,21 @@ impl Directory {
 
     /// Check which requirements are in non-canonical locations.
     ///
-    /// Returns a list of (HRID, current_path, canonical_path) tuples for requirements
+    /// Returns a list of (HRID, `current_path`, `canonical_path`) tuples for requirements
     /// that are not stored at their canonical location.
     #[must_use]
     pub fn check_path_drift(&self) -> Vec<(Hrid, PathBuf, PathBuf)> {
         let mut misplaced = Vec::new();
 
         for req in self.tree.iter() {
-            let hrid = req.hrid.clone();
-            let canonical = self.canonical_path_for(&hrid);
+            let canonical = self.canonical_path_for(req.hrid);
 
             if let Some(current) = self.paths.get(req.uuid) {
                 // Simple comparison - if paths differ, it's misplaced
                 // We compare the actual paths, not canonicalized, because we want to detect
                 // when a file is not at its canonical location
                 if current != &canonical {
-                    misplaced.push((hrid, current.clone(), canonical));
+                    misplaced.push((req.hrid.clone(), current.clone(), canonical));
                 }
             }
         }

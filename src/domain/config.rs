@@ -111,7 +111,7 @@ impl Config {
     /// Kinds are normalized to uppercase before adding.
     ///
     /// Returns `true` if the kind was added, `false` if it already existed.
-    pub fn add_kind(&mut self, kind: String) -> bool {
+    pub fn add_kind(&mut self, kind: &str) -> bool {
         let kind = kind.to_uppercase();
         if self.allowed_kinds.contains(&kind) {
             false

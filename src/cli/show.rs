@@ -52,21 +52,21 @@ impl Show {
 
         // Handle --edit flag
         if self.edit {
-            return self.edit_requirement(&directory, &self.hrid);
+            return Self::edit_requirement(&directory, &self.hrid);
         }
 
         // Display based on output format
         match self.output {
-            OutputFormat::Pretty => self.output_pretty(&directory, req, digits),
-            OutputFormat::Json => self.output_json(&directory, req, digits)?,
-            OutputFormat::Markdown => self.output_markdown(&directory, req),
-            OutputFormat::Raw => self.output_raw(&directory, &self.hrid)?,
+            OutputFormat::Pretty => self.output_pretty(&directory, &req, digits),
+            OutputFormat::Json => self.output_json(&directory, &req, digits)?,
+            OutputFormat::Markdown => self.output_markdown(&directory, &req),
+            OutputFormat::Raw => Self::output_raw(&directory, &self.hrid)?,
         }
 
         Ok(())
     }
 
-    fn output_pretty(&self, directory: &Directory, req: requiem::RequirementView, digits: usize) {
+    fn output_pretty(&self, directory: &Directory, req: &requiem::RequirementView, digits: usize) {
         // Header
         println!("# {}", req.hrid.display(digits));
         println!("{}\n", req.title);
@@ -90,7 +90,7 @@ impl Show {
         if !req.tags.is_empty() {
             println!("\n{}", "Tags".dim());
             for tag in req.tags {
-                println!("  • {}", tag);
+                println!("  • {tag}");
             }
         }
 
@@ -134,7 +134,7 @@ impl Show {
     fn output_json(
         &self,
         directory: &Directory,
-        req: requiem::RequirementView,
+        req: &requiem::RequirementView,
         digits: usize,
     ) -> anyhow::Result<()> {
         use serde_json::json;
@@ -158,8 +158,7 @@ impl Show {
                 let hrid = directory
                     .requirements()
                     .find(|r| r.uuid == uuid)
-                    .map(|r| r.hrid.display(digits).to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
+                    .map_or_else(|| "unknown".to_string(), |r| r.hrid.display(digits).to_string());
                 json!({
                     "uuid": uuid.to_string(),
                     "hrid": hrid
@@ -196,7 +195,7 @@ impl Show {
         Ok(())
     }
 
-    fn output_markdown(&self, directory: &Directory, req: requiem::RequirementView) {
+    fn output_markdown(&self, directory: &Directory, req: &requiem::RequirementView) {
         // Output as markdown that could be used in documentation
         println!("# {} {}\n", req.hrid.display(directory.config().digits()), req.title);
 
@@ -214,11 +213,8 @@ impl Show {
         if !req.parents.is_empty() {
             println!("\n## Parents\n");
             for (_uuid, info) in &req.parents {
-                println!(
-                    "- [{}]({})",
-                    info.hrid.display(directory.config().digits()),
-                    format!("{}.md", info.hrid.display(directory.config().digits()))
-                );
+                let hrid_display = info.hrid.display(directory.config().digits());
+                println!("- [{hrid_display}]({hrid_display}.md)");
             }
         }
 
@@ -226,11 +222,8 @@ impl Show {
             println!("\n## Children\n");
             for child_uuid in &req.children {
                 if let Some(child) = directory.requirements().find(|r| r.uuid == child_uuid) {
-                    println!(
-                        "- [{}]({})",
-                        child.hrid.display(directory.config().digits()),
-                        format!("{}.md", child.hrid.display(directory.config().digits()))
-                    );
+                    let hrid_display = child.hrid.display(directory.config().digits());
+                    println!("- [{hrid_display}]({hrid_display}.md)");
                 }
             }
         }
@@ -241,18 +234,18 @@ impl Show {
         }
     }
 
-    fn output_raw(&self, directory: &Directory, hrid: &Hrid) -> anyhow::Result<()> {
+    fn output_raw(directory: &Directory, hrid: &Hrid) -> anyhow::Result<()> {
         // Output the raw markdown file content
         let Some(path) = directory.path_for(hrid) else {
             anyhow::bail!("Path not found for requirement");
         };
 
         let content = std::fs::read_to_string(path)?;
-        print!("{}", content);
+        print!("{content}");
         Ok(())
     }
 
-    fn edit_requirement(&self, directory: &Directory, hrid: &Hrid) -> anyhow::Result<()> {
+    fn edit_requirement(directory: &Directory, hrid: &Hrid) -> anyhow::Result<()> {
         let Some(path) = directory.path_for(hrid) else {
             anyhow::bail!("Path not found for requirement");
         };
@@ -264,7 +257,7 @@ impl Show {
         let status = process::Command::new(&editor)
             .arg(path)
             .status()
-            .map_err(|e| anyhow::anyhow!("Failed to launch editor '{}': {}", editor, e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to launch editor '{editor}': {e}"))?;
 
         if !status.success() {
             anyhow::bail!("Editor exited with non-zero status");

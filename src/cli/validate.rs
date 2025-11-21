@@ -8,6 +8,7 @@ use super::terminal::Colorize;
 
 #[derive(Debug, Parser)]
 #[command(about = "Validate repository health across multiple dimensions")]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Validate {
     /// Types of checks to run (can be specified multiple times)
     #[arg(long, value_name = "TYPE")]
@@ -58,10 +59,10 @@ enum OutputFormat {
 
 #[derive(Debug, Default)]
 struct ValidationResult {
-    structure_issues: Vec<StructureIssue>,
-    path_issues: Vec<PathIssue>,
-    link_issues: Vec<LinkIssue>,
-    suspect_issues: Vec<SuspectIssue>,
+    structure: Vec<StructureIssue>,
+    paths: Vec<PathIssue>,
+    links: Vec<LinkIssue>,
+    suspect: Vec<SuspectIssue>,
 }
 
 #[derive(Debug)]
@@ -112,10 +113,10 @@ impl Validate {
 
         for check in &checks {
             match check {
-                CheckType::Structure => self.check_structure(&directory, &mut result)?,
-                CheckType::Paths => self.check_paths(&directory, &mut result),
-                CheckType::Links => self.check_links(&directory, &mut result),
-                CheckType::Suspect => self.check_suspect(&directory, &mut result),
+                CheckType::Structure => Self::check_structure(),
+                CheckType::Paths => Self::check_paths(&directory, &mut result),
+                CheckType::Links => Self::check_links(&directory, &mut result),
+                CheckType::Suspect => Self::check_suspect(&directory, &mut result),
                 CheckType::All => unreachable!("All should have been expanded"),
             }
         }
@@ -123,40 +124,39 @@ impl Validate {
         // Output results
         match self.output {
             OutputFormat::Table => self.output_table(&result, &directory),
-            OutputFormat::Json => self.output_json(&result)?,
-            OutputFormat::Summary => self.output_summary(&result),
+            OutputFormat::Json => Self::output_json(&result)?,
+            OutputFormat::Summary => Self::output_summary(&result),
         }
 
         // Handle --fix flag
-        if self.fix && self.has_fixable_issues(&result) {
+        if self.fix && (!result.paths.is_empty() || !result.links.is_empty()) {
             self.apply_fixes(&result, directory)?;
         }
 
         // Exit with appropriate code
-        if self.has_issues(&result) {
+        if Self::count_issues(&result) > 0 {
             std::process::exit(2);
         }
 
         Ok(())
     }
 
-    fn check_structure(&self, _directory: &Directory, _result: &mut ValidationResult) -> anyhow::Result<()> {
+    const fn check_structure() {
         // TODO: Implement structure checks
         // - Valid YAML frontmatter
         // - Required fields present
         // - HRID format valid
         // - No duplicate UUIDs/HRIDs
-        Ok(())
     }
 
-    fn check_paths(&self, directory: &Directory, result: &mut ValidationResult) {
+    fn check_paths(directory: &Directory, result: &mut ValidationResult) {
         let digits = directory.config().digits();
 
         for req in directory.requirements() {
             if let Some(actual_path) = directory.path_for(req.hrid) {
                 let canonical_path = directory.canonical_path_for(req.hrid);
                 if actual_path != canonical_path {
-                    result.path_issues.push(PathIssue {
+                    result.paths.push(PathIssue {
                         hrid: req.hrid.display(digits).to_string(),
                         current_path: actual_path.to_path_buf(),
                         expected_path: canonical_path,
@@ -166,13 +166,13 @@ impl Validate {
         }
     }
 
-    fn check_links(&self, directory: &Directory, result: &mut ValidationResult) {
+    fn check_links(directory: &Directory, result: &mut ValidationResult) {
         // Check for stale parent HRIDs
         let stale_hrids = directory.check_hrid_drift();
         let digits = directory.config().digits();
 
         for hrid in stale_hrids {
-            result.link_issues.push(LinkIssue::StaleHrid {
+            result.links.push(LinkIssue::StaleHrid {
                 child: hrid.display(digits).to_string(),
             });
         }
@@ -182,12 +182,12 @@ impl Validate {
         // - Circular dependencies
     }
 
-    fn check_suspect(&self, directory: &Directory, result: &mut ValidationResult) {
+    fn check_suspect(directory: &Directory, result: &mut ValidationResult) {
         let suspect_links = directory.suspect_links();
         let digits = directory.config().digits();
 
         for link in suspect_links {
-            result.suspect_issues.push(SuspectIssue {
+            result.suspect.push(SuspectIssue {
                 child: link.child_hrid.display(digits).to_string(),
                 parent: link.parent_hrid.display(digits).to_string(),
             });
@@ -202,7 +202,7 @@ impl Validate {
         println!("Validating repository...\n");
 
         // Structure
-        if result.structure_issues.is_empty() {
+        if result.structure.is_empty() {
             println!(
                 "✓ Structure:  {} requirements, all valid",
                 directory.requirements().count()
@@ -210,59 +210,59 @@ impl Validate {
         } else {
             println!(
                 "{}",
-                format!("✗ Structure:  {} issues found", result.structure_issues.len()).warning()
+                format!("✗ Structure:  {} issues found", result.structure.len()).warning()
             );
         }
 
         // Paths
-        if result.path_issues.is_empty() {
+        if result.paths.is_empty() {
             println!("✓ Paths:      All files at canonical locations");
         } else {
             println!(
                 "{}",
                 format!(
                     "✗ Paths:      {} files not at canonical locations",
-                    result.path_issues.len()
+                    result.paths.len()
                 )
                 .warning()
             );
         }
 
         // Links
-        if result.link_issues.is_empty() {
+        if result.links.is_empty() {
             println!("✓ Links:      No broken references, all HRIDs current");
         } else {
             println!(
                 "{}",
-                format!("✗ Links:      {} issues found", result.link_issues.len()).warning()
+                format!("✗ Links:      {} issues found", result.links.len()).warning()
             );
         }
 
         // Suspect
-        if result.suspect_issues.is_empty() {
+        if result.suspect.is_empty() {
             println!("✓ Suspect:    No suspect links");
         } else {
             println!(
                 "{}",
-                format!("✗ Suspect:    {} suspect links found", result.suspect_issues.len()).warning()
+                format!("✗ Suspect:    {} suspect links found", result.suspect.len()).warning()
             );
         }
 
         // Summary
-        let total_issues = self.count_issues(result);
+        let total_issues = Self::count_issues(result);
         if total_issues == 0 {
             println!("\n{}", "Repository is healthy (0 issues)".success());
         } else {
             println!("\n{}", format!("Summary: {total_issues} issues found").warning());
 
             // Show hints for fixing
-            if !result.path_issues.is_empty() || !result.link_issues.is_empty() {
+            if !result.paths.is_empty() || !result.links.is_empty() {
                 println!(
                     "\n{}",
                     "Run 'req validate --fix' to automatically repair fixable issues".dim()
                 );
             }
-            if !result.suspect_issues.is_empty() {
+            if !result.suspect.is_empty() {
                 println!(
                     "{}",
                     "Run 'req review --accept --all' to accept all suspect links".dim()
@@ -271,11 +271,11 @@ impl Validate {
         }
     }
 
-    fn output_json(&self, result: &ValidationResult) -> anyhow::Result<()> {
+    fn output_json(result: &ValidationResult) -> anyhow::Result<()> {
         use serde_json::json;
 
         let path_issues: Vec<_> = result
-            .path_issues
+            .paths
             .iter()
             .map(|issue| {
                 json!({
@@ -288,7 +288,7 @@ impl Validate {
             .collect();
 
         let suspect_issues: Vec<_> = result
-            .suspect_issues
+            .suspect
             .iter()
             .map(|issue| {
                 json!({
@@ -299,15 +299,15 @@ impl Validate {
             })
             .collect();
 
-        let total_issues = self.count_issues(result);
-        let fixable_issues = result.path_issues.len() + result.link_issues.len();
+        let total_issues = Self::count_issues(result);
+        let fixable_issues = result.paths.len() + result.links.len();
 
         let output = json!({
             "status": if total_issues == 0 { "healthy" } else { "issues_found" },
             "issues": {
-                "structure": result.structure_issues.len(),
+                "structure": result.structure.len(),
                 "paths": path_issues,
-                "links": result.link_issues.len(),
+                "links": result.links.len(),
                 "suspect": suspect_issues
             },
             "summary": {
@@ -321,43 +321,36 @@ impl Validate {
         Ok(())
     }
 
-    fn output_summary(&self, result: &ValidationResult) {
-        let total = self.count_issues(result);
+    fn output_summary(result: &ValidationResult) {
+        let total = Self::count_issues(result);
         println!("issues={total}");
     }
 
-    fn has_fixable_issues(&self, result: &ValidationResult) -> bool {
-        !result.path_issues.is_empty() || !result.link_issues.is_empty()
-    }
-
-    fn has_issues(&self, result: &ValidationResult) -> bool {
-        self.count_issues(result) > 0
-    }
-
-    fn count_issues(&self, result: &ValidationResult) -> usize {
-        result.structure_issues.len()
-            + result.path_issues.len()
-            + result.link_issues.len()
-            + result.suspect_issues.len()
+    fn count_issues(result: &ValidationResult) -> usize {
+        result.structure.len()
+            + result.paths.len()
+            + result.links.len()
+            + result.suspect.len()
     }
 
     fn apply_fixes(&self, result: &ValidationResult, mut directory: Directory) -> anyhow::Result<()> {
         if self.dry_run {
             if !self.quiet {
                 println!("\nDry run: showing what would be fixed...\n");
-                self.preview_fixes(result);
+                Self::preview_fixes(result);
             }
             return Ok(());
         }
 
         // Confirm before fixing
         if !self.yes && !self.quiet {
-            let fixable = result.path_issues.len() + result.link_issues.len();
+            use std::io::{self, BufRead};
+
+            let fixable = result.paths.len() + result.links.len();
             println!("\nWill fix {fixable} issues:");
-            self.preview_fixes(result);
+            Self::preview_fixes(result);
 
             eprint!("\nProceed? (y/N) ");
-            use std::io::{self, BufRead};
             let stdin = io::stdin();
             let mut line = String::new();
             stdin.lock().read_line(&mut line)?;
@@ -368,7 +361,7 @@ impl Validate {
         }
 
         // Fix paths
-        if !result.path_issues.is_empty() {
+        if !result.paths.is_empty() {
             let moved = directory.sync_paths()?;
             if !self.quiet {
                 println!("✓ Moved {} files to canonical locations", moved.len());
@@ -376,7 +369,7 @@ impl Validate {
         }
 
         // Fix stale HRIDs
-        let stale_count = result.link_issues.iter().filter(|issue| matches!(issue, LinkIssue::StaleHrid { .. })).count();
+        let stale_count = result.links.iter().filter(|issue| matches!(issue, LinkIssue::StaleHrid { .. })).count();
         if stale_count > 0 {
             let updated = directory.update_hrids();
             if !updated.is_empty() {
@@ -390,20 +383,20 @@ impl Validate {
         Ok(())
     }
 
-    fn preview_fixes(&self, result: &ValidationResult) {
-        if !result.path_issues.is_empty() {
-            println!("Paths ({} files):", result.path_issues.len());
-            for issue in &result.path_issues {
+    fn preview_fixes(result: &ValidationResult) {
+        if !result.paths.is_empty() {
+            println!("Paths ({} files):", result.paths.len());
+            for issue in &result.paths {
                 println!("  • {} → {}", issue.current_path.display(), issue.expected_path.display());
             }
         }
 
-        let stale_count = result.link_issues.iter().filter(|issue| matches!(issue, LinkIssue::StaleHrid { .. })).count();
+        let stale_count = result.links.iter().filter(|issue| matches!(issue, LinkIssue::StaleHrid { .. })).count();
         if stale_count > 0 {
-            println!("\nLinks ({} stale HRIDs):", stale_count);
-            for issue in &result.link_issues {
+            println!("\nLinks ({stale_count} stale HRIDs):");
+            for issue in &result.links {
                 if let LinkIssue::StaleHrid { child } = issue {
-                    println!("  • {}", child);
+                    println!("  • {child}");
                 }
             }
         }

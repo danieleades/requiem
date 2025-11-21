@@ -1,3 +1,4 @@
+use std::io::{self, BufRead};
 use std::path::{Path, PathBuf};
 
 mod list;
@@ -147,7 +148,7 @@ impl Command {
             Self::Config(command) => command.run(&root)?,
             Self::Kind(command) => command.run(&root)?,
             Self::Rename(command) => command.run(root)?,
-            Self::Move(command) => command.run(root)?,
+            Self::Move(command) => command.run(&root)?,
             Self::Diagnose(command) => command.run(&root)?,
         }
         Ok(())
@@ -335,6 +336,7 @@ impl Create {
 }
 
 #[derive(Debug, clap::Parser)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Delete {
     /// The human-readable ID of the requirement to delete
     #[clap(value_parser = parse_hrid)]
@@ -406,6 +408,8 @@ impl Delete {
 
         // Show preview
         if !self.yes && !self.dry_run {
+            use std::io::{self, BufRead};
+
             println!("Will delete {} requirement(s):", to_delete.len());
             for delete_hrid in &to_delete {
                 println!("  • {}", delete_hrid.display(digits));
@@ -420,7 +424,6 @@ impl Delete {
 
             // Get confirmation
             eprint!("\nProceed? (y/N) ");
-            use std::io::{self, BufRead};
             let stdin = io::stdin();
             let mut line = String::new();
             stdin.lock().read_line(&mut line)?;
@@ -523,13 +526,14 @@ impl Unlink {
 
         // Show confirmation prompt unless --yes was specified
         if !self.yes {
+            use std::io::{self, BufRead};
+
             println!(
                 "Will unlink {} from parent {}",
                 self.child.display(digits),
                 self.parent.display(digits)
             );
             eprint!("\nProceed? (y/N) ");
-            use std::io::{self, BufRead};
             let stdin = io::stdin();
             let mut line = String::new();
             stdin.lock().read_line(&mut line)?;
@@ -569,6 +573,7 @@ enum SyncWhat {
 }
 
 #[derive(Debug, clap::Parser)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Sync {
     /// What to synchronize
     #[arg(long, default_value = "parents")]
@@ -594,256 +599,298 @@ pub struct Sync {
 impl Sync {
     #[instrument]
     fn run(self, root: PathBuf) -> anyhow::Result<()> {
-        use terminal::Colorize;
-
         let mut directory = Directory::new(root)?;
 
         match (self.what, self.check, self.dry_run) {
-            // Check mode for parent HRIDs: report drift without making changes
             (SyncWhat::Parents, true, _) => {
-                let would_update = directory.check_hrid_drift();
-                if would_update.is_empty() {
-                    if !self.quiet {
-                        println!("{}", "✅ No HRID drift detected.".success());
-                    }
-                    Ok(())
-                } else {
-                    if !self.quiet {
-                        println!(
-                            "{}",
-                            format!("⚠️  {} requirements have stale parent HRIDs", would_update.len())
-                                .warning()
-                        );
-                        for hrid in &would_update {
-                            println!("  • {}", hrid.display(directory.config().digits()));
-                        }
-                    }
-                    std::process::exit(2);
-                }
-            }
-
-            // Update parent HRIDs
-            (SyncWhat::Parents, false, dry_run) => {
-                let updated = directory.update_hrids();
-
-                if updated.is_empty() {
-                    if !self.quiet {
-                        println!("{}", "✅ All parent HRIDs are current.".success());
-                    }
-                    return Ok(());
-                }
-
-                if dry_run {
-                    if !self.quiet {
-                        println!("Would update {} parent HRIDs:", updated.len());
-                        for hrid in &updated {
-                            println!("  • {}", hrid.display(directory.config().digits()));
-                        }
-                    }
-                    return Ok(());
-                }
-
-                directory.flush()?;
-
-                if !self.quiet {
-                    println!(
-                        "{}",
-                        format!("✅ Updated {} parent HRIDs", updated.len()).success()
-                    );
-                }
+                self.check_parent_drift(&directory);
                 Ok(())
             }
-
-            // Check mode for paths: report drift without making changes
+            (SyncWhat::Parents, false, dry_run) => self.sync_parents(&mut directory, dry_run),
             (SyncWhat::Paths, true, _) => {
-                let misplaced = directory.check_path_drift();
-                if misplaced.is_empty() {
-                    if !self.quiet {
-                        println!("{}", "✅ All requirements are in canonical locations.".success());
-                    }
-                    Ok(())
-                } else {
-                    if !self.quiet {
-                        println!(
-                            "{}",
-                            format!("⚠️  {} requirements are misplaced", misplaced.len()).warning()
-                        );
-                        for (hrid, current, canonical) in &misplaced {
-                            println!(
-                                "  • {} ({} → {})",
-                                hrid.display(directory.config().digits()),
-                                current.display(),
-                                canonical.display()
-                            );
-                        }
-                    }
-                    std::process::exit(2);
+                self.check_path_drift(&directory);
+                Ok(())
+            }
+            (SyncWhat::Paths, false, dry_run) => self.sync_paths(&mut directory, dry_run),
+            (SyncWhat::All, check, dry_run) => self.sync_all(&mut directory, check, dry_run),
+        }
+    }
+
+    fn check_parent_drift(&self, directory: &Directory) {
+        use terminal::Colorize;
+
+        let would_update = directory.check_hrid_drift();
+        if would_update.is_empty() {
+            if !self.quiet {
+                println!("{}", "✅ No HRID drift detected.".success());
+            }
+        } else {
+            if !self.quiet {
+                println!(
+                    "{}",
+                    format!("⚠️  {} requirements have stale parent HRIDs", would_update.len())
+                        .warning()
+                );
+                for hrid in &would_update {
+                    println!("  • {}", hrid.display(directory.config().digits()));
                 }
             }
+            std::process::exit(2);
+        }
+    }
 
-            // Move files to canonical locations
-            (SyncWhat::Paths, false, dry_run) => {
-                let misplaced = directory.check_path_drift();
+    fn sync_parents(&self, directory: &mut Directory, dry_run: bool) -> anyhow::Result<()> {
+        use terminal::Colorize;
 
-                if misplaced.is_empty() {
-                    if !self.quiet {
-                        println!("{}", "✅ All requirements are in canonical locations.".success());
-                    }
-                    return Ok(());
+        let updated = directory.update_hrids();
+
+        if updated.is_empty() {
+            if !self.quiet {
+                println!("{}", "✅ All parent HRIDs are current.".success());
+            }
+            return Ok(());
+        }
+
+        if dry_run {
+            if !self.quiet {
+                println!("Would update {} parent HRIDs:", updated.len());
+                for hrid in &updated {
+                    println!("  • {}", hrid.display(directory.config().digits()));
                 }
+            }
+            return Ok(());
+        }
 
-                if dry_run {
-                    if !self.quiet {
-                        println!("Would move {} files:", misplaced.len());
-                        for (hrid, current, canonical) in &misplaced {
-                            println!(
-                                "  • {}: {} → {}",
-                                hrid.display(directory.config().digits()),
-                                current.display(),
-                                canonical.display()
-                            );
-                        }
-                    }
-                    return Ok(());
-                }
+        directory.flush()?;
 
-                // Confirm before moving files
-                if !self.yes {
-                    println!("Will move {} files to canonical locations:", misplaced.len());
-                    for (hrid, current, canonical) in &misplaced {
-                        println!(
-                            "  • {}: {} → {}",
-                            hrid.display(directory.config().digits()),
-                            current.display(),
-                            canonical.display()
-                        );
-                    }
+        if !self.quiet {
+            println!(
+                "{}",
+                format!("✅ Updated {} parent HRIDs", updated.len()).success()
+            );
+        }
+        Ok(())
+    }
 
-                    eprint!("\nProceed? (y/N) ");
-                    use std::io::{self, BufRead};
-                    let stdin = io::stdin();
-                    let mut line = String::new();
-                    stdin.lock().read_line(&mut line)?;
-                    if !line.trim().eq_ignore_ascii_case("y") {
-                        println!("Cancelled");
-                        std::process::exit(130);
-                    }
-                }
+    fn check_path_drift(&self, directory: &Directory) {
+        use terminal::Colorize;
 
-                let moved = directory.sync_paths()?;
-
-                if !self.quiet {
+        let misplaced = directory.check_path_drift();
+        if misplaced.is_empty() {
+            if !self.quiet {
+                println!("{}", "✅ All requirements are in canonical locations.".success());
+            }
+        } else {
+            if !self.quiet {
+                println!(
+                    "{}",
+                    format!("⚠️  {} requirements are misplaced", misplaced.len()).warning()
+                );
+                for (hrid, current, canonical) in &misplaced {
                     println!(
-                        "{}",
-                        format!("✅ Moved {} files", moved.len()).success()
+                        "  • {} ({} → {})",
+                        hrid.display(directory.config().digits()),
+                        current.display(),
+                        canonical.display()
                     );
                 }
-                Ok(())
+            }
+            std::process::exit(2);
+        }
+    }
+
+    fn sync_paths(&self, directory: &mut Directory, dry_run: bool) -> anyhow::Result<()> {
+        use terminal::Colorize;
+
+        let misplaced = directory.check_path_drift();
+
+        if misplaced.is_empty() {
+            if !self.quiet {
+                println!("{}", "✅ All requirements are in canonical locations.".success());
+            }
+            return Ok(());
+        }
+
+        if dry_run {
+            if !self.quiet {
+                println!("Would move {} files:", misplaced.len());
+                for (hrid, current, canonical) in &misplaced {
+                    println!(
+                        "  • {}: {} → {}",
+                        hrid.display(directory.config().digits()),
+                        current.display(),
+                        canonical.display()
+                    );
+                }
+            }
+            return Ok(());
+        }
+
+        // Confirm before moving files
+        if !self.yes {
+            use std::io::{self, BufRead};
+
+            println!("Will move {} files to canonical locations:", misplaced.len());
+            for (hrid, current, canonical) in &misplaced {
+                println!(
+                    "  • {}: {} → {}",
+                    hrid.display(directory.config().digits()),
+                    current.display(),
+                    canonical.display()
+                );
             }
 
-            // Sync both parents and paths
-            (SyncWhat::All, check, dry_run) => {
-                let hrid_drift = directory.check_hrid_drift();
-                let path_drift = directory.check_path_drift();
-
-                if check {
-                    // Check mode: report both types of drift
-                    let has_drift = !hrid_drift.is_empty() || !path_drift.is_empty();
-
-                    if !self.quiet {
-                        if !hrid_drift.is_empty() {
-                            println!(
-                                "{}",
-                                format!("⚠️  {} requirements have stale parent HRIDs", hrid_drift.len())
-                                    .warning()
-                            );
-                        }
-                        if !path_drift.is_empty() {
-                            println!(
-                                "{}",
-                                format!("⚠️  {} requirements are misplaced", path_drift.len()).warning()
-                            );
-                        }
-                        if !has_drift {
-                            println!("{}", "✅ Everything is synchronized.".success());
-                        }
-                    }
-
-                    if has_drift {
-                        std::process::exit(2);
-                    }
-                    return Ok(());
-                }
-
-                if dry_run {
-                    // Dry run: show what would be changed
-                    if !self.quiet {
-                        if !hrid_drift.is_empty() {
-                            println!("Would update {} parent HRIDs", hrid_drift.len());
-                        }
-                        if !path_drift.is_empty() {
-                            println!("Would move {} files", path_drift.len());
-                        }
-                        if hrid_drift.is_empty() && path_drift.is_empty() {
-                            println!("{}", "✅ Everything is synchronized.".success());
-                        }
-                    }
-                    return Ok(());
-                }
-
-                // Confirm before making changes
-                if !self.yes && (!hrid_drift.is_empty() || !path_drift.is_empty()) {
-                    println!("Will synchronize:");
-                    if !hrid_drift.is_empty() {
-                        println!("  • Update {} parent HRIDs", hrid_drift.len());
-                    }
-                    if !path_drift.is_empty() {
-                        println!("  • Move {} files", path_drift.len());
-                    }
-
-                    eprint!("\nProceed? (y/N) ");
-                    use std::io::{self, BufRead};
-                    let stdin = io::stdin();
-                    let mut line = String::new();
-                    stdin.lock().read_line(&mut line)?;
-                    if !line.trim().eq_ignore_ascii_case("y") {
-                        println!("Cancelled");
-                        std::process::exit(130);
-                    }
-                }
-
-                // Perform both updates
-                let updated_hrids = directory.update_hrids();
-                if !updated_hrids.is_empty() {
-                    directory.flush()?;
-                }
-
-                let moved = directory.sync_paths()?;
-
-                if !self.quiet {
-                    if !updated_hrids.is_empty() {
-                        println!(
-                            "{}",
-                            format!("✅ Updated {} parent HRIDs", updated_hrids.len()).success()
-                        );
-                    }
-                    if !moved.is_empty() {
-                        println!(
-                            "{}",
-                            format!("✅ Moved {} files", moved.len()).success()
-                        );
-                    }
-                    if updated_hrids.is_empty() && moved.is_empty() {
-                        println!("{}", "✅ Everything is synchronized.".success());
-                    }
-                }
-                Ok(())
+            eprint!("\nProceed? (y/N) ");
+            let stdin = io::stdin();
+            let mut line = String::new();
+            stdin.lock().read_line(&mut line)?;
+            if !line.trim().eq_ignore_ascii_case("y") {
+                println!("Cancelled");
+                std::process::exit(130);
             }
         }
+
+        let moved = directory.sync_paths()?;
+
+        if !self.quiet {
+            println!(
+                "{}",
+                format!("✅ Moved {} files", moved.len()).success()
+            );
+        }
+        Ok(())
+    }
+
+    fn sync_all(&self, directory: &mut Directory, check: bool, dry_run: bool) -> anyhow::Result<()> {
+        use terminal::Colorize;
+
+        let hrid_drift = directory.check_hrid_drift();
+        let path_drift = directory.check_path_drift();
+
+        if check {
+            self.check_all_drift(&hrid_drift, &path_drift);
+            return Ok(());
+        }
+
+        if dry_run {
+            self.dry_run_all(&hrid_drift, &path_drift);
+            return Ok(());
+        }
+
+        // Confirm before making changes
+        if !self.yes && (!hrid_drift.is_empty() || !path_drift.is_empty()) {
+            Self::confirm_sync_all(&hrid_drift, &path_drift)?;
+        }
+
+        // Perform both updates
+        let updated_hrids = directory.update_hrids();
+        if !updated_hrids.is_empty() {
+            directory.flush()?;
+        }
+
+        let moved = directory.sync_paths()?;
+
+        if !self.quiet {
+            if !updated_hrids.is_empty() {
+                println!(
+                    "{}",
+                    format!("✅ Updated {} parent HRIDs", updated_hrids.len()).success()
+                );
+            }
+            if !moved.is_empty() {
+                println!(
+                    "{}",
+                    format!("✅ Moved {} files", moved.len()).success()
+                );
+            }
+            if updated_hrids.is_empty() && moved.is_empty() {
+                println!("{}", "✅ Everything is synchronized.".success());
+            }
+        }
+        Ok(())
+    }
+
+    fn check_all_drift(
+        &self,
+        hrid_drift: &[requiem::Hrid],
+        path_drift: &[(requiem::Hrid, std::path::PathBuf, std::path::PathBuf)],
+    ) {
+        use terminal::Colorize;
+
+        let has_drift = !hrid_drift.is_empty() || !path_drift.is_empty();
+
+        if !self.quiet {
+            if !hrid_drift.is_empty() {
+                println!(
+                    "{}",
+                    format!("⚠️  {} requirements have stale parent HRIDs", hrid_drift.len())
+                        .warning()
+                );
+            }
+            if !path_drift.is_empty() {
+                println!(
+                    "{}",
+                    format!("⚠️  {} requirements are misplaced", path_drift.len()).warning()
+                );
+            }
+            if !has_drift {
+                println!("{}", "✅ Everything is synchronized.".success());
+            }
+        }
+
+        if has_drift {
+            std::process::exit(2);
+        }
+    }
+
+    fn dry_run_all(
+        &self,
+        hrid_drift: &[requiem::Hrid],
+        path_drift: &[(requiem::Hrid, std::path::PathBuf, std::path::PathBuf)],
+    ) {
+        use terminal::Colorize;
+
+        if !self.quiet {
+            if !hrid_drift.is_empty() {
+                println!("Would update {} parent HRIDs", hrid_drift.len());
+            }
+            if !path_drift.is_empty() {
+                println!("Would move {} files", path_drift.len());
+            }
+            if hrid_drift.is_empty() && path_drift.is_empty() {
+                println!("{}", "✅ Everything is synchronized.".success());
+            }
+        }
+    }
+
+    fn confirm_sync_all(
+        hrid_drift: &[requiem::Hrid],
+        path_drift: &[(requiem::Hrid, std::path::PathBuf, std::path::PathBuf)],
+    ) -> anyhow::Result<()> {
+        use std::io::{self, BufRead};
+
+        println!("Will synchronize:");
+        if !hrid_drift.is_empty() {
+            println!("  • Update {} parent HRIDs", hrid_drift.len());
+        }
+        if !path_drift.is_empty() {
+            println!("  • Move {} files", path_drift.len());
+        }
+
+        eprint!("\nProceed? (y/N) ");
+        let stdin = io::stdin();
+        let mut line = String::new();
+        stdin.lock().read_line(&mut line)?;
+        if !line.trim().eq_ignore_ascii_case("y") {
+            println!("Cancelled");
+            std::process::exit(130);
+        }
+        Ok(())
     }
 }
 
 #[derive(Debug, clap::Parser)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Review {
     /// Accept suspect links (update fingerprints)
     #[arg(long)]
@@ -1399,6 +1446,8 @@ impl Review {
 
             // Show preview and confirm
             if !self.yes {
+                use std::io::{self, BufRead};
+
                 println!("Will accept {count} suspect links across {file_count} files:");
                 for link in &suspect_links {
                     println!(
@@ -1409,7 +1458,6 @@ impl Review {
                 }
 
                 eprint!("\nProceed? (y/N) ");
-                use std::io::{self, BufRead};
                 let stdin = io::stdin();
                 let mut line = String::new();
                 stdin.lock().read_line(&mut line)?;
@@ -1452,11 +1500,10 @@ impl Review {
                     println!("Current:   {}", link.current_fingerprint);
 
                     eprint!("\nAccept this link? (y/N) ");
-                    use std::io::{self, BufRead};
                     let stdin = io::stdin();
-                    let mut line = String::new();
-                    stdin.lock().read_line(&mut line)?;
-                    if !line.trim().eq_ignore_ascii_case("y") {
+                    let mut input = String::new();
+                    stdin.lock().read_line(&mut input)?;
+                    if !input.trim().eq_ignore_ascii_case("y") {
                         println!("Cancelled");
                         std::process::exit(130);
                     }
@@ -1492,11 +1539,11 @@ impl Review {
 /// Configuration is stored in .req/config.toml and controls repository behavior.
 ///
 /// Available configuration keys:
-///   subfolders_are_namespaces  Path mode (true) vs filename mode (false)
+///   `subfolders_are_namespaces`  Path mode (true) vs filename mode (false)
 ///   digits                      Number of digits for HRID padding (default: 3)
-///   allow_unrecognised         Allow non-HRID markdown files (default: false)
+///   `allow_unrecognised`         Allow non-HRID markdown files (default: false)
 ///
-/// Note: Use 'req kind' commands to manage allowed_kinds configuration.
+/// Note: Use 'req kind' commands to manage `allowed_kinds` configuration.
 pub struct Config {
     #[command(subcommand)]
     command: ConfigCommand,
@@ -1511,19 +1558,19 @@ enum ConfigCommand {
     Get {
         /// Configuration key to retrieve
         ///
-        /// Available keys: subfolders_are_namespaces, digits, allow_unrecognised, allowed_kinds
+        /// Available keys: `subfolders_are_namespaces`, digits, `allow_unrecognised`, `allowed_kinds`
         key: String,
     },
 
     /// Set a configuration value
     ///
     /// Examples:
-    ///   req config set subfolders_are_namespaces true
-    ///   req config set allow_unrecognised false
+    ///   req config set `subfolders_are_namespaces` true
+    ///   req config set `allow_unrecognised` false
     Set {
         /// Configuration key to set
         ///
-        /// Settable keys: subfolders_are_namespaces, allow_unrecognised
+        /// Settable keys: `subfolders_are_namespaces`, `allow_unrecognised`
         key: String,
 
         /// Value to set
@@ -1533,6 +1580,7 @@ enum ConfigCommand {
 
 impl Config {
     #[instrument]
+    #[allow(clippy::too_many_lines)]
     fn run(self, root: &Path) -> anyhow::Result<()> {
         use terminal::Colorize;
 
@@ -1558,10 +1606,10 @@ impl Config {
                 );
                 println!("  digits: {}", config.digits());
                 println!("  allow_unrecognised: {}", config.allow_unrecognised);
-                if !config.allowed_kinds().is_empty() {
-                    println!("  allowed_kinds: {:?}", config.allowed_kinds());
-                } else {
+                if config.allowed_kinds().is_empty() {
                     println!("  allowed_kinds: {} (all kinds allowed)", "[]".dim());
+                } else {
+                    println!("  allowed_kinds: {:?}", config.allowed_kinds());
                 }
             }
             ConfigCommand::Get { key } => {
@@ -1586,16 +1634,15 @@ impl Config {
                             println!("[]");
                         } else {
                             for kind in config.allowed_kinds() {
-                                println!("{}", kind);
+                                println!("{kind}");
                             }
                         }
                     }
                     _ => {
                         anyhow::bail!(
-                            "Unknown configuration key: '{}'\n\nAvailable keys:\n  \
+                            "Unknown configuration key: '{key}'\n\nAvailable keys:\n  \
                              subfolders_are_namespaces\n  digits\n  allow_unrecognised\n  \
                              allowed_kinds",
-                            key
                         );
                     }
                 }
@@ -1700,6 +1747,7 @@ enum KindCommand {
 
 impl Kind {
     #[instrument]
+    #[allow(clippy::too_many_lines)]
     fn run(self, root: &Path) -> anyhow::Result<()> {
         use terminal::Colorize;
 
@@ -1734,7 +1782,7 @@ impl Kind {
                         );
                     }
 
-                    if config.add_kind(kind_upper.clone()) {
+                    if config.add_kind(&kind_upper) {
                         added.push(kind_upper);
                     } else {
                         already_exists.push(kind_upper);
@@ -1806,7 +1854,7 @@ impl Kind {
                         "⚠️  The following kinds have existing requirements:".warning()
                     );
                     for warning in &warnings {
-                        println!("{}", warning);
+                        println!("{warning}");
                     }
                     println!(
                         "\n{}",
@@ -1816,7 +1864,6 @@ impl Kind {
                     );
 
                     eprint!("\nProceed? (y/N) ");
-                    use std::io::{self, BufRead};
                     let stdin = io::stdin();
                     let mut line = String::new();
                     stdin.lock().read_line(&mut line)?;
@@ -1940,7 +1987,6 @@ impl Rename {
             }
 
             eprint!("\nProceed? (y/N) ");
-            use std::io::{self, BufRead};
             let stdin = io::stdin();
             let mut line = String::new();
             stdin.lock().read_line(&mut line)?;
@@ -1951,7 +1997,7 @@ impl Rename {
         }
 
         // Perform rename
-        let children_updated = directory.rename_requirement(&self.old_hrid, self.new_hrid.clone())?;
+        let children_updated = directory.rename_requirement(&self.old_hrid, &self.new_hrid)?;
         directory.flush()?;
 
         println!(
@@ -1991,10 +2037,10 @@ pub struct Move {
 
 impl Move {
     #[instrument]
-    fn run(self, root: PathBuf) -> anyhow::Result<()> {
+    fn run(self, root: &Path) -> anyhow::Result<()> {
         use terminal::Colorize;
 
-        let mut directory = Directory::new(root.clone())?;
+        let mut directory = Directory::new(root.to_path_buf())?;
         let digits = directory.config().digits();
 
         // Find the requirement
@@ -2018,18 +2064,20 @@ impl Move {
         };
 
         // Extract HRID from new path to see if it will change
-        let new_hrid = requiem::hrid_from_path(&new_path, &root, directory.config())
-            .map_err(|e| anyhow::anyhow!("Failed to parse HRID from path: {}", e))?;
+        let new_hrid = requiem::hrid_from_path(&new_path, root, directory.config())
+            .map_err(|e| anyhow::anyhow!("Failed to parse HRID from path: {e}"))?;
 
         // Check if children exist
         let children = directory.children_of(&self.hrid);
 
         // Show confirmation if --yes not specified
         if !self.yes {
+            use std::io::{self, BufRead};
+
             println!(
                 "Moving {} from {} to {}",
                 self.hrid.display(digits),
-                old_path.strip_prefix(&root).unwrap_or(old_path).display(),
+                old_path.strip_prefix(root).unwrap_or(old_path).display(),
                 self.new_path.display()
             );
             println!("  Title: {}", req.title);
@@ -2051,7 +2099,6 @@ impl Move {
             }
 
             eprint!("\nProceed? (y/N) ");
-            use std::io::{self, BufRead};
             let stdin = io::stdin();
             let mut line = String::new();
             stdin.lock().read_line(&mut line)?;
@@ -2303,90 +2350,6 @@ mod tests {
             .parents
             .iter()
             .any(|(_uuid, info)| info.hrid == *parent.hrid()));
-    }
-
-    #[test]
-    fn clean_run_succeeds_on_empty_directory() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().to_path_buf();
-
-        Clean::run(root).expect("clean should succeed on empty directory");
-    }
-
-    #[test]
-    fn suspect_run_exits_early_when_no_suspect_links() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().to_path_buf();
-
-        let suspect = Suspect {
-            detail: false,
-            format: SuspectFormat::default(),
-            stats: false,
-            quiet: false,
-            child: None,
-            parent: None,
-            kind: None,
-            group_by: None,
-        };
-
-        suspect
-            .run(root)
-            .expect("suspect should succeed when no links");
-    }
-
-    #[test]
-    fn accept_run_all_reports_when_no_links_found() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().to_path_buf();
-
-        let accept = Accept {
-            all: true,
-            apply: true,
-            dry_run: false,
-            yes: true,
-            child: None,
-            parent: None,
-        };
-
-        accept
-            .run(root)
-            .expect("accept --all should succeed with no suspect links");
-    }
-
-    #[test]
-    fn accept_run_handles_already_up_to_date_link() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().to_path_buf();
-
-        let mut directory = Directory::new(root.clone()).expect("failed to load directory");
-        let parent = directory
-            .add_requirement("SYS", "# Parent".to_string())
-            .unwrap();
-        let child = directory
-            .add_requirement("USR", "# Child".to_string())
-            .unwrap();
-        directory
-            .flush()
-            .expect("failed to flush initial requirements");
-
-        let mut directory = Directory::new(root.clone()).unwrap();
-        directory
-            .link_requirement(child.hrid(), parent.hrid())
-            .unwrap();
-        directory.flush().unwrap();
-
-        let accept = Accept {
-            all: false,
-            apply: true,
-            dry_run: false,
-            yes: true,
-            child: Some(child.hrid().clone()),
-            parent: Some(parent.hrid().clone()),
-        };
-
-        accept
-            .run(root)
-            .expect("accept should treat up-to-date link as success");
     }
 
     #[test]

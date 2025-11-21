@@ -540,7 +540,7 @@ impl Tree {
     pub fn rename_requirement(
         &mut self,
         old_hrid: &Hrid,
-        new_hrid: Hrid,
+        new_hrid: &Hrid,
     ) -> anyhow::Result<(Uuid, Vec<Uuid>)> {
         // Check old HRID exists
         let uuid = self
@@ -550,7 +550,7 @@ impl Tree {
             .ok_or_else(|| anyhow::anyhow!("Requirement {} not found", old_hrid.display(3)))?;
 
         // Check new HRID doesn't exist
-        if self.hrid_to_uuid.contains_key(&new_hrid) {
+        if self.hrid_to_uuid.contains_key(new_hrid) {
             anyhow::bail!(
                 "Cannot rename to {}: HRID already exists",
                 new_hrid.display(3)
@@ -651,7 +651,6 @@ impl Tree {
     ///
     /// Returns an iterator of child UUIDs that have at least one parent link
     /// with an outdated HRID.
-    #[must_use]
     #[instrument(skip(self))]
     pub fn check_hrid_drift(&self) -> impl Iterator<Item = Uuid> + '_ {
         use std::collections::HashSet;

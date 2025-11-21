@@ -9,7 +9,7 @@
 //! 2. **Path-based**: Subfolders encode namespace, filename contains KIND-ID
 //!    - Example: `SYSTEM-AUTH-REQ-001` → `root/SYSTEM/AUTH/REQ-001.md`
 
-use std::path::{Path, PathBuf};
+use std::{num::NonZeroUsize, path::{Path, PathBuf}};
 
 use crate::domain::Hrid;
 
@@ -90,9 +90,9 @@ pub fn hrid_from_path(
             .ok_or_else(|| "Cannot extract ID from path".to_string())?;
 
         // Parse ID
-        let id: u64 = id_str
+        let id: NonZeroUsize = id_str
             .parse()
-            .map_err(|_| format!("Invalid ID in path: {}", id_str))?;
+            .map_err(|_| format!("Invalid ID in path: {id_str}"))?;
 
         // Second-to-last component is the KIND
         if components.len() < 2 {
@@ -105,7 +105,7 @@ pub fn hrid_from_path(
             .ok_or_else(|| "Cannot extract KIND from path".to_string())?;
 
         let kind = crate::domain::hrid::KindString::new(kind_str.to_string())
-            .map_err(|e| format!("Invalid KIND: {}", e))?;
+            .map_err(|e| format!("Invalid KIND: {e}"))?;
 
         // Everything before KIND is the namespace
         let namespace_strings: Vec<String> = components[..components.len() - 2]
@@ -123,12 +123,9 @@ pub fn hrid_from_path(
             .into_iter()
             .map(|s| {
                 crate::domain::hrid::KindString::new(s)
-                    .map_err(|e| format!("Invalid namespace component: {}", e))
+                    .map_err(|e| format!("Invalid namespace component: {e}"))
             })
             .collect::<Result<_, _>>()?;
-
-        let id = std::num::NonZeroUsize::new(id as usize)
-            .ok_or_else(|| "ID cannot be zero".to_string())?;
 
         Ok(Hrid::new_with_namespace(namespace, kind, id))
     } else {
