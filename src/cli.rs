@@ -1487,6 +1487,16 @@ impl Review {
 }
 
 #[derive(Debug, clap::Parser)]
+/// Show or modify repository configuration
+///
+/// Configuration is stored in .req/config.toml and controls repository behavior.
+///
+/// Available configuration keys:
+///   subfolders_are_namespaces  Path mode (true) vs filename mode (false)
+///   digits                      Number of digits for HRID padding (default: 3)
+///   allow_unrecognised         Allow non-HRID markdown files (default: false)
+///
+/// Note: Use 'req kind' commands to manage allowed_kinds configuration.
 pub struct Config {
     #[command(subcommand)]
     command: ConfigCommand,
@@ -1494,12 +1504,26 @@ pub struct Config {
 
 #[derive(Debug, clap::Parser)]
 enum ConfigCommand {
-    /// Show current configuration
+    /// Show all configuration values
     Show,
 
+    /// Get a specific configuration value
+    Get {
+        /// Configuration key to retrieve
+        ///
+        /// Available keys: subfolders_are_namespaces, digits, allow_unrecognised, allowed_kinds
+        key: String,
+    },
+
     /// Set a configuration value
+    ///
+    /// Examples:
+    ///   req config set subfolders_are_namespaces true
+    ///   req config set allow_unrecognised false
     Set {
         /// Configuration key to set
+        ///
+        /// Settable keys: subfolders_are_namespaces, allow_unrecognised
         key: String,
 
         /// Value to set
@@ -1536,6 +1560,44 @@ impl Config {
                 println!("  allow_unrecognised: {}", config.allow_unrecognised);
                 if !config.allowed_kinds().is_empty() {
                     println!("  allowed_kinds: {:?}", config.allowed_kinds());
+                } else {
+                    println!("  allowed_kinds: {} (all kinds allowed)", "[]".dim());
+                }
+            }
+            ConfigCommand::Get { key } => {
+                let config = if config_path.exists() {
+                    requiem::Config::load(&config_path).map_err(|e| anyhow::anyhow!("{e}"))?
+                } else {
+                    requiem::Config::default()
+                };
+
+                match key.as_str() {
+                    "subfolders_are_namespaces" => {
+                        println!("{}", config.subfolders_are_namespaces);
+                    }
+                    "digits" => {
+                        println!("{}", config.digits());
+                    }
+                    "allow_unrecognised" => {
+                        println!("{}", config.allow_unrecognised);
+                    }
+                    "allowed_kinds" => {
+                        if config.allowed_kinds().is_empty() {
+                            println!("[]");
+                        } else {
+                            for kind in config.allowed_kinds() {
+                                println!("{}", kind);
+                            }
+                        }
+                    }
+                    _ => {
+                        anyhow::bail!(
+                            "Unknown configuration key: '{}'\n\nAvailable keys:\n  \
+                             subfolders_are_namespaces\n  digits\n  allow_unrecognised\n  \
+                             allowed_kinds",
+                            key
+                        );
+                    }
                 }
             }
             ConfigCommand::Set { key, value } => {
