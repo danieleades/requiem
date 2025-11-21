@@ -3,12 +3,14 @@ use std::path::{Path, PathBuf};
 mod list;
 mod status;
 mod terminal;
+mod validate;
 
 use clap::ArgAction;
 use list::List;
 use requiem::{Directory, Hrid};
 use status::Status;
 use tracing::instrument;
+use validate::Validate;
 
 /// Parse an HRID from a string, normalizing to uppercase.
 ///
@@ -101,6 +103,9 @@ pub enum Command {
     /// since the link was created or last reviewed.
     Review(Review),
 
+    /// Validate repository health
+    Validate(Validate),
+
     /// List requirements with filters and relationship views
     List(List),
 
@@ -122,6 +127,7 @@ impl Command {
             Self::Unlink(command) => command.run(root)?,
             Self::Sync(command) => command.run(root)?,
             Self::Review(command) => command.run(root)?,
+            Self::Validate(command) => command.run(root)?,
             Self::List(command) => command.run(root)?,
             Self::Config(command) => command.run(&root)?,
             Self::Diagnose(command) => command.run(&root)?,
