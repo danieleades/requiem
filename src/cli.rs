@@ -82,8 +82,8 @@ pub enum Command {
     /// Initialize a new requirements repository
     Init,
 
-    /// Add a new requirement
-    Add(Add),
+    /// Create a new requirement
+    Create(Create),
 
     /// Delete a requirement
     Delete(Delete),
@@ -126,7 +126,7 @@ impl Command {
         match self {
             Self::Status(command) => command.run(root)?,
             Self::Init => Init::run(&root)?,
-            Self::Add(command) => command.run(root)?,
+            Self::Create(command) => command.run(root)?,
             Self::Delete(command) => command.run(root)?,
             Self::Link(command) => command.run(root)?,
             Self::Unlink(command) => command.run(root)?,
@@ -197,14 +197,14 @@ impl Init {
         println!("  Created: .req/templates/SYS.md");
         println!();
         println!("Next steps:");
-        println!("  req add USR --title \"Your First Requirement\"");
+        println!("  req create USR --title \"Your First Requirement\"");
 
         Ok(())
     }
 }
 
 #[derive(Debug, clap::Parser)]
-pub struct Add {
+pub struct Create {
     /// The kind of requirement to create, optionally with namespace.
     ///
     /// Accepts a dash-separated list where the last token is the kind
@@ -229,7 +229,7 @@ pub struct Add {
     body: Option<String>,
 }
 
-impl Add {
+impl Create {
     #[instrument]
     fn run(self, root: PathBuf) -> anyhow::Result<()> {
         let mut directory = Directory::new(root)?;
@@ -1642,7 +1642,7 @@ mod tests {
     }
 
     #[test]
-    fn add_run_creates_requirement_and_links_parents() {
+    fn create_run_creates_requirement_and_links_parents() {
         let tmp = tempdir().unwrap();
         let root = tmp.path().to_path_buf();
 
@@ -1654,14 +1654,14 @@ mod tests {
             .flush()
             .expect("failed to flush parent requirement");
 
-        let add = Add {
+        let create = Create {
             kind: "USR".to_string(),
             parent: vec![parent.hrid().clone()],
             title: Some("Child".to_string()),
             body: Some("body text".to_string()),
         };
 
-        add.run(root.clone()).expect("add command should succeed");
+        create.run(root.clone()).expect("create command should succeed");
 
         let directory = Directory::new(root).expect("failed to load directory");
         let child = collect_child(&directory, "USR");
@@ -1675,21 +1675,21 @@ mod tests {
     }
 
     #[test]
-    fn add_run_uses_template_when_no_content_provided() {
+    fn create_run_uses_template_when_no_content_provided() {
         let tmp = tempdir().unwrap();
         let root = tmp.path().to_path_buf();
         let template_dir = root.join(".req").join("templates");
         std::fs::create_dir_all(&template_dir).unwrap();
         std::fs::write(template_dir.join("USR.md"), "## Template body").unwrap();
 
-        let add = Add {
+        let create = Create {
             kind: "USR".to_string(),
             parent: Vec::new(),
             title: None,
             body: None,
         };
 
-        add.run(root.clone()).expect("add command should succeed");
+        create.run(root.clone()).expect("create command should succeed");
 
         let directory = Directory::new(root).expect("failed to load directory");
         let child = collect_child(&directory, "USR");
@@ -1697,18 +1697,18 @@ mod tests {
     }
 
     #[test]
-    fn add_run_creates_namespaced_requirement() {
+    fn create_run_creates_namespaced_requirement() {
         let tmp = tempdir().unwrap();
         let root = tmp.path().to_path_buf();
 
-        let add = Add {
+        let create = Create {
             kind: "SYSTEM-AUTH-USR".to_string(),
             parent: Vec::new(),
             title: Some("Namespaced Requirement".to_string()),
             body: Some("test body".to_string()),
         };
 
-        add.run(root.clone()).expect("add command should succeed");
+        create.run(root.clone()).expect("create command should succeed");
 
         let directory = Directory::new(root).expect("failed to load directory");
 
