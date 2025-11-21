@@ -7,4 +7,4 @@ pub use domain::{Config, Hrid, Requirement, RequirementView, SuspectLink, Tree};
 
 /// Filesystem storage and directory management for requirements.
 pub mod storage;
-pub use storage::{AcceptResult, Directory};
+pub use storage::{hrid_from_path, AcceptResult, Directory};

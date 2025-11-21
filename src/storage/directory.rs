@@ -529,6 +529,131 @@ impl Directory {
         result
     }
 
+    /// Renames a requirement by changing its HRID.
+    ///
+    /// This method:
+    /// - Updates the HRID in the tree
+    /// - Updates the file path mapping
+    /// - Marks the renamed requirement and all its children as dirty
+    ///
+    /// The actual file renaming and content updates happen during `flush()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when:
+    /// - The old HRID doesn't exist
+    /// - The new HRID already exists
+    /// - The new HRID kind is not allowed by configuration
+    pub fn rename_requirement(
+        &mut self,
+        old_hrid: &Hrid,
+        new_hrid: Hrid,
+    ) -> anyhow::Result<Vec<Hrid>> {
+        // Check kind is allowed
+        if !self.config.is_kind_allowed(new_hrid.kind()) {
+            anyhow::bail!(
+                "Kind '{}' is not allowed by configuration",
+                new_hrid.kind()
+            );
+        }
+
+        // Perform rename in tree (this updates all parent references)
+        let (uuid, children_uuids) = self.tree.rename_requirement(old_hrid, new_hrid.clone())?;
+
+        // Update file path mapping
+        if let Some(old_path) = self.paths.remove(&uuid) {
+            // Mark old file for deletion
+            self.deletions.insert(old_path);
+
+            // Calculate new path
+            let new_path = self.canonical_path_for(&new_hrid);
+            self.paths.insert(uuid, new_path);
+        }
+
+        // Mark the renamed requirement as dirty
+        self.dirty.insert(uuid);
+
+        // Mark all children as dirty (their parent HRID changed in frontmatter)
+        for child_uuid in &children_uuids {
+            self.dirty.insert(*child_uuid);
+        }
+
+        // Collect children HRIDs for reporting
+        let children_hrids: Vec<Hrid> = children_uuids
+            .iter()
+            .filter_map(|uuid| self.tree.hrid(*uuid).cloned())
+            .collect();
+
+        Ok(children_hrids)
+    }
+
+    /// Moves a requirement to a new file path.
+    ///
+    /// This method:
+    /// - Moves the file to the new location
+    /// - Extracts the HRID from the new path
+    /// - If the HRID changed, updates it (like rename)
+    /// - Marks the requirement and optionally its children as dirty
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when:
+    /// - The HRID doesn't exist
+    /// - The new path would create an HRID conflict
+    /// - The new HRID kind is not allowed
+    pub fn move_requirement(
+        &mut self,
+        hrid: &Hrid,
+        new_path: PathBuf,
+    ) -> anyhow::Result<Option<Vec<Hrid>>> {
+        use crate::storage::path_parser::hrid_from_path;
+
+        // Find the requirement
+        let Some(view) = self.tree.find_by_hrid(hrid) else {
+            anyhow::bail!("Requirement {} not found", hrid.display(self.config.digits()));
+        };
+        let uuid = *view.uuid;
+
+        // Extract HRID from new path
+        let new_hrid = hrid_from_path(&new_path, &self.root, &self.config)
+            .map_err(|e| anyhow::anyhow!("Failed to parse HRID from path: {}", e))?;
+
+        // Check if HRID changed
+        let children_updated = if &new_hrid != hrid {
+            // HRID changed - perform rename
+            let (_, children_uuids) = self.tree.rename_requirement(hrid, new_hrid.clone())?;
+
+            // Collect children HRIDs
+            let children_hrids: Vec<Hrid> = children_uuids
+                .iter()
+                .filter_map(|uuid| self.tree.hrid(*uuid).cloned())
+                .collect();
+
+            // Mark children as dirty
+            for child_uuid in &children_uuids {
+                self.dirty.insert(*child_uuid);
+            }
+
+            Some(children_hrids)
+        } else {
+            None
+        };
+
+        // Update file path mapping
+        if let Some(old_path) = self.paths.remove(&uuid) {
+            // Mark old file for deletion
+            self.deletions.insert(old_path);
+        }
+
+        // Set new path
+        self.paths.insert(uuid, new_path);
+
+        // Mark the requirement as dirty
+        self.dirty.insert(uuid);
+
+        Ok(children_updated)
+    }
+
     /// Add a new requirement to the directory.
     ///
     /// # Errors
@@ -909,6 +1034,16 @@ impl Directory {
         if let Some(failures) = NonEmpty::from_vec(failures) {
             return Err(FlushError { failures });
         }
+
+        // Process deletions
+        for path in &self.deletions {
+            if path.exists() {
+                if let Err(e) = std::fs::remove_file(path) {
+                    eprintln!("Warning: Failed to delete {}: {}", path.display(), e);
+                }
+            }
+        }
+        self.deletions.clear();
 
         Ok(flushed)
     }

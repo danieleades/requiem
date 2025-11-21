@@ -55,6 +55,93 @@ pub fn construct_path_from_hrid(
     }
 }
 
+/// Extract an HRID from a file path.
+///
+/// This is the inverse of `construct_path_from_hrid`. It parses the HRID from
+/// a path based on the configuration mode.
+///
+/// # Errors
+///
+/// Returns an error if the path cannot be parsed into a valid HRID.
+pub fn hrid_from_path(
+    path: &Path,
+    root: &Path,
+    config: &crate::domain::Config,
+) -> Result<Hrid, String> {
+    // Remove root prefix and .md extension
+    let relative_path = path
+        .strip_prefix(root)
+        .map_err(|_| format!("Path {} is not under root {}", path.display(), root.display()))?;
+
+    let path_without_ext = relative_path.with_extension("");
+
+    if config.subfolders_are_namespaces {
+        // Path-based: parse namespace/KIND/ID
+        let components: Vec<_> = path_without_ext.components().collect();
+
+        if components.is_empty() {
+            return Err("Path has no components".to_string());
+        }
+
+        // Last component is the ID (e.g., "001")
+        let id_str = components
+            .last()
+            .and_then(|c| c.as_os_str().to_str())
+            .ok_or_else(|| "Cannot extract ID from path".to_string())?;
+
+        // Parse ID
+        let id: u64 = id_str
+            .parse()
+            .map_err(|_| format!("Invalid ID in path: {}", id_str))?;
+
+        // Second-to-last component is the KIND
+        if components.len() < 2 {
+            return Err("Path must have at least KIND/ID".to_string());
+        }
+
+        let kind_str = components[components.len() - 2]
+            .as_os_str()
+            .to_str()
+            .ok_or_else(|| "Cannot extract KIND from path".to_string())?;
+
+        let kind = crate::domain::hrid::KindString::new(kind_str.to_string())
+            .map_err(|e| format!("Invalid KIND: {}", e))?;
+
+        // Everything before KIND is the namespace
+        let namespace_strings: Vec<String> = components[..components.len() - 2]
+            .iter()
+            .map(|c| {
+                c.as_os_str()
+                    .to_str()
+                    .ok_or_else(|| "Invalid namespace component".to_string())
+                    .map(String::from)
+            })
+            .collect::<Result<_, _>>()?;
+
+        // Convert namespace strings to KindStrings
+        let namespace: Vec<_> = namespace_strings
+            .into_iter()
+            .map(|s| {
+                crate::domain::hrid::KindString::new(s)
+                    .map_err(|e| format!("Invalid namespace component: {}", e))
+            })
+            .collect::<Result<_, _>>()?;
+
+        let id = std::num::NonZeroUsize::new(id as usize)
+            .ok_or_else(|| "ID cannot be zero".to_string())?;
+
+        Ok(Hrid::new_with_namespace(namespace, kind, id))
+    } else {
+        // Filename-based: parse FULL-HRID from filename
+        let filename = path_without_ext
+            .file_name()
+            .and_then(|f| f.to_str())
+            .ok_or_else(|| "Cannot extract filename from path".to_string())?;
+
+        filename.parse().map_err(|e: crate::domain::HridError| e.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;

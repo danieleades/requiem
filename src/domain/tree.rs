@@ -522,6 +522,64 @@ impl Tree {
         Ok(child_uuid)
     }
 
+    /// Renames a requirement by changing its HRID.
+    ///
+    /// This updates:
+    /// - The HRID mapping for the requirement
+    /// - All parent edges that reference this requirement (so children's parent HRIDs are updated)
+    ///
+    /// Returns the UUID of the renamed requirement and a list of children UUIDs
+    /// (which need to be marked dirty since their parent HRID changed).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when:
+    /// - The old HRID does not exist
+    /// - The new HRID already exists
+    /// - The new HRID is invalid for the current configuration
+    pub fn rename_requirement(
+        &mut self,
+        old_hrid: &Hrid,
+        new_hrid: Hrid,
+    ) -> anyhow::Result<(Uuid, Vec<Uuid>)> {
+        // Check old HRID exists
+        let uuid = self
+            .hrid_to_uuid
+            .get(old_hrid)
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("Requirement {} not found", old_hrid.display(3)))?;
+
+        // Check new HRID doesn't exist
+        if self.hrid_to_uuid.contains_key(&new_hrid) {
+            anyhow::bail!(
+                "Cannot rename to {}: HRID already exists",
+                new_hrid.display(3)
+            );
+        }
+
+        // Update HRID mappings
+        self.hrids.insert(uuid, new_hrid.clone());
+        self.hrid_to_uuid.remove(old_hrid);
+        self.hrid_to_uuid.insert(new_hrid.clone(), uuid);
+
+        // Find all children (incoming edges where this requirement is the parent)
+        let children: Vec<Uuid> = self
+            .graph
+            .edges_directed(uuid, petgraph::Direction::Incoming)
+            .map(|(child_uuid, _, _)| child_uuid)
+            .collect();
+
+        // Update all edges where this requirement is referenced as a parent
+        // We need to update the EdgeData to have the new parent HRID
+        for child_uuid in &children {
+            if let Some(edge_data) = self.graph.edge_weight_mut(*child_uuid, uuid) {
+                edge_data.parent_hrid = new_hrid.clone();
+            }
+        }
+
+        Ok((uuid, children))
+    }
+
     /// Get all children of a requirement.
     #[must_use]
     pub fn children(&self, uuid: Uuid) -> Vec<Uuid> {
