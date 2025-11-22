@@ -189,6 +189,36 @@ mod tests {
     use requiem::Directory;
     use tempfile::tempdir;
 
+    use super::Command;
+
+    #[test]
+    fn status_run_reports_counts_without_exit() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+
+        let mut directory = Directory::new(root.clone()).expect("failed to load directory");
+        let parent = directory
+            .add_requirement("SYS", "# Parent".to_string())
+            .unwrap();
+        let child = directory
+            .add_requirement("USR", "# Child".to_string())
+            .unwrap();
+        directory
+            .flush()
+            .expect("failed to flush initial requirements");
+
+        // Create a parent-child relationship to ensure we exercise counting logic.
+        let mut directory = Directory::new(root.clone()).unwrap();
+        directory
+            .link_requirement(child.hrid(), parent.hrid())
+            .unwrap();
+        directory.flush().unwrap();
+
+        Command::default()
+            .run(root)
+            .expect("status should succeed when no suspect links exist");
+    }
+
     #[test]
     fn status_detects_path_issues_in_path_based_mode() {
         let tmp = tempdir().unwrap();
