@@ -43,10 +43,7 @@ impl Show {
 
         // Find the requirement
         let Some(req) = directory.find_by_hrid(&self.hrid) else {
-            eprintln!(
-                "Requirement {} not found",
-                self.hrid.display(digits)
-            );
+            eprintln!("Requirement {} not found", self.hrid.display(digits));
             std::process::exit(1);
         };
 
@@ -158,7 +155,10 @@ impl Show {
                 let hrid = directory
                     .requirements()
                     .find(|r| r.uuid == uuid)
-                    .map_or_else(|| "unknown".to_string(), |r| r.hrid.display(digits).to_string());
+                    .map_or_else(
+                        || "unknown".to_string(),
+                        |r| r.hrid.display(digits).to_string(),
+                    );
                 json!({
                     "uuid": uuid.to_string(),
                     "hrid": hrid
@@ -197,7 +197,11 @@ impl Show {
 
     fn output_markdown(&self, directory: &Directory, req: &requiem::RequirementView) {
         // Output as markdown that could be used in documentation
-        println!("# {} {}\n", req.hrid.display(directory.config().digits()), req.title);
+        println!(
+            "# {} {}\n",
+            req.hrid.display(directory.config().digits()),
+            req.title
+        );
 
         // Metadata table
         println!("| Property | Value |");

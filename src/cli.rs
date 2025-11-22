@@ -1,5 +1,7 @@
-use std::io::{self, BufRead};
-use std::path::{Path, PathBuf};
+use std::{
+    io::{self, BufRead},
+    path::{Path, PathBuf},
+};
 
 mod list;
 mod show;
@@ -235,19 +237,16 @@ impl Init {
     /// Returns default template content for a given kind.
     fn default_template_for_kind(kind: &str) -> String {
         match kind {
-            "USR" => {
-                "## Statement\n\nThe system shall [describe what must be accomplished from user \
-                 perspective].\n\n## Rationale\n\n[Explain why this requirement exists]\n\n## \
-                 Acceptance Criteria\n\n- [Criterion 1: Specific, measurable condition that must \
-                 be met]\n- [Criterion 2: Observable behavior or outcome]\n"
-                    .to_string()
-            }
-            "SYS" => {
-                "## Description\n\n[Describe the system-level requirement or implementation \
-                 approach]\n\n## Technical Details\n\n[Technical specifications, constraints, or \
-                 implementation notes]\n"
-                    .to_string()
-            }
+            "USR" => "## Statement\n\nThe system shall [describe what must be accomplished from \
+                      user perspective].\n\n## Rationale\n\n[Explain why this requirement \
+                      exists]\n\n## Acceptance Criteria\n\n- [Criterion 1: Specific, measurable \
+                      condition that must be met]\n- [Criterion 2: Observable behavior or \
+                      outcome]\n"
+                .to_string(),
+            "SYS" => "## Description\n\n[Describe the system-level requirement or implementation \
+                      approach]\n\n## Technical Details\n\n[Technical specifications, \
+                      constraints, or implementation notes]\n"
+                .to_string(),
             _ => {
                 format!(
                     "## Description\n\n[Description of {kind} requirement]\n\n## \
@@ -342,7 +341,8 @@ pub struct Delete {
     #[clap(value_parser = parse_hrid)]
     hrid: Hrid,
 
-    /// Delete requirement and orphaned descendants (children with no other parents)
+    /// Delete requirement and orphaned descendants (children with no other
+    /// parents)
     #[arg(long)]
     cascade: bool,
 
@@ -434,7 +434,10 @@ impl Delete {
         }
 
         if self.dry_run {
-            println!("{}",format!("Would delete {} requirement(s)", to_delete.len()).dim());
+            println!(
+                "{}",
+                format!("Would delete {} requirement(s)", to_delete.len()).dim()
+            );
             return Ok(());
         }
 
@@ -521,7 +524,10 @@ impl Unlink {
         };
 
         let Some(_parent_req) = directory.find_by_hrid(&self.parent) else {
-            anyhow::bail!("Parent requirement {} not found", self.parent.display(digits));
+            anyhow::bail!(
+                "Parent requirement {} not found",
+                self.parent.display(digits)
+            );
         };
 
         // Show confirmation prompt unless --yes was specified
@@ -579,7 +585,8 @@ pub struct Sync {
     #[arg(long, default_value = "parents")]
     what: SyncWhat,
 
-    /// Check for drift without making changes (exits with code 2 if drift found)
+    /// Check for drift without making changes (exits with code 2 if drift
+    /// found)
     #[arg(long)]
     check: bool,
 
@@ -628,8 +635,11 @@ impl Sync {
             if !self.quiet {
                 println!(
                     "{}",
-                    format!("⚠️  {} requirements have stale parent HRIDs", would_update.len())
-                        .warning()
+                    format!(
+                        "⚠️  {} requirements have stale parent HRIDs",
+                        would_update.len()
+                    )
+                    .warning()
                 );
                 for hrid in &would_update {
                     println!("  • {}", hrid.display(directory.config().digits()));
@@ -678,7 +688,10 @@ impl Sync {
         let misplaced = directory.check_path_drift();
         if misplaced.is_empty() {
             if !self.quiet {
-                println!("{}", "✅ All requirements are in canonical locations.".success());
+                println!(
+                    "{}",
+                    "✅ All requirements are in canonical locations.".success()
+                );
             }
         } else {
             if !self.quiet {
@@ -706,7 +719,10 @@ impl Sync {
 
         if misplaced.is_empty() {
             if !self.quiet {
-                println!("{}", "✅ All requirements are in canonical locations.".success());
+                println!(
+                    "{}",
+                    "✅ All requirements are in canonical locations.".success()
+                );
             }
             return Ok(());
         }
@@ -730,7 +746,10 @@ impl Sync {
         if !self.yes {
             use std::io::{self, BufRead};
 
-            println!("Will move {} files to canonical locations:", misplaced.len());
+            println!(
+                "Will move {} files to canonical locations:",
+                misplaced.len()
+            );
             for (hrid, current, canonical) in &misplaced {
                 println!(
                     "  • {}: {} → {}",
@@ -753,15 +772,17 @@ impl Sync {
         let moved = directory.sync_paths()?;
 
         if !self.quiet {
-            println!(
-                "{}",
-                format!("✅ Moved {} files", moved.len()).success()
-            );
+            println!("{}", format!("✅ Moved {} files", moved.len()).success());
         }
         Ok(())
     }
 
-    fn sync_all(&self, directory: &mut Directory, check: bool, dry_run: bool) -> anyhow::Result<()> {
+    fn sync_all(
+        &self,
+        directory: &mut Directory,
+        check: bool,
+        dry_run: bool,
+    ) -> anyhow::Result<()> {
         use terminal::Colorize;
 
         let hrid_drift = directory.check_hrid_drift();
@@ -798,10 +819,7 @@ impl Sync {
                 );
             }
             if !moved.is_empty() {
-                println!(
-                    "{}",
-                    format!("✅ Moved {} files", moved.len()).success()
-                );
+                println!("{}", format!("✅ Moved {} files", moved.len()).success());
             }
             if updated_hrids.is_empty() && moved.is_empty() {
                 println!("{}", "✅ Everything is synchronized.".success());
@@ -823,8 +841,11 @@ impl Sync {
             if !hrid_drift.is_empty() {
                 println!(
                     "{}",
-                    format!("⚠️  {} requirements have stale parent HRIDs", hrid_drift.len())
-                        .warning()
+                    format!(
+                        "⚠️  {} requirements have stale parent HRIDs",
+                        hrid_drift.len()
+                    )
+                    .warning()
                 );
             }
             if !path_drift.is_empty() {
@@ -909,7 +930,12 @@ pub struct Review {
     detail: bool,
 
     /// Output format (table, json, ndjson)
-    #[arg(long, value_name = "FORMAT", default_value = "table", conflicts_with = "accept")]
+    #[arg(
+        long,
+        value_name = "FORMAT",
+        default_value = "table",
+        conflicts_with = "accept"
+    )]
     format: SuspectFormat,
 
     /// Show summary statistics
@@ -917,7 +943,13 @@ pub struct Review {
     stats: bool,
 
     /// Quiet mode: output only CHILD PARENT pairs (no headers, no colors)
-    #[arg(long, short, conflicts_with = "detail", conflicts_with = "stats", conflicts_with = "accept")]
+    #[arg(
+        long,
+        short,
+        conflicts_with = "detail",
+        conflicts_with = "stats",
+        conflicts_with = "accept"
+    )]
     quiet: bool,
 
     /// Filter by child requirement HRID
@@ -1536,12 +1568,14 @@ impl Review {
 #[derive(Debug, clap::Parser)]
 /// Show or modify repository configuration
 ///
-/// Configuration is stored in .req/config.toml and controls repository behavior.
+/// Configuration is stored in .req/config.toml and controls repository
+/// behavior.
 ///
 /// Available configuration keys:
 ///   `subfolders_are_namespaces`  Path mode (true) vs filename mode (false)
 ///   digits                      Number of digits for HRID padding (default: 3)
-///   `allow_unrecognised`         Allow non-HRID markdown files (default: false)
+///   `allow_unrecognised`         Allow non-HRID markdown files (default:
+/// false)
 ///
 /// Note: Use 'req kind' commands to manage `allowed_kinds` configuration.
 pub struct Config {
@@ -1558,7 +1592,8 @@ enum ConfigCommand {
     Get {
         /// Configuration key to retrieve
         ///
-        /// Available keys: `subfolders_are_namespaces`, digits, `allow_unrecognised`, `allowed_kinds`
+        /// Available keys: `subfolders_are_namespaces`, digits,
+        /// `allow_unrecognised`, `allowed_kinds`
         key: String,
     },
 
@@ -1648,8 +1683,7 @@ impl Config {
             _ => {
                 anyhow::bail!(
                     "Unknown configuration key: '{key}'\n\nAvailable keys:\n  \
-                     subfolders_are_namespaces\n  digits\n  allow_unrecognised\n  \
-                     allowed_kinds",
+                     subfolders_are_namespaces\n  digits\n  allow_unrecognised\n  allowed_kinds",
                 );
             }
         }
@@ -1692,19 +1726,17 @@ impl Config {
                 if bool_value {
                     println!("\n{}", "Path-based mode:".info());
                     println!(
-                        "  • Filenames inside namespace folders should contain KIND-ID \
-                         (e.g., USR/003.md)."
+                        "  • Filenames inside namespace folders should contain KIND-ID (e.g., \
+                         USR/003.md)."
                     );
                     println!(
-                        "  • You will need to manually reorganize existing files to match \
-                         the new structure."
+                        "  • You will need to manually reorganize existing files to match the new \
+                         structure."
                     );
                 } else {
                     println!("\n{}", "Filename-based mode:".info());
                     println!("  • Namespaces will no longer be inferred from folders.");
-                    println!(
-                        "  • Full HRID must be in filename (e.g., system-auth-USR-003.md)."
-                    );
+                    println!("  • Full HRID must be in filename (e.g., system-auth-USR-003.md).");
                 }
 
                 println!(
@@ -1716,8 +1748,7 @@ impl Config {
             }
             _ => {
                 return Err(anyhow::anyhow!(
-                    "Unknown configuration key: '{key}'\nSupported keys: \
-                     subfolders_are_namespaces",
+                    "Unknown configuration key: '{key}'\nSupported keys: subfolders_are_namespaces",
                 ));
             }
         }
@@ -1760,7 +1791,9 @@ impl Kind {
 
         match self.command {
             KindCommand::Add { kinds } => Self::add_kinds(&config_path, kinds),
-            KindCommand::Remove { kinds, yes } => Self::remove_kinds(&config_path, root, kinds, yes),
+            KindCommand::Remove { kinds, yes } => {
+                Self::remove_kinds(&config_path, root, kinds, yes)
+            }
             KindCommand::List => Self::list_kinds(&config_path),
         }
     }
@@ -1790,9 +1823,7 @@ impl Kind {
             // Validate kind format (must be uppercase alphabetic)
             let kind_upper = kind.to_uppercase();
             if !kind_upper.chars().all(|c| c.is_ascii_uppercase()) {
-                anyhow::bail!(
-                    "Invalid kind '{kind}': kinds must contain only letters (A-Z)"
-                );
+                anyhow::bail!("Invalid kind '{kind}': kinds must contain only letters (A-Z)");
             }
 
             if config.add_kind(&kind_upper) {
@@ -1817,11 +1848,7 @@ impl Kind {
         if !already_exists.is_empty() {
             println!(
                 "{}",
-                format!(
-                    "ℹ️  Already registered: {}",
-                    already_exists.join(", ")
-                )
-                .dim()
+                format!("ℹ️  Already registered: {}", already_exists.join(", ")).dim()
             );
         }
 
@@ -1916,8 +1943,12 @@ impl Kind {
 
             println!(
                 "{}",
-                format!("✅ Removed {} kind(s): {}", removed.len(), removed.join(", "))
-                    .success()
+                format!(
+                    "✅ Removed {} kind(s): {}",
+                    removed.len(),
+                    removed.join(", ")
+                )
+                .success()
             );
         }
 
@@ -1980,10 +2011,7 @@ impl Rename {
 
         // Find the requirement
         let Some(req) = directory.find_by_hrid(&self.old_hrid) else {
-            anyhow::bail!(
-                "Requirement {} not found",
-                self.old_hrid.display(digits)
-            );
+            anyhow::bail!("Requirement {} not found", self.old_hrid.display(digits));
         };
 
         // Check if children exist
@@ -1999,7 +2027,8 @@ impl Rename {
             println!("  Title: {}", req.title);
 
             if !children.is_empty() {
-                println!("\n{} will be updated in {} children:",
+                println!(
+                    "\n{} will be updated in {} children:",
                     "Parent HRID".dim(),
                     children.len()
                 );
@@ -2067,16 +2096,13 @@ impl Move {
 
         // Find the requirement
         let Some(req) = directory.find_by_hrid(&self.hrid) else {
-            anyhow::bail!(
-                "Requirement {} not found",
-                self.hrid.display(digits)
-            );
+            anyhow::bail!("Requirement {} not found", self.hrid.display(digits));
         };
 
         // Get current path
-        let old_path = directory
-            .path_for(&self.hrid)
-            .ok_or_else(|| anyhow::anyhow!("Cannot find current path for {}", self.hrid.display(digits)))?;
+        let old_path = directory.path_for(&self.hrid).ok_or_else(|| {
+            anyhow::anyhow!("Cannot find current path for {}", self.hrid.display(digits))
+        })?;
 
         // Make new path absolute if relative
         let new_path = if self.new_path.is_absolute() {
@@ -2113,7 +2139,8 @@ impl Move {
                 );
 
                 if !children.is_empty() {
-                    println!("   {} will be updated in {} children",
+                    println!(
+                        "   {} will be updated in {} children",
                         "Parent HRID".dim(),
                         children.len()
                     );
@@ -2276,7 +2303,9 @@ mod tests {
             body: Some("body text".to_string()),
         };
 
-        create.run(root.clone()).expect("create command should succeed");
+        create
+            .run(root.clone())
+            .expect("create command should succeed");
 
         let directory = Directory::new(root).expect("failed to load directory");
         let child = collect_child(&directory, "USR");
@@ -2304,7 +2333,9 @@ mod tests {
             body: None,
         };
 
-        create.run(root.clone()).expect("create command should succeed");
+        create
+            .run(root.clone())
+            .expect("create command should succeed");
 
         let directory = Directory::new(root).expect("failed to load directory");
         let child = collect_child(&directory, "USR");
@@ -2323,7 +2354,9 @@ mod tests {
             body: Some("test body".to_string()),
         };
 
-        create.run(root.clone()).expect("create command should succeed");
+        create
+            .run(root.clone())
+            .expect("create command should succeed");
 
         let directory = Directory::new(root).expect("failed to load directory");
 

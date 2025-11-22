@@ -80,9 +80,16 @@ struct PathIssue {
 
 #[derive(Debug)]
 enum LinkIssue {
-    _BrokenReference { _child: String, _parent_uuid: String },
-    _CircularDependency { _cycle: Vec<String> },
-    StaleHrid { child: String },
+    _BrokenReference {
+        _child: String,
+        _parent_uuid: String,
+    },
+    _CircularDependency {
+        _cycle: Vec<String>,
+    },
+    StaleHrid {
+        child: String,
+    },
 }
 
 #[derive(Debug)]
@@ -253,7 +260,10 @@ impl Validate {
         if total_issues == 0 {
             println!("\n{}", "Repository is healthy (0 issues)".success());
         } else {
-            println!("\n{}", format!("Summary: {total_issues} issues found").warning());
+            println!(
+                "\n{}",
+                format!("Summary: {total_issues} issues found").warning()
+            );
 
             // Show hints for fixing
             if !result.paths.is_empty() || !result.links.is_empty() {
@@ -327,13 +337,14 @@ impl Validate {
     }
 
     fn count_issues(result: &ValidationResult) -> usize {
-        result.structure.len()
-            + result.paths.len()
-            + result.links.len()
-            + result.suspect.len()
+        result.structure.len() + result.paths.len() + result.links.len() + result.suspect.len()
     }
 
-    fn apply_fixes(&self, result: &ValidationResult, mut directory: Directory) -> anyhow::Result<()> {
+    fn apply_fixes(
+        &self,
+        result: &ValidationResult,
+        mut directory: Directory,
+    ) -> anyhow::Result<()> {
         if self.dry_run {
             if !self.quiet {
                 println!("\nDry run: showing what would be fixed...\n");
@@ -369,7 +380,11 @@ impl Validate {
         }
 
         // Fix stale HRIDs
-        let stale_count = result.links.iter().filter(|issue| matches!(issue, LinkIssue::StaleHrid { .. })).count();
+        let stale_count = result
+            .links
+            .iter()
+            .filter(|issue| matches!(issue, LinkIssue::StaleHrid { .. }))
+            .count();
         if stale_count > 0 {
             let updated = directory.update_hrids();
             if !updated.is_empty() {
@@ -387,11 +402,19 @@ impl Validate {
         if !result.paths.is_empty() {
             println!("Paths ({} files):", result.paths.len());
             for issue in &result.paths {
-                println!("  • {} → {}", issue.current_path.display(), issue.expected_path.display());
+                println!(
+                    "  • {} → {}",
+                    issue.current_path.display(),
+                    issue.expected_path.display()
+                );
             }
         }
 
-        let stale_count = result.links.iter().filter(|issue| matches!(issue, LinkIssue::StaleHrid { .. })).count();
+        let stale_count = result
+            .links
+            .iter()
+            .filter(|issue| matches!(issue, LinkIssue::StaleHrid { .. }))
+            .count();
         if stale_count > 0 {
             println!("\nLinks ({stale_count} stale HRIDs):");
             for issue in &result.links {
