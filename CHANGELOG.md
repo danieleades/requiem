@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/danieleades/requiem/compare/v0.1.1...v0.2.0) - 2025-11-22
+
+### Added
+
+- deduplicate the 'sync' and 'diagnose' commands ([#70](https://github.com/danieleades/requiem/pull/70))
+- [**breaking**] rework the CLI ([#67](https://github.com/danieleades/requiem/pull/67))
+- improve config command help and add get subcommand (Phase 4)
+- add rename and move commands (Phase 3)
+- enhance init command with --kinds flag (Phase 3)
+- add kind management commands (Phase 3)
+- rename add → create command (Phase 3)
+- add show command with multiple output formats (Phase 3)
+- add unified validate command (Phase 2)
+- implement Phase 1 CLI redesign with clean replacements
+
+### Fixed
+
+- resolve all clippy pedantic warnings
+- general bug fixing ([#63](https://github.com/danieleades/requiem/pull/63))
+- *(cli)* update documentation for current CLI commands ([#62](https://github.com/danieleades/requiem/pull/62))
+
+### Other
+
+- partial clean-up of the CLI code ([#69](https://github.com/danieleades/requiem/pull/69))
+- partial clean-up of the CLI code ([#68](https://github.com/danieleades/requiem/pull/68))
+- *(deps)* bump actions/checkout from 5 to 6 ([#66](https://github.com/danieleades/requiem/pull/66))
+- extract helper methods to eliminate too_many_lines warnings
+- update codecov badge link in README ([#65](https://github.com/danieleades/requiem/pull/65))
+- check in CI that the requirements are in a valid state ([#64](https://github.com/danieleades/requiem/pull/64))
+- Update Pages workflow to deploy on release tags ([#60](https://github.com/danieleades/requiem/pull/60))
+
 ## [0.1.1](https://github.com/danieleades/requiem/compare/v0.1.0...v0.1.1) - 2025-11-14
 
 ### Added
