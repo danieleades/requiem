@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use requiem::{Directory, Hrid};
 use tracing::instrument;
 
-use crate::cli::{parse_hrid, terminal};
+use crate::cli::{parse_hrid, prompt_to_proceed, terminal};
 
 #[derive(Debug, clap::Parser)]
 pub struct Command {
@@ -42,21 +42,12 @@ impl Command {
 
         // Show confirmation prompt unless --yes was specified
         if !self.yes {
-            use std::io::{self, BufRead};
-
             println!(
                 "Will unlink {} from parent {}",
                 self.child.display(digits),
                 self.parent.display(digits)
             );
-            eprint!("\nProceed? (y/N) ");
-            let stdin = io::stdin();
-            let mut line = String::new();
-            stdin.lock().read_line(&mut line)?;
-            if !line.trim().eq_ignore_ascii_case("y") {
-                println!("Cancelled");
-                std::process::exit(130);
-            }
+            prompt_to_proceed()?;
         }
 
         // Perform the unlink
