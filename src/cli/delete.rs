@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use requiem::{Directory, Hrid};
 use tracing::instrument;
 
-use crate::cli::{parse_hrid, terminal};
+use crate::cli::{parse_hrid, prompt_to_proceed, terminal::Colorize};
 
 #[derive(Debug, clap::Parser)]
 #[allow(clippy::struct_excessive_bools)]
@@ -33,8 +33,6 @@ pub struct Command {
 impl Command {
     #[instrument]
     pub fn run(self, root: PathBuf) -> anyhow::Result<()> {
-        use terminal::Colorize;
-
         let mut directory = Directory::new(root)?;
         let digits = directory.config().digits();
 
@@ -79,8 +77,6 @@ impl Command {
 
         // Show preview
         if !self.yes && !self.dry_run {
-            use std::io::{self, BufRead};
-
             println!("Will delete {} requirement(s):", to_delete.len());
             for delete_hrid in &to_delete {
                 println!("  • {}", delete_hrid.display(digits));
@@ -94,14 +90,7 @@ impl Command {
             }
 
             // Get confirmation
-            eprint!("\nProceed? (y/N) ");
-            let stdin = io::stdin();
-            let mut line = String::new();
-            stdin.lock().read_line(&mut line)?;
-            if !line.trim().eq_ignore_ascii_case("y") {
-                println!("Cancelled");
-                std::process::exit(130);
-            }
+            prompt_to_proceed()?;
         }
 
         if self.dry_run {

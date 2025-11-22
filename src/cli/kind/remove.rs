@@ -3,7 +3,7 @@ use std::path::Path;
 use requiem::Directory;
 use tracing::instrument;
 
-use crate::cli::terminal::Colorize;
+use crate::cli::{prompt_to_proceed, terminal::Colorize};
 
 #[derive(Debug, clap::Parser)]
 pub struct Command {
@@ -48,8 +48,6 @@ impl Command {
 
         // Show warnings if requirements exist
         if !warnings.is_empty() && !self.yes {
-            use std::io::{self, BufRead};
-
             println!(
                 "{}",
                 "⚠️  The following kinds have existing requirements:".warning()
@@ -64,14 +62,7 @@ impl Command {
                     .dim()
             );
 
-            eprint!("\nProceed? (y/N) ");
-            let stdin = io::stdin();
-            let mut line = String::new();
-            stdin.lock().read_line(&mut line)?;
-            if !line.trim().eq_ignore_ascii_case("y") {
-                println!("Cancelled");
-                std::process::exit(130);
-            }
+            prompt_to_proceed()?;
         }
 
         // Remove kinds
