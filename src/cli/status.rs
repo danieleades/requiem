@@ -8,7 +8,7 @@ use super::terminal::{is_narrow, Colorize};
 
 #[derive(Debug, Parser, Default)]
 #[command(about = "Show requirement counts and suspect link totals")]
-pub struct Status {
+pub struct Command {
     /// Output format (table, json)
     #[arg(long, value_name = "FORMAT", default_value = "table")]
     output: OutputFormat,
@@ -25,7 +25,7 @@ enum OutputFormat {
     Json,
 }
 
-impl Status {
+impl Command {
     #[instrument(level = "debug", skip(self))]
     pub fn run(self, root: PathBuf) -> anyhow::Result<()> {
         let directory = Directory::new(root)?;

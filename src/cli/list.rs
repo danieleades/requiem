@@ -124,7 +124,7 @@ pub enum View {
 }
 
 /// Available table columns.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Default)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Default, ValueEnum)]
 pub enum ListColumn {
     #[default]
     Hrid,
@@ -136,51 +136,6 @@ pub enum ListColumn {
     Tags,
     Path,
     Created,
-}
-
-impl clap::ValueEnum for ListColumn {
-    fn value_variants<'a>() -> &'a [Self] {
-        &[
-            Self::Hrid,
-            Self::Title,
-            Self::Kind,
-            Self::Namespace,
-            Self::Parents,
-            Self::Children,
-            Self::Tags,
-            Self::Path,
-            Self::Created,
-        ]
-    }
-
-    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
-        Some(match self {
-            Self::Hrid => clap::builder::PossibleValue::new("hrid"),
-            Self::Title => clap::builder::PossibleValue::new("title"),
-            Self::Kind => clap::builder::PossibleValue::new("kind"),
-            Self::Namespace => clap::builder::PossibleValue::new("namespace"),
-            Self::Parents => clap::builder::PossibleValue::new("parents"),
-            Self::Children => clap::builder::PossibleValue::new("children"),
-            Self::Tags => clap::builder::PossibleValue::new("tags"),
-            Self::Path => clap::builder::PossibleValue::new("path"),
-            Self::Created => clap::builder::PossibleValue::new("created"),
-        })
-    }
-
-    fn from_str(label: &str, _case_sensitive: bool) -> Result<Self, String> {
-        match label.to_ascii_lowercase().as_str() {
-            "hrid" => Ok(Self::Hrid),
-            "title" => Ok(Self::Title),
-            "kind" => Ok(Self::Kind),
-            "namespace" => Ok(Self::Namespace),
-            "parents" => Ok(Self::Parents),
-            "children" => Ok(Self::Children),
-            "tags" => Ok(Self::Tags),
-            "path" => Ok(Self::Path),
-            "created" => Ok(Self::Created),
-            _ => Err(format!("unknown column: {label}")),
-        }
-    }
 }
 
 /// Parsed requirement snapshot used for listing.
