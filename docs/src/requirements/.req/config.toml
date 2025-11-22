@@ -1,2 +1,9 @@
 _version = "1"
+allowed_kinds = [
+    "USR",
+    "SYS",
+    "SPC",
+]
+digits = 3
 allow_unrecognised = true
+subfolders_are_namespaces = true
