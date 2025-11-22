@@ -9,7 +9,10 @@
 //! 2. **Path-based**: Subfolders encode namespace, filename contains KIND-ID
 //!    - Example: `SYSTEM-AUTH-REQ-001` → `root/SYSTEM/AUTH/REQ-001.md`
 
-use std::{num::NonZeroUsize, path::{Path, PathBuf}};
+use std::{
+    num::NonZeroUsize,
+    path::{Path, PathBuf},
+};
 
 use crate::domain::Hrid;
 
@@ -69,9 +72,13 @@ pub fn hrid_from_path(
     config: &crate::domain::Config,
 ) -> Result<Hrid, String> {
     // Remove root prefix and .md extension
-    let relative_path = path
-        .strip_prefix(root)
-        .map_err(|_| format!("Path {} is not under root {}", path.display(), root.display()))?;
+    let relative_path = path.strip_prefix(root).map_err(|_| {
+        format!(
+            "Path {} is not under root {}",
+            path.display(),
+            root.display()
+        )
+    })?;
 
     let path_without_ext = relative_path.with_extension("");
 
@@ -135,7 +142,9 @@ pub fn hrid_from_path(
             .and_then(|f| f.to_str())
             .ok_or_else(|| "Cannot extract filename from path".to_string())?;
 
-        filename.parse().map_err(|e: crate::domain::HridError| e.to_string())
+        filename
+            .parse()
+            .map_err(|e: crate::domain::HridError| e.to_string())
     }
 }
 

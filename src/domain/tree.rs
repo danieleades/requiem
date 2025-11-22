@@ -416,9 +416,10 @@ impl Tree {
 
     /// Remove a requirement from the tree.
     ///
-    /// This removes the requirement node and all its edges (both incoming and outgoing).
-    /// Parent requirements will have this requirement removed from their children lists.
-    /// Child requirements will have this requirement removed from their parent lists.
+    /// This removes the requirement node and all its edges (both incoming and
+    /// outgoing). Parent requirements will have this requirement removed
+    /// from their children lists. Child requirements will have this
+    /// requirement removed from their parent lists.
     ///
     /// # Errors
     ///
@@ -494,17 +495,15 @@ impl Tree {
     /// - Either HRID does not exist in the tree
     /// - The link between child and parent does not exist
     pub fn unlink_requirement(&mut self, child: &Hrid, parent: &Hrid) -> anyhow::Result<Uuid> {
-        let child_uuid = self
-            .hrid_to_uuid
-            .get(child)
-            .copied()
-            .ok_or_else(|| anyhow::anyhow!("Child requirement {} not found", child.display(3)))?;
+        let child_uuid =
+            self.hrid_to_uuid.get(child).copied().ok_or_else(|| {
+                anyhow::anyhow!("Child requirement {} not found", child.display(3))
+            })?;
 
-        let parent_uuid = self
-            .hrid_to_uuid
-            .get(parent)
-            .copied()
-            .ok_or_else(|| anyhow::anyhow!("Parent requirement {} not found", parent.display(3)))?;
+        let parent_uuid =
+            self.hrid_to_uuid.get(parent).copied().ok_or_else(|| {
+                anyhow::anyhow!("Parent requirement {} not found", parent.display(3))
+            })?;
 
         // Check if the edge exists
         if !self.graph.contains_edge(child_uuid, parent_uuid) {
@@ -526,7 +525,8 @@ impl Tree {
     ///
     /// This updates:
     /// - The HRID mapping for the requirement
-    /// - All parent edges that reference this requirement (so children's parent HRIDs are updated)
+    /// - All parent edges that reference this requirement (so children's parent
+    ///   HRIDs are updated)
     ///
     /// Returns the UUID of the renamed requirement and a list of children UUIDs
     /// (which need to be marked dirty since their parent HRID changed).

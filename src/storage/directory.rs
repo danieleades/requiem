@@ -401,8 +401,9 @@ impl Directory {
 
     /// Delete a requirement from the directory.
     ///
-    /// This removes the requirement from the tree and marks it for deletion from disk.
-    /// The requirement must not have any children, or this will fail.
+    /// This removes the requirement from the tree and marks it for deletion
+    /// from disk. The requirement must not have any children, or this will
+    /// fail.
     ///
     /// # Errors
     ///
@@ -410,7 +411,10 @@ impl Directory {
     pub fn delete_requirement(&mut self, hrid: &Hrid) -> anyhow::Result<()> {
         // Find the requirement
         let Some(view) = self.tree.find_by_hrid(hrid) else {
-            anyhow::bail!("Requirement {} not found", hrid.display(self.config.digits()));
+            anyhow::bail!(
+                "Requirement {} not found",
+                hrid.display(self.config.digits())
+            );
         };
 
         // Check if it has children
@@ -437,8 +441,9 @@ impl Directory {
 
     /// Delete a requirement and unlink it from all children.
     ///
-    /// This removes the requirement from the tree and marks it for deletion from disk.
-    /// All children will have this requirement removed from their parent list.
+    /// This removes the requirement from the tree and marks it for deletion
+    /// from disk. All children will have this requirement removed from
+    /// their parent list.
     ///
     /// # Errors
     ///
@@ -446,7 +451,10 @@ impl Directory {
     pub fn delete_and_orphan(&mut self, hrid: &Hrid) -> anyhow::Result<()> {
         // Find the requirement
         let Some(view) = self.tree.find_by_hrid(hrid) else {
-            anyhow::bail!("Requirement {} not found", hrid.display(self.config.digits()));
+            anyhow::bail!(
+                "Requirement {} not found",
+                hrid.display(self.config.digits())
+            );
         };
 
         let uuid = *view.uuid;
@@ -470,11 +478,12 @@ impl Directory {
         Ok(())
     }
 
-    /// Find all descendants that would become orphans if this requirement were deleted.
+    /// Find all descendants that would become orphans if this requirement were
+    /// deleted.
     ///
-    /// Returns a list of HRIDs for requirements that would have no parents if the
-    /// given requirement (and its orphaned descendants) were deleted. This implements
-    /// smart cascade deletion logic.
+    /// Returns a list of HRIDs for requirements that would have no parents if
+    /// the given requirement (and its orphaned descendants) were deleted.
+    /// This implements smart cascade deletion logic.
     #[must_use]
     pub fn find_orphaned_descendants(&self, hrid: &Hrid) -> Vec<Hrid> {
         use std::collections::{HashSet, VecDeque};
@@ -551,10 +560,7 @@ impl Directory {
     ) -> anyhow::Result<Vec<Hrid>> {
         // Check kind is allowed
         if !self.config.is_kind_allowed(new_hrid.kind()) {
-            anyhow::bail!(
-                "Kind '{}' is not allowed by configuration",
-                new_hrid.kind()
-            );
+            anyhow::bail!("Kind '{}' is not allowed by configuration", new_hrid.kind());
         }
 
         // Perform rename in tree (this updates all parent references)
@@ -610,7 +616,10 @@ impl Directory {
 
         // Find the requirement
         let Some(view) = self.tree.find_by_hrid(hrid) else {
-            anyhow::bail!("Requirement {} not found", hrid.display(self.config.digits()));
+            anyhow::bail!(
+                "Requirement {} not found",
+                hrid.display(self.config.digits())
+            );
         };
         let uuid = *view.uuid;
 
@@ -785,8 +794,8 @@ impl Directory {
 
     /// Check which requirements are in non-canonical locations.
     ///
-    /// Returns a list of (HRID, `current_path`, `canonical_path`) tuples for requirements
-    /// that are not stored at their canonical location.
+    /// Returns a list of (HRID, `current_path`, `canonical_path`) tuples for
+    /// requirements that are not stored at their canonical location.
     #[must_use]
     pub fn check_path_drift(&self) -> Vec<(Hrid, PathBuf, PathBuf)> {
         let mut misplaced = Vec::new();
@@ -828,14 +837,15 @@ impl Directory {
             }
 
             // Move the file
-            std::fs::rename(&current_path, &canonical_path)
-                .map_err(|e| anyhow::anyhow!(
+            std::fs::rename(&current_path, &canonical_path).map_err(|e| {
+                anyhow::anyhow!(
                     "Failed to move {} from {} to {}: {}",
                     hrid.display(self.config.digits()),
                     current_path.display(),
                     canonical_path.display(),
                     e
-                ))?;
+                )
+            })?;
 
             // Update the paths map
             if let Some(uuid) = self.tree.find_by_hrid(&hrid).map(|v| *v.uuid) {
