@@ -1580,139 +1580,147 @@ enum ConfigCommand {
 
 impl Config {
     #[instrument]
-    #[allow(clippy::too_many_lines)]
     fn run(self, root: &Path) -> anyhow::Result<()> {
-        use terminal::Colorize;
-
         let config_path = root.join(".req/config.toml");
 
         match self.command {
-            ConfigCommand::Show => {
-                let config = if config_path.exists() {
-                    requiem::Config::load(&config_path).map_err(|e| anyhow::anyhow!("{e}"))?
-                } else {
-                    requiem::Config::default()
-                };
+            ConfigCommand::Show => Self::show_config(&config_path),
+            ConfigCommand::Get { key } => Self::get_config(&config_path, &key),
+            ConfigCommand::Set { key, value } => Self::set_config(&config_path, &key, &value),
+        }
+    }
 
-                println!("Configuration:");
-                println!(
-                    "  subfolders_are_namespaces: {} ({})",
-                    config.subfolders_are_namespaces,
-                    if config.subfolders_are_namespaces {
-                        "path mode".dim()
-                    } else {
-                        "filename mode".dim()
-                    }
-                );
-                println!("  digits: {}", config.digits());
-                println!("  allow_unrecognised: {}", config.allow_unrecognised);
+    fn show_config(config_path: &std::path::Path) -> anyhow::Result<()> {
+        use terminal::Colorize;
+
+        let config = if config_path.exists() {
+            requiem::Config::load(config_path).map_err(|e| anyhow::anyhow!("{e}"))?
+        } else {
+            requiem::Config::default()
+        };
+
+        println!("Configuration:");
+        println!(
+            "  subfolders_are_namespaces: {} ({})",
+            config.subfolders_are_namespaces,
+            if config.subfolders_are_namespaces {
+                "path mode".dim()
+            } else {
+                "filename mode".dim()
+            }
+        );
+        println!("  digits: {}", config.digits());
+        println!("  allow_unrecognised: {}", config.allow_unrecognised);
+        if config.allowed_kinds().is_empty() {
+            println!("  allowed_kinds: {} (all kinds allowed)", "[]".dim());
+        } else {
+            println!("  allowed_kinds: {:?}", config.allowed_kinds());
+        }
+        Ok(())
+    }
+
+    fn get_config(config_path: &std::path::Path, key: &str) -> anyhow::Result<()> {
+        let config = if config_path.exists() {
+            requiem::Config::load(config_path).map_err(|e| anyhow::anyhow!("{e}"))?
+        } else {
+            requiem::Config::default()
+        };
+
+        match key {
+            "subfolders_are_namespaces" => {
+                println!("{}", config.subfolders_are_namespaces);
+            }
+            "digits" => {
+                println!("{}", config.digits());
+            }
+            "allow_unrecognised" => {
+                println!("{}", config.allow_unrecognised);
+            }
+            "allowed_kinds" => {
                 if config.allowed_kinds().is_empty() {
-                    println!("  allowed_kinds: {} (all kinds allowed)", "[]".dim());
+                    println!("[]");
                 } else {
-                    println!("  allowed_kinds: {:?}", config.allowed_kinds());
-                }
-            }
-            ConfigCommand::Get { key } => {
-                let config = if config_path.exists() {
-                    requiem::Config::load(&config_path).map_err(|e| anyhow::anyhow!("{e}"))?
-                } else {
-                    requiem::Config::default()
-                };
-
-                match key.as_str() {
-                    "subfolders_are_namespaces" => {
-                        println!("{}", config.subfolders_are_namespaces);
-                    }
-                    "digits" => {
-                        println!("{}", config.digits());
-                    }
-                    "allow_unrecognised" => {
-                        println!("{}", config.allow_unrecognised);
-                    }
-                    "allowed_kinds" => {
-                        if config.allowed_kinds().is_empty() {
-                            println!("[]");
-                        } else {
-                            for kind in config.allowed_kinds() {
-                                println!("{kind}");
-                            }
-                        }
-                    }
-                    _ => {
-                        anyhow::bail!(
-                            "Unknown configuration key: '{key}'\n\nAvailable keys:\n  \
-                             subfolders_are_namespaces\n  digits\n  allow_unrecognised\n  \
-                             allowed_kinds",
-                        );
+                    for kind in config.allowed_kinds() {
+                        println!("{kind}");
                     }
                 }
             }
-            ConfigCommand::Set { key, value } => {
-                let mut config = if config_path.exists() {
-                    requiem::Config::load(&config_path).map_err(|e| anyhow::anyhow!("{e}"))?
-                } else {
-                    requiem::Config::default()
-                };
-
-                match key.as_str() {
-                    "subfolders_are_namespaces" => {
-                        let bool_value = value
-                            .parse::<bool>()
-                            .map_err(|_| anyhow::anyhow!("Value must be 'true' or 'false'"))?;
-
-                        config.set_subfolders_are_namespaces(bool_value);
-                        config
-                            .save(&config_path)
-                            .map_err(|e| anyhow::anyhow!("{e}"))?;
-
-                        println!(
-                            "{}",
-                            format!(
-                                "Directory mode: {}",
-                                if bool_value {
-                                    "path-based"
-                                } else {
-                                    "filename-based"
-                                }
-                            )
-                            .success()
-                        );
-
-                        if bool_value {
-                            println!("\n{}", "Path-based mode:".info());
-                            println!(
-                                "  • Filenames inside namespace folders should contain KIND-ID \
-                                 (e.g., USR/003.md)."
-                            );
-                            println!(
-                                "  • You will need to manually reorganize existing files to match \
-                                 the new structure."
-                            );
-                        } else {
-                            println!("\n{}", "Filename-based mode:".info());
-                            println!("  • Namespaces will no longer be inferred from folders.");
-                            println!(
-                                "  • Full HRID must be in filename (e.g., system-auth-USR-003.md)."
-                            );
-                        }
-
-                        println!(
-                            "\n{}",
-                            "See docs/src/requirements/SPC-004.md for migration guide"
-                                .to_string()
-                                .dim()
-                        );
-                    }
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Unknown configuration key: '{key}'\nSupported keys: \
-                             subfolders_are_namespaces",
-                        ));
-                    }
-                }
+            _ => {
+                anyhow::bail!(
+                    "Unknown configuration key: '{key}'\n\nAvailable keys:\n  \
+                     subfolders_are_namespaces\n  digits\n  allow_unrecognised\n  \
+                     allowed_kinds",
+                );
             }
         }
+        Ok(())
+    }
 
+    fn set_config(config_path: &std::path::Path, key: &str, value: &str) -> anyhow::Result<()> {
+        use terminal::Colorize;
+
+        let mut config = if config_path.exists() {
+            requiem::Config::load(config_path).map_err(|e| anyhow::anyhow!("{e}"))?
+        } else {
+            requiem::Config::default()
+        };
+
+        match key {
+            "subfolders_are_namespaces" => {
+                let bool_value = value
+                    .parse::<bool>()
+                    .map_err(|_| anyhow::anyhow!("Value must be 'true' or 'false'"))?;
+
+                config.set_subfolders_are_namespaces(bool_value);
+                config
+                    .save(config_path)
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+                println!(
+                    "{}",
+                    format!(
+                        "Directory mode: {}",
+                        if bool_value {
+                            "path-based"
+                        } else {
+                            "filename-based"
+                        }
+                    )
+                    .success()
+                );
+
+                if bool_value {
+                    println!("\n{}", "Path-based mode:".info());
+                    println!(
+                        "  • Filenames inside namespace folders should contain KIND-ID \
+                         (e.g., USR/003.md)."
+                    );
+                    println!(
+                        "  • You will need to manually reorganize existing files to match \
+                         the new structure."
+                    );
+                } else {
+                    println!("\n{}", "Filename-based mode:".info());
+                    println!("  • Namespaces will no longer be inferred from folders.");
+                    println!(
+                        "  • Full HRID must be in filename (e.g., system-auth-USR-003.md)."
+                    );
+                }
+
+                println!(
+                    "\n{}",
+                    "See docs/src/requirements/SPC-004.md for migration guide"
+                        .to_string()
+                        .dim()
+                );
+            }
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Unknown configuration key: '{key}'\nSupported keys: \
+                     subfolders_are_namespaces",
+                ));
+            }
+        }
         Ok(())
     }
 }
@@ -1747,189 +1755,203 @@ enum KindCommand {
 
 impl Kind {
     #[instrument]
-    #[allow(clippy::too_many_lines)]
     fn run(self, root: &Path) -> anyhow::Result<()> {
-        use terminal::Colorize;
-
         let config_path = root.join(".req/config.toml");
 
         match self.command {
-            KindCommand::Add { kinds } => {
-                if kinds.is_empty() {
-                    anyhow::bail!("At least one kind must be specified");
-                }
+            KindCommand::Add { kinds } => Self::add_kinds(&config_path, kinds),
+            KindCommand::Remove { kinds, yes } => Self::remove_kinds(&config_path, root, kinds, yes),
+            KindCommand::List => Self::list_kinds(&config_path),
+        }
+    }
 
-                // Load config
-                let mut config = if config_path.exists() {
-                    requiem::Config::load(&config_path).map_err(|e| anyhow::anyhow!("{e}"))?
-                } else {
-                    anyhow::bail!(
-                        "Repository not initialized. Run 'req init' first or ensure you're in a \
-                         requirements repository"
-                    );
-                };
+    fn add_kinds(config_path: &std::path::Path, kinds: Vec<String>) -> anyhow::Result<()> {
+        use terminal::Colorize;
 
-                // Validate and add kinds
-                let mut added = Vec::new();
-                let mut already_exists = Vec::new();
+        if kinds.is_empty() {
+            anyhow::bail!("At least one kind must be specified");
+        }
 
-                for kind in kinds {
-                    // Validate kind format (must be uppercase alphabetic)
-                    let kind_upper = kind.to_uppercase();
-                    if !kind_upper.chars().all(|c| c.is_ascii_uppercase()) {
-                        anyhow::bail!(
-                            "Invalid kind '{kind}': kinds must contain only letters (A-Z)"
-                        );
-                    }
+        // Load config
+        let mut config = if config_path.exists() {
+            requiem::Config::load(config_path).map_err(|e| anyhow::anyhow!("{e}"))?
+        } else {
+            anyhow::bail!(
+                "Repository not initialized. Run 'req init' first or ensure you're in a \
+                 requirements repository"
+            );
+        };
 
-                    if config.add_kind(&kind_upper) {
-                        added.push(kind_upper);
-                    } else {
-                        already_exists.push(kind_upper);
-                    }
-                }
+        // Validate and add kinds
+        let mut added = Vec::new();
+        let mut already_exists = Vec::new();
 
-                // Save config if any kinds were added
-                if !added.is_empty() {
-                    config
-                        .save(&config_path)
-                        .map_err(|e| anyhow::anyhow!("{e}"))?;
-
-                    println!(
-                        "{}",
-                        format!("✅ Added {} kind(s): {}", added.len(), added.join(", ")).success()
-                    );
-                }
-
-                if !already_exists.is_empty() {
-                    println!(
-                        "{}",
-                        format!(
-                            "ℹ️  Already registered: {}",
-                            already_exists.join(", ")
-                        )
-                        .dim()
-                    );
-                }
-
-                Ok(())
+        for kind in kinds {
+            // Validate kind format (must be uppercase alphabetic)
+            let kind_upper = kind.to_uppercase();
+            if !kind_upper.chars().all(|c| c.is_ascii_uppercase()) {
+                anyhow::bail!(
+                    "Invalid kind '{kind}': kinds must contain only letters (A-Z)"
+                );
             }
 
-            KindCommand::Remove { kinds, yes } => {
-                if kinds.is_empty() {
-                    anyhow::bail!("At least one kind must be specified");
-                }
-
-                // Load config
-                let mut config = if config_path.exists() {
-                    requiem::Config::load(&config_path).map_err(|e| anyhow::anyhow!("{e}"))?
-                } else {
-                    anyhow::bail!(
-                        "Repository not initialized. Run 'req init' first or ensure you're in a \
-                         requirements repository"
-                    );
-                };
-
-                // Load directory to check for existing requirements
-                let directory = Directory::new(root.to_path_buf())?;
-
-                // Check if requirements exist for these kinds
-                let mut warnings = Vec::new();
-                for kind in &kinds {
-                    let kind_upper = kind.to_uppercase();
-                    let count = directory
-                        .requirements()
-                        .filter(|req| req.hrid.kind() == kind_upper)
-                        .count();
-
-                    if count > 0 {
-                        warnings.push(format!("  • {kind_upper}: {count} requirements exist"));
-                    }
-                }
-
-                // Show warnings if requirements exist
-                if !warnings.is_empty() && !yes {
-                    println!(
-                        "{}",
-                        "⚠️  The following kinds have existing requirements:".warning()
-                    );
-                    for warning in &warnings {
-                        println!("{warning}");
-                    }
-                    println!(
-                        "\n{}",
-                        "Removing these kinds will NOT delete the requirements, but they will be \
-                         considered invalid."
-                            .dim()
-                    );
-
-                    eprint!("\nProceed? (y/N) ");
-                    let stdin = io::stdin();
-                    let mut line = String::new();
-                    stdin.lock().read_line(&mut line)?;
-                    if !line.trim().eq_ignore_ascii_case("y") {
-                        println!("Cancelled");
-                        std::process::exit(130);
-                    }
-                }
-
-                // Remove kinds
-                let mut removed = Vec::new();
-                let mut not_found = Vec::new();
-
-                for kind in kinds {
-                    let kind_upper = kind.to_uppercase();
-                    if config.remove_kind(&kind_upper) {
-                        removed.push(kind_upper);
-                    } else {
-                        not_found.push(kind_upper);
-                    }
-                }
-
-                // Save config if any kinds were removed
-                if !removed.is_empty() {
-                    config
-                        .save(&config_path)
-                        .map_err(|e| anyhow::anyhow!("{e}"))?;
-
-                    println!(
-                        "{}",
-                        format!("✅ Removed {} kind(s): {}", removed.len(), removed.join(", "))
-                            .success()
-                    );
-                }
-
-                if !not_found.is_empty() {
-                    println!(
-                        "{}",
-                        format!("ℹ️  Not found: {}", not_found.join(", ")).dim()
-                    );
-                }
-
-                Ok(())
-            }
-
-            KindCommand::List => {
-                let config = if config_path.exists() {
-                    requiem::Config::load(&config_path).map_err(|e| anyhow::anyhow!("{e}"))?
-                } else {
-                    requiem::Config::default()
-                };
-
-                let kinds = config.allowed_kinds();
-
-                if kinds.is_empty() {
-                    println!("{}", "No kinds configured (all kinds allowed)".dim());
-                } else {
-                    println!("Registered requirement kinds:");
-                    for kind in kinds {
-                        println!("  • {kind}");
-                    }
-                }
-
-                Ok(())
+            if config.add_kind(&kind_upper) {
+                added.push(kind_upper);
+            } else {
+                already_exists.push(kind_upper);
             }
         }
+
+        // Save config if any kinds were added
+        if !added.is_empty() {
+            config
+                .save(config_path)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+            println!(
+                "{}",
+                format!("✅ Added {} kind(s): {}", added.len(), added.join(", ")).success()
+            );
+        }
+
+        if !already_exists.is_empty() {
+            println!(
+                "{}",
+                format!(
+                    "ℹ️  Already registered: {}",
+                    already_exists.join(", ")
+                )
+                .dim()
+            );
+        }
+
+        Ok(())
+    }
+
+    fn remove_kinds(
+        config_path: &std::path::Path,
+        root: &Path,
+        kinds: Vec<String>,
+        yes: bool,
+    ) -> anyhow::Result<()> {
+        use terminal::Colorize;
+
+        if kinds.is_empty() {
+            anyhow::bail!("At least one kind must be specified");
+        }
+
+        // Load config
+        let mut config = if config_path.exists() {
+            requiem::Config::load(config_path).map_err(|e| anyhow::anyhow!("{e}"))?
+        } else {
+            anyhow::bail!(
+                "Repository not initialized. Run 'req init' first or ensure you're in a \
+                 requirements repository"
+            );
+        };
+
+        // Load directory to check for existing requirements
+        let directory = Directory::new(root.to_path_buf())?;
+
+        // Check if requirements exist for these kinds
+        let mut warnings = Vec::new();
+        for kind in &kinds {
+            let kind_upper = kind.to_uppercase();
+            let count = directory
+                .requirements()
+                .filter(|req| req.hrid.kind() == kind_upper)
+                .count();
+
+            if count > 0 {
+                warnings.push(format!("  • {kind_upper}: {count} requirements exist"));
+            }
+        }
+
+        // Show warnings if requirements exist
+        if !warnings.is_empty() && !yes {
+            use std::io::{self, BufRead};
+
+            println!(
+                "{}",
+                "⚠️  The following kinds have existing requirements:".warning()
+            );
+            for warning in &warnings {
+                println!("{warning}");
+            }
+            println!(
+                "\n{}",
+                "Removing these kinds will NOT delete the requirements, but they will be \
+                 considered invalid."
+                    .dim()
+            );
+
+            eprint!("\nProceed? (y/N) ");
+            let stdin = io::stdin();
+            let mut line = String::new();
+            stdin.lock().read_line(&mut line)?;
+            if !line.trim().eq_ignore_ascii_case("y") {
+                println!("Cancelled");
+                std::process::exit(130);
+            }
+        }
+
+        // Remove kinds
+        let mut removed = Vec::new();
+        let mut not_found = Vec::new();
+
+        for kind in kinds {
+            let kind_upper = kind.to_uppercase();
+            if config.remove_kind(&kind_upper) {
+                removed.push(kind_upper);
+            } else {
+                not_found.push(kind_upper);
+            }
+        }
+
+        // Save config if any kinds were removed
+        if !removed.is_empty() {
+            config
+                .save(config_path)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+            println!(
+                "{}",
+                format!("✅ Removed {} kind(s): {}", removed.len(), removed.join(", "))
+                    .success()
+            );
+        }
+
+        if !not_found.is_empty() {
+            println!(
+                "{}",
+                format!("ℹ️  Not found: {}", not_found.join(", ")).dim()
+            );
+        }
+
+        Ok(())
+    }
+
+    fn list_kinds(config_path: &std::path::Path) -> anyhow::Result<()> {
+        use terminal::Colorize;
+
+        let config = if config_path.exists() {
+            requiem::Config::load(config_path).map_err(|e| anyhow::anyhow!("{e}"))?
+        } else {
+            requiem::Config::default()
+        };
+
+        let kinds = config.allowed_kinds();
+
+        if kinds.is_empty() {
+            println!("{}", "No kinds configured (all kinds allowed)".dim());
+        } else {
+            println!("Registered requirement kinds:");
+            for kind in kinds {
+                println!("  • {kind}");
+            }
+        }
+
+        Ok(())
     }
 }
 
