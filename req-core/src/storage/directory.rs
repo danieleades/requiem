@@ -51,11 +51,12 @@ impl Directory {
     /// - either the child or parent requirement file cannot be found
     /// - either the child or parent requirement file cannot be parsed
     /// - the child requirement file cannot be written to
+    /// - the parent/child UUIDs cannot be linked
     pub fn link_requirement(
         &mut self,
         child: &Hrid,
         parent: &Hrid,
-    ) -> Result<RequirementView<'_>, LoadError> {
+    ) -> anyhow::Result<RequirementView<'_>> {
         let outcome = self.tree.link_requirement(child, parent)?;
         self.mark_dirty(outcome.child_uuid);
 
@@ -70,7 +71,7 @@ impl Directory {
 
         self.tree
             .requirement(outcome.child_uuid)
-            .ok_or(LoadError::NotFound)
+            .ok_or_else(|| LoadError::NotFound.into())
     }
 
     /// Unlink two requirements, removing the parent-child relationship.
