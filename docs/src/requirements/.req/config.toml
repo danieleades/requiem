@@ -1,9 +1,9 @@
 _version = "1"
 allowed_kinds = [
-    "DFT",
-    "USR",
-    "SYS",
-    "SPC",
+    { kind = "DFT", description = "Defects discovered in behaviour or conformance. Used to record known deviations between requirements and implementation." },
+    { kind = "USR", description = "User requirements capturing needs and goals. High level descriptions of what the system must achieve." },
+    { kind = "SYS", description = "System requirements specifying behaviour and constraints. Derived from user requirements (USR). Describe how the system must meet the user requirements." },
+    { kind = "SPC", description = "Specifications provide detailed design and implementation details. Used sparingly, for features requiring UX/UI design or detailed architecture or other design documentation." },
 ]
 digits = 3
 allow_unrecognised = true

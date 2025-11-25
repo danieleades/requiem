@@ -154,6 +154,32 @@ impl Config {
             false
         }
     }
+
+    /// Sets or clears a description for a kind (stored uppercase).
+    ///
+    /// An empty or `None` description removes existing metadata.
+    pub fn set_kind_description(&mut self, kind: &str, description: Option<String>) {
+        let key = kind.to_uppercase();
+        let description = description
+            .and_then(|d| {
+                let trimmed = d.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            })
+            .map(Some);
+
+        match description {
+            Some(description) => {
+                self.kind_metadata.insert(key, KindMetadata { description });
+            }
+            None => {
+                self.kind_metadata.remove(&key);
+            }
+        }
+    }
 }
 
 const fn default_digits() -> usize {
@@ -364,6 +390,31 @@ allowed_kinds = [
         assert_eq!(usr.description.as_deref(), Some("User-facing change"));
 
         assert!(config.kind_metadata().get("SYS").is_none());
+    }
+
+    #[test]
+    fn set_kind_description_adds_and_removes_metadata() {
+        let mut config = Config::default();
+        config.add_kind("usr");
+
+        config.set_kind_description("usr", Some("User stories".into()));
+        assert_eq!(
+            config
+                .metadata_for_kind("USR")
+                .and_then(|m| m.description.as_deref()),
+            Some("User stories")
+        );
+
+        config.set_kind_description("USR", Some("Refined".into()));
+        assert_eq!(
+            config
+                .metadata_for_kind("USR")
+                .and_then(|m| m.description.as_deref()),
+            Some("Refined")
+        );
+
+        config.set_kind_description("usr", Some("   ".into()));
+        assert!(config.metadata_for_kind("USR").is_none());
     }
 
     #[test]
