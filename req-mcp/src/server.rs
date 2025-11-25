@@ -113,7 +113,17 @@ struct ListRequirementsResponse {
 #[serde(rename_all = "camelCase")]
 struct ListRequirementKindsResponse {
     /// All known requirement kinds found in the repository.
-    kinds: Vec<String>,
+    kinds: Vec<RequirementKind>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct RequirementKind {
+    /// Requirement kind identifier, e.g. "USR".
+    kind: String,
+    /// Human-readable description of the kind's purpose.
+    #[serde(default)]
+    description: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
@@ -238,17 +248,34 @@ struct ReviewRequirementParams {
 impl ReqMcpServer {
     #[tool(description = "List available requirement kinds")]
     async fn list_requirement_kinds(&self) -> Result<CallToolResult, McpError> {
-        let kinds: Vec<String> = {
+        let response: ListRequirementKindsResponse = {
             let directory = self.state.directory.read().await;
             let mut kinds: BTreeSet<String> = BTreeSet::new();
+            let metadata = directory.config().kind_metadata().clone();
+
+            // Include configured kinds (if any), those present in metadata, and
+            // those observed in requirements to keep discovery complete.
+            kinds.extend(directory.config().allowed_kinds().iter().cloned());
+            kinds.extend(metadata.keys().cloned());
             for requirement in directory.requirements() {
                 kinds.insert(requirement.hrid.kind().to_string());
             }
             drop(directory);
-            kinds.into_iter().collect()
+
+            let kinds = kinds
+                .into_iter()
+                .map(|kind| {
+                    let meta = metadata.get(&kind);
+                    RequirementKind {
+                        kind,
+                        description: meta.and_then(|m| m.description.clone()),
+                    }
+                })
+                .collect();
+
+            ListRequirementKindsResponse { kinds }
         };
 
-        let response = ListRequirementKindsResponse { kinds };
         let summary = format!("Found {} requirement kinds", response.kinds.len());
         Ok(Self::success(
             summary,

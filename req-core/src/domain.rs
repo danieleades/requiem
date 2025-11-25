@@ -7,8 +7,9 @@
 pub mod requirement;
 pub use requirement::Requirement;
 
-mod config;
-pub use config::Config;
+/// Repository configuration types (HRID options, allowed kinds, metadata).
+pub mod config;
+pub use config::{Config, KindMetadata};
 
 /// Human-readable identifier (HRID) types and parsing.
 pub mod hrid;

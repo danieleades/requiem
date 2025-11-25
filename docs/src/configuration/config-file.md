@@ -79,11 +79,14 @@ _version = 1    # Wrong: must be a quoted string
 allowed_kinds = ["USR", "SYS", "SWR", "TST"]
 ```
 
-**Type**: Array of strings
+**Type**: Array of strings _or_ inline tables with metadata
 
 **Default**: `[]` (empty array = all kinds allowed)
 
 **Purpose**: Restricts which requirement kinds (the KIND component of HRIDs) are permitted in your project.
+
+**Metadata fields** (optional per kind):
+- `description`: human-readable purpose of the kind
 
 **When to use**:
 - Enforce project standards (e.g., only USR, SYS, TST requirements allowed)
@@ -103,6 +106,14 @@ allowed_kinds = ["URQT", "SRQT", "SWRQT", "HWRQT", "TEST"]
 **Example - Software project**:
 ```toml
 allowed_kinds = ["USR", "SYS", "SWR", "TST", "DOC"]
+```
+
+**Example - With metadata**:
+```toml
+allowed_kinds = [
+  { kind = "USR", description = "User-facing requirements" },
+  { kind = "SYS", description = "System behavior and constraints" },
+]
 ```
 
 **Enforcement**:
