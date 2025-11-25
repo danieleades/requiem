@@ -8,6 +8,10 @@ MCP server providing tools for discovering and navigating requirements graphs.
 
 Works with any MCP client (Claude Desktop, Codex CLI, and others) once the server is running on stdio.
 
+## Dogfooding
+
+If you're contributing with an AI agent, please enable this MCP server so the agent reads and navigates the project's own requirements. It keeps edits aligned with the spec and helps validate the server.
+
 ## Architecture
 
 ```
@@ -111,32 +115,41 @@ Implement a bootable server with just enough functionality to demonstrate end-to
 - [Official Rust SDK](https://github.com/modelcontextprotocol/rust-sdk)
 - [Building MCP Servers in Rust](https://mcpcat.io/guides/building-mcp-server-rust/)
 
-## Example MCP client configuration
+## Client configuration
 
-Works with Claude Desktop, Codex CLI, and other MCP-compatible clients that accept a `mcpServers` entry.
+### Claude (claude-code)
 
+Claude supports per-repo MCP configuration via `.mcp.json` **or** via its CLI.
+
+**Local config (`.mcp.json` in repo root):**
 ```json
 {
   "mcpServers": {
     "req": {
       "command": "cargo",
-      "args": ["run", "--manifest-path", "/path/to/req/Cargo.toml", "--bin", "req-mcp"],
+      "args": ["run", "-r", "--manifest-path", "__REPO_ROOT__/Cargo.toml", "--bin", "req-mcp"],
       "env": {
-        "REQ_ROOT": "/path/to/req/docs/src/requirements"
+        "REQ_ROOT": "__REPO_ROOT__/docs/src/requirements"
       }
     }
   }
 }
 ```
+Open Claude in this directory; it will pick up the config. In chat, run `/mcp list` or ask the agent to use `req`.
 
-### Codex CLI quickstart
+**CLI add (from repo root):**
+```sh
+claude mcp add --transport stdio req --env REQ_ROOT=${pwd}/docs/src/requirements -- cargo run -r --manifest-path ${pwd}/Cargo.toml --bin req-mcp --scope project
+```
 
-Codex uses a global TOML config (`~/.codex/config.toml`). Add this block (replace `__REPO_ROOT__` with the absolute repo path):
+### Codex CLI
+
+Codex uses `~/.codex/config.toml`. Add:
 
 ```toml
 [mcp_servers.req]
 command = "cargo"
-args = ["run", "--manifest-path", "__REPO_ROOT__/Cargo.toml", "--bin", "req-mcp"]
+args = ["run", "-r", "--manifest-path", "__REPO_ROOT__/Cargo.toml", "--bin", "req-mcp"]
 
 [mcp_servers.req.env]
 REQ_ROOT = "__REPO_ROOT__/docs/src/requirements"
@@ -145,4 +158,8 @@ REQ_ROOT = "__REPO_ROOT__/docs/src/requirements"
 rmcp_client = true
 ```
 
-Restart Codex after saving. You can also use `codex mcp add req --env REQ_ROOT=… -- cargo run --manifest-path __REPO_ROOT__/Cargo.toml --bin req-mcp` to write the same entry via CLI.
+Restart Codex. Alternatively, add via CLI:
+
+```sh
+codex mcp add req --env REQ_ROOT=${pwd}/docs/src/requirements -- cargo run -r --manifest-path ${pwd}/Cargo.toml --bin req-mcp
+```

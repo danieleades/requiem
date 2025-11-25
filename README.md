@@ -59,6 +59,7 @@ Key features:
 ## Documentation
 
 For comprehensive documentation, visit the [Requiem documentation site](https://danieleades.github.io/requirements/).
+If you're using an AI agent, see the MCP server guide in `crates/req-mcp/README.md` to connect the project requirements directly to your client.
 
 ## Installation
 
