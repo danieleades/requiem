@@ -175,6 +175,8 @@ impl Config {
 
         match description {
             Some(description) => {
+                // Ensure the kind is explicitly allowed when attaching metadata.
+                self.add_kind(&key);
                 self.kind_metadata.insert(key, KindMetadata { description });
             }
             None => {
@@ -266,7 +268,7 @@ impl From<super::Config> for Versions {
             subfolders_are_namespaces,
         } = config;
 
-        let mut serialized_kinds: Vec<AllowedKindEntry> = allowed_kinds
+        let serialized_kinds: Vec<AllowedKindEntry> = allowed_kinds
             .iter()
             .map(|kind| {
                 kind_metadata.remove(kind).map_or_else(
@@ -278,15 +280,6 @@ impl From<super::Config> for Versions {
                 )
             })
             .collect();
-
-        let mut remaining: Vec<_> = kind_metadata.into_iter().collect();
-        remaining.sort_by(|a, b| a.0.cmp(&b.0));
-        serialized_kinds.extend(remaining.into_iter().map(|(kind, meta)| {
-            AllowedKindEntry::Detailed {
-                kind,
-                description: meta.description,
-            }
-        }));
 
         Self::V1 {
             allowed_kinds: serialized_kinds,
@@ -418,6 +411,34 @@ allowed_kinds = [
 
         config.set_kind_description("usr", Some("   ".into()));
         assert!(config.metadata_for_kind("USR").is_none());
+    }
+
+    #[test]
+    fn serialize_round_trip_preserves_kind_metadata() {
+        let mut config = Config::default();
+        config.add_kind("usr");
+        config.set_kind_description("usr", Some("User stories".into()));
+        config.set_kind_description("doc", Some("Documentation".into()));
+
+        let toml = toml::to_string(&config).unwrap();
+        let round_tripped: Config = toml::from_str(&toml).unwrap();
+
+        assert_eq!(
+            round_tripped.allowed_kinds(),
+            &["USR".to_string(), "DOC".to_string()]
+        );
+        assert_eq!(
+            round_tripped
+                .metadata_for_kind("USR")
+                .and_then(|m| m.description.as_deref()),
+            Some("User stories")
+        );
+        assert_eq!(
+            round_tripped
+                .metadata_for_kind("DOC")
+                .and_then(|m| m.description.as_deref()),
+            Some("Documentation")
+        );
     }
 
     #[test]
