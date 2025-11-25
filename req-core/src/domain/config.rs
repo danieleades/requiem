@@ -99,12 +99,14 @@ impl Config {
 
     /// Returns the metadata for all configured kinds.
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)]
     pub fn kind_metadata(&self) -> &HashMap<String, KindMetadata> {
         &self.kind_metadata
     }
 
     /// Returns metadata for a specific kind, if present.
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)]
     pub fn metadata_for_kind(&self, kind: &str) -> Option<&KindMetadata> {
         self.kind_metadata.get(kind)
     }
@@ -237,10 +239,14 @@ impl From<Versions> for super::Config {
                 allow_invalid: _, // Ignored for backward compatibility
                 subfolders_are_namespaces,
             } => Self {
-                allowed_kinds: allowed_kinds.iter().map(AllowedKindEntry::kind).collect(),
+                allowed_kinds: allowed_kinds
+                    .iter()
+                    .map(AllowedKindEntry::kind)
+                    .map(ToString::to_string)
+                    .collect(),
                 kind_metadata: allowed_kinds
                     .into_iter()
-                    .filter_map(|entry| entry.into_metadata())
+                    .filter_map(AllowedKindEntry::into_metadata)
                     .collect(),
                 digits,
                 allow_unrecognised,
@@ -263,13 +269,13 @@ impl From<super::Config> for Versions {
         let mut serialized_kinds: Vec<AllowedKindEntry> = allowed_kinds
             .iter()
             .map(|kind| {
-                kind_metadata
-                    .remove(kind)
-                    .map(|meta| AllowedKindEntry::Detailed {
+                kind_metadata.remove(kind).map_or_else(
+                    || AllowedKindEntry::Simple(kind.clone()),
+                    |meta| AllowedKindEntry::Detailed {
                         kind: kind.clone(),
                         description: meta.description,
-                    })
-                    .unwrap_or_else(|| AllowedKindEntry::Simple(kind.clone()))
+                    },
+                )
             })
             .collect();
 
@@ -308,19 +314,16 @@ enum AllowedKindEntry {
 }
 
 impl AllowedKindEntry {
-    fn kind(&self) -> String {
+    fn kind(&self) -> &str {
         match self {
-            Self::Simple(kind) => kind.clone(),
-            Self::Detailed { kind, .. } => kind.clone(),
+            Self::Simple(kind) | Self::Detailed { kind, .. } => kind,
         }
     }
 
     fn into_metadata(self) -> Option<(String, KindMetadata)> {
         match self {
             Self::Simple(_) => None,
-            Self::Detailed { kind, description } => {
-                Some((kind.clone(), KindMetadata { description }))
-            }
+            Self::Detailed { kind, description } => Some((kind, KindMetadata { description })),
         }
     }
 }

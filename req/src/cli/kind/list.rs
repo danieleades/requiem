@@ -24,9 +24,9 @@ pub fn run(config_path: &std::path::Path) -> anyhow::Result<()> {
         for kind in kinds {
             println!("  • {kind}");
 
-            if let Some(meta) = metadata.get(kind) {
+            if let Some(meta) = metadata.get(&kind) {
                 if let Some(description) = &meta.description {
-                    println!("     {}", description);
+                    println!("     {description}");
                 }
             }
         }
