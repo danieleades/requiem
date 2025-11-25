@@ -5,7 +5,7 @@
 //! [`Tree`].
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     ffi::OsStr,
     fmt, io,
     path::{Path, PathBuf},
@@ -17,7 +17,10 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 use crate::{
-    domain::{hrid::KindString, requirement::LoadError, Config, Hrid, RequirementView, Tree},
+    domain::{
+        hrid::KindString, requirement::LoadError, Config, Hrid, LinkRequirementError,
+        RequirementView, Tree,
+    },
     storage::markdown::trim_empty_lines,
     Requirement,
 };
@@ -56,7 +59,7 @@ impl Directory {
         &mut self,
         child: &Hrid,
         parent: &Hrid,
-    ) -> anyhow::Result<RequirementView<'_>> {
+    ) -> Result<RequirementView<'_>, LinkRequirementError> {
         let outcome = self.tree.link_requirement(child, parent)?;
         self.mark_dirty(outcome.child_uuid);
 
@@ -71,7 +74,7 @@ impl Directory {
 
         self.tree
             .requirement(outcome.child_uuid)
-            .ok_or_else(|| LoadError::NotFound.into())
+            .ok_or(LinkRequirementError::ChildNotFound(outcome.child_hrid))
     }
 
     /// Unlink two requirements, removing the parent-child relationship.
@@ -398,6 +401,44 @@ impl Directory {
             .iter()
             .filter_map(|uuid| self.tree.hrid(*uuid).cloned())
             .collect()
+    }
+
+    /// Get all ancestors (transitive parents) of a requirement by HRID.
+    ///
+    /// The result is deduplicated and sorted.
+    #[must_use]
+    pub fn ancestors_of(&self, hrid: &Hrid) -> Vec<Hrid> {
+        let Some(view) = self.tree.find_by_hrid(hrid) else {
+            return vec![];
+        };
+
+        let mut collected: BTreeSet<Hrid> = BTreeSet::new();
+        for uuid in self.tree.ancestors_of(*view.uuid) {
+            if let Some(hrid) = self.tree.hrid(uuid) {
+                collected.insert(hrid.clone());
+            }
+        }
+
+        collected.into_iter().collect()
+    }
+
+    /// Get all descendants (transitive children) of a requirement by HRID.
+    ///
+    /// The result is deduplicated and sorted.
+    #[must_use]
+    pub fn descendants_of(&self, hrid: &Hrid) -> Vec<Hrid> {
+        let Some(view) = self.tree.find_by_hrid(hrid) else {
+            return vec![];
+        };
+
+        let mut collected: BTreeSet<Hrid> = BTreeSet::new();
+        for uuid in self.tree.descendants_of(*view.uuid) {
+            if let Some(hrid) = self.tree.hrid(uuid) {
+                collected.insert(hrid.clone());
+            }
+        }
+
+        collected.into_iter().collect()
     }
 
     /// Delete a requirement from the directory.
