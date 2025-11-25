@@ -92,6 +92,18 @@ pub enum AcceptLinkError {
     },
 }
 
+/// Error type for linking requirements.
+#[derive(Debug, thiserror::Error)]
+pub enum LinkError {
+    /// The child requirement was not found in the tree.
+    #[error("Child UUID {0} not found in tree")]
+    ChildNotFound(Uuid),
+
+    /// The parent requirement was not found in the tree.
+    #[error("Parent UUID {0} not found in tree")]
+    ParentNotFound(Uuid),
+}
+
 /// Data stored on each edge in the dependency graph.
 ///
 /// Each edge represents a parent-child relationship, pointing from child to
@@ -452,13 +464,9 @@ impl Tree {
     ///
     /// # Errors
     ///
-    /// Returns [`LoadError::NotFound`] when either HRID does not exist in the
-    /// tree.
-    pub fn link_requirement(
-        &mut self,
-        child: &Hrid,
-        parent: &Hrid,
-    ) -> Result<LinkOutcome, LoadError> {
+    /// Returns an error when either HRID does not exist in the tree, or when
+    /// the parent/child UUIDs cannot be linked.
+    pub fn link_requirement(&mut self, child: &Hrid, parent: &Hrid) -> anyhow::Result<LinkOutcome> {
         let (child_uuid, child_hrid) = {
             let view = self.find_by_hrid(child).ok_or(LoadError::NotFound)?;
             (*view.uuid, view.hrid.clone())
@@ -474,7 +482,7 @@ impl Tree {
             .into_iter()
             .any(|(uuid, _)| uuid == parent_uuid);
 
-        self.upsert_parent_link(child_uuid, parent_uuid, parent_fingerprint);
+        self.upsert_parent_link(child_uuid, parent_uuid, parent_fingerprint)?;
 
         Ok(LinkOutcome {
             child_uuid,
@@ -609,26 +617,26 @@ impl Tree {
 
     /// Insert or update a parent link for the given child UUID.
     ///
-    /// Returns `true` if an existing link was replaced, or `false` if a new
-    /// link was created.
+    /// Returns `Ok(true)` if an existing link was replaced, or `Ok(false)` if a
+    /// new link was created.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if either the child or parent UUID does not exist in the tree.
+    /// Returns an error if either the child or parent UUID does not exist in
+    /// the tree.
     pub fn upsert_parent_link(
         &mut self,
         child_uuid: Uuid,
         parent_uuid: Uuid,
         fingerprint: String,
-    ) -> bool {
-        assert!(
-            self.requirements.contains_key(&child_uuid),
-            "Child requirement {child_uuid} not found in tree"
-        );
-        assert!(
-            self.requirements.contains_key(&parent_uuid),
-            "Parent requirement {parent_uuid} not found in tree"
-        );
+    ) -> Result<bool, LinkError> {
+        // Validate both UUIDs exist in requirements first
+        if !self.requirements.contains_key(&child_uuid) {
+            return Err(LinkError::ChildNotFound(child_uuid));
+        }
+        if !self.requirements.contains_key(&parent_uuid) {
+            return Err(LinkError::ParentNotFound(parent_uuid));
+        }
 
         // Ensure both nodes exist in the graph; GraphMap::add_node is idempotent.
         self.graph.add_node(child_uuid);
@@ -637,14 +645,14 @@ impl Tree {
         let parent_hrid = self
             .hrids
             .get(&parent_uuid)
-            .unwrap_or_else(|| panic!("Parent HRID for {parent_uuid} not found"));
+            .ok_or(LinkError::ParentNotFound(parent_uuid))?;
 
         let edge = EdgeData {
             parent_hrid: parent_hrid.clone(),
             fingerprint,
         };
 
-        self.graph.add_edge(child_uuid, parent_uuid, edge).is_some()
+        Ok(self.graph.add_edge(child_uuid, parent_uuid, edge).is_some())
     }
 
     /// Check which requirements have stale parent HRIDs without modifying them.
@@ -889,4 +897,120 @@ pub struct SuspectLink {
     /// If empty, indicates the parent requirement is missing (failed to load or
     /// was deleted).
     pub current_fingerprint: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::Requirement;
+
+    #[test]
+    fn test_upsert_parent_link_errors_on_missing_parent() {
+        // Test that upsert_parent_link returns an error (not panic) when
+        // trying to link to a parent that doesn't exist
+        let mut tree = Tree::default();
+
+        // Create and insert a child requirement
+        let child_req = Requirement::new(
+            "USR-001".parse().unwrap(),
+            "Child requirement".to_string(),
+            String::new(),
+        );
+        let child_uuid = child_req.uuid();
+        tree.insert(child_req).unwrap();
+
+        // Try to link to a parent UUID that doesn't exist in the tree
+        let missing_parent_uuid = uuid::Uuid::new_v4();
+
+        // This should return an error, not panic
+        let result =
+            tree.upsert_parent_link(child_uuid, missing_parent_uuid, "fingerprint".to_string());
+
+        // Verify we get a ParentNotFound error
+        assert!(result.is_err(), "Expected error for missing parent");
+        match result {
+            Err(LinkError::ParentNotFound(uuid)) => {
+                assert_eq!(
+                    uuid, missing_parent_uuid,
+                    "Error should contain the missing parent UUID"
+                );
+            }
+            _ => panic!("Expected ParentNotFound error, got: {result:?}"),
+        }
+    }
+
+    #[test]
+    fn test_upsert_parent_link_errors_on_missing_child() {
+        // Test that upsert_parent_link returns an error when child doesn't exist
+        let mut tree = Tree::default();
+
+        // Create and insert a parent requirement
+        let parent_req = Requirement::new(
+            "SYS-001".parse().unwrap(),
+            "Parent requirement".to_string(),
+            String::new(),
+        );
+        let parent_uuid = parent_req.uuid();
+        tree.insert(parent_req).unwrap();
+
+        // Try to link a child UUID that doesn't exist
+        let missing_child_uuid = uuid::Uuid::new_v4();
+
+        // This should return an error, not panic
+        let result =
+            tree.upsert_parent_link(missing_child_uuid, parent_uuid, "fingerprint".to_string());
+
+        // Verify we get a ChildNotFound error
+        assert!(result.is_err(), "Expected error for missing child");
+        match result {
+            Err(LinkError::ChildNotFound(uuid)) => {
+                assert_eq!(
+                    uuid, missing_child_uuid,
+                    "Error should contain the missing child UUID"
+                );
+            }
+            _ => panic!("Expected ChildNotFound error, got: {result:?}"),
+        }
+    }
+
+    #[test]
+    fn test_upsert_parent_link_succeeds_when_both_exist() {
+        // Test the happy path - both parent and child exist
+        let mut tree = Tree::default();
+
+        // Create and insert parent and child requirements
+        let parent_req = Requirement::new(
+            "SYS-001".parse().unwrap(),
+            "Parent requirement".to_string(),
+            String::new(),
+        );
+        let parent_uuid = parent_req.uuid();
+        tree.insert(parent_req).unwrap();
+
+        let child_req = Requirement::new(
+            "USR-001".parse().unwrap(),
+            "Child requirement".to_string(),
+            String::new(),
+        );
+        let child_uuid = child_req.uuid();
+        tree.insert(child_req).unwrap();
+
+        // This should succeed
+        let result =
+            tree.upsert_parent_link(child_uuid, parent_uuid, "test-fingerprint".to_string());
+
+        assert!(
+            result.is_ok(),
+            "Expected success when both requirements exist"
+        );
+        assert!(
+            !result.unwrap(),
+            "Should return false for new link (not a replacement)"
+        );
+
+        // Verify the link was created
+        let parents = tree.parents(child_uuid);
+        assert_eq!(parents.len(), 1, "Child should have one parent");
+        assert_eq!(parents[0].0, parent_uuid, "Parent UUID should match");
+    }
 }
