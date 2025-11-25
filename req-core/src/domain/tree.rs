@@ -996,13 +996,8 @@ impl Tree {
         let mut cycles = Vec::new();
 
         for start_node in self.graph.nodes() {
-            if colors.get(&start_node) == Some(&DfsColorForDetection::White) {
-                self.dfs_detect_cycles(
-                    start_node,
-                    &mut colors,
-                    &mut Vec::new(),
-                    &mut cycles,
-                );
+            if !colors.contains_key(&start_node) {
+                self.dfs_detect_cycles(start_node, &mut colors, &mut Vec::new(), &mut cycles);
             }
         }
 
@@ -1018,35 +1013,62 @@ impl Tree {
     ) {
         use self::DfsColorForDetection::*;
 
-        colors.insert(node, DfsColorForDetection::Gray);
+        colors.insert(node, Gray);
         path.push(node);
 
         for (_, parent_uuid, _) in self.graph.edges(node) {
-            match colors.get(&parent_uuid) {
-                Some(Gray) => {
-                    // Found a back edge - this is a cycle
-                    if let Some(pos) = path.iter().position(|&u| u == parent_uuid) {
-                        let cycle_path: Vec<Hrid> = path[pos..]
-                            .iter()
-                            .chain(std::iter::once(&parent_uuid))
-                            .filter_map(|&uuid| self.hrids.get(&uuid).cloned())
-                            .collect();
-                        if !cycle_path.is_empty() {
-                            cycles.push(cycle_path);
+            if let Some(color) = colors.get(&parent_uuid) {
+                match color {
+                    Gray => {
+                        // Found a back edge - this is a cycle
+                        if let Some(pos) = path.iter().position(|&u| u == parent_uuid) {
+                            let cycle_path: Vec<Hrid> = path[pos..]
+                                .iter()
+                                .chain(std::iter::once(&parent_uuid))
+                                .filter_map(|&uuid| self.hrids.get(&uuid).cloned())
+                                .collect();
+                            if !cycle_path.is_empty() {
+                                // Check if this cycle already exists to avoid duplicates
+                                if !cycles.iter().any(|c| Self::cycles_equal(c, &cycle_path)) {
+                                    cycles.push(cycle_path);
+                                }
+                            }
                         }
                     }
+                    White => {
+                        self.dfs_detect_cycles(parent_uuid, colors, path, cycles);
+                    }
+                    Black => {
+                        // Already fully processed, skip
+                    }
                 }
-                Some(White) => {
-                    self.dfs_detect_cycles(parent_uuid, colors, path, cycles);
-                }
-                _ => {
-                    // Black or already visited, skip
-                }
+            } else {
+                // Not visited yet, treat as White and recurse
+                self.dfs_detect_cycles(parent_uuid, colors, path, cycles);
             }
         }
 
-        colors.insert(node, DfsColorForDetection::Black);
+        colors.insert(node, Black);
         path.pop();
+    }
+
+    /// Check if two cycles are equivalent (same HRIDs, possibly rotated).
+    fn cycles_equal(a: &[Hrid], b: &[Hrid]) -> bool {
+        if a.len() != b.len() {
+            return false;
+        }
+        if a.is_empty() {
+            return true;
+        }
+        // Check if b is a rotation of a
+        let b_str = b.iter().map(|h| h.display(3).to_string()).collect::<Vec<_>>();
+        let doubled = format!(
+            "{}{}",
+            b_str.join(","),
+            b_str.join(",")
+        );
+        let a_str = a.iter().map(|h| h.display(3).to_string()).collect::<Vec<_>>().join(",");
+        doubled.contains(&a_str)
     }
 
     /// Check if adding a link from child to parent would create a cycle.
@@ -1273,5 +1295,79 @@ mod tests {
         let parents = tree.parents(child_uuid);
         assert_eq!(parents.len(), 1, "Child should have one parent");
         assert_eq!(parents[0].0, parent_uuid, "Parent UUID should match");
+    }
+
+    #[test]
+    fn test_detect_cycles_finds_direct_cycle() {
+        let mut tree = Tree::default();
+
+        // Create two requirements
+        let req_a = Requirement::new("USR-001".parse().unwrap(), "A".to_string(), String::new());
+        let uuid_a = req_a.uuid();
+        tree.insert(req_a).unwrap();
+
+        let req_b = Requirement::new("USR-002".parse().unwrap(), "B".to_string(), String::new());
+        let uuid_b = req_b.uuid();
+        tree.insert(req_b).unwrap();
+
+        // Create A → B and B → A (cycle)
+        tree.upsert_parent_link(uuid_a, uuid_b, "fingerprint".to_string())
+            .unwrap();
+        tree.upsert_parent_link(uuid_b, uuid_a, "fingerprint".to_string())
+            .unwrap();
+
+        // Detect cycles
+        let cycles = tree.detect_cycles();
+        assert!(!cycles.is_empty(), "Should detect at least one cycle");
+        assert_eq!(cycles.len(), 1, "Should detect exactly one cycle (A→B→A)");
+    }
+
+    #[test]
+    fn test_check_would_create_cycle_detects_prevention() {
+        let mut tree = Tree::default();
+
+        // Create three requirements: A → B → C
+        let req_a = Requirement::new("USR-001".parse().unwrap(), "A".to_string(), String::new());
+        let uuid_a = req_a.uuid();
+        tree.insert(req_a).unwrap();
+
+        let req_b = Requirement::new("USR-002".parse().unwrap(), "B".to_string(), String::new());
+        let uuid_b = req_b.uuid();
+        tree.insert(req_b).unwrap();
+
+        let req_c = Requirement::new("USR-003".parse().unwrap(), "C".to_string(), String::new());
+        let uuid_c = req_c.uuid();
+        tree.insert(req_c).unwrap();
+
+        let req_d = Requirement::new("USR-004".parse().unwrap(), "D".to_string(), String::new());
+        let uuid_d = req_d.uuid();
+        tree.insert(req_d).unwrap();
+
+        // Create A → B and B → C
+        tree.upsert_parent_link(uuid_a, uuid_b, "fingerprint".to_string())
+            .unwrap();
+        tree.upsert_parent_link(uuid_b, uuid_c, "fingerprint".to_string())
+            .unwrap();
+
+        // Attempting to create C → A should fail (would create A→B→C→A cycle)
+        let result = tree.check_would_create_cycle(uuid_c, uuid_a);
+        assert!(
+            result.is_err(),
+            "Should detect that C→A would create a cycle"
+        );
+
+        // Attempting to create C → B should fail (would create B→C→B cycle)
+        let result = tree.check_would_create_cycle(uuid_c, uuid_b);
+        assert!(
+            result.is_err(),
+            "Should detect that C→B would create a cycle"
+        );
+
+        // Attempting to create D → A should succeed (no cycle)
+        let result = tree.check_would_create_cycle(uuid_d, uuid_a);
+        assert!(
+            result.is_ok(),
+            "Should allow D→A since it doesn't create a cycle"
+        );
     }
 }
