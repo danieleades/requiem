@@ -751,7 +751,10 @@ impl Tree {
         let mut suspect = Vec::new();
 
         for child_uuid in self.graph.nodes() {
-            let child_hrid = self.hrids.get(&child_uuid).unwrap();
+            let Some(child_hrid) = self.hrids.get(&child_uuid) else {
+                // Skip nodes that failed to register an HRID instead of panicking.
+                continue;
+            };
 
             for (_, parent_uuid, edge_data) in self.graph.edges(child_uuid) {
                 // Access RequirementData directly to avoid full RequirementView construction
