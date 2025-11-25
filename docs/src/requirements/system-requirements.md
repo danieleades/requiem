@@ -4,7 +4,7 @@ System requirements (SYS) define the technical implementation details for Requie
 
 ## Overview
 
-Requiem has 29 system requirements organized by functional area:
+Requiem has 30 system requirements organized by functional area:
 
 ### File Format & Identifiers
 
@@ -30,6 +30,7 @@ Requiem has 29 system requirements organized by functional area:
 |----|-------|--------|---------|
 | [SYS-006](./SYS-006.md) | Sphinx and MyST Parser Compatibility | USR-005 | Requirements compatible with Sphinx + MyST Parser |
 | [SYS-007](./SYS-007.md) | MdBook Compatibility | USR-005 | Requirements render correctly in MdBook |
+| [SYS-035](./SYS-035.md) | MdBook Navigation Synchronization | USR-005 | MdBook navigation stays in sync without manual SUMMARY edits |
 
 ### Template System
 
@@ -157,6 +158,14 @@ Requirement files shall be compatible with Sphinx using the MyST Parser, renderi
 Requirement files shall render correctly in MdBook. YAML frontmatter is ignored (not rendered), and markdown body content displays properly following CommonMark specification.
 
 [Read full requirement →](./SYS-007.md)
+
+---
+
+#### SYS-035: MdBook Navigation Synchronization
+
+MdBook sites that include requirements shall keep navigation aligned with the full set of requirements without manually editing `SUMMARY.md` after requirement changes.
+
+[Read full requirement →](./SYS-035.md)
 
 ---
 

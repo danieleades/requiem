@@ -106,7 +106,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Check requirements health (suspect links and paths)
-        run: cargo run --release -- -r docs/src/requirements status
+        run: cargo run --bin req -- -r docs/src/requirements status
 
   dependabot:
     needs:

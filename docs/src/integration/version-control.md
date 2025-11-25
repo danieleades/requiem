@@ -301,11 +301,7 @@ Conflicts occur when two branches modify the same requirement.
 **Example conflict**:
 
 ```markdown
-<<<<<<< HEAD
 The system shall validate emails using RFC 5321.
-=======
-The system shall validate emails using RFC 5322.
->>>>>>> feature/update-email-validation
 ```
 
 **Resolution**:
@@ -328,11 +324,7 @@ git commit
 **UUID conflicts** (should never happen):
 
 ```yaml
-<<<<<<< HEAD
 uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
-=======
-uuid: 00000000-0000-0000-0000-000000000000
->>>>>>> other-branch
 ```
 
 **Resolution**: Keep the original UUID (HEAD). Changing UUIDs breaks traceability.
@@ -340,15 +332,9 @@ uuid: 00000000-0000-0000-0000-000000000000
 **Parent conflicts** (both branches added parents):
 
 ```yaml
-<<<<<<< HEAD
 parents:
 - uuid: aaaa...
   hrid: USR-001
-=======
-parents:
-- uuid: bbbb...
-  hrid: USR-002
->>>>>>> other-branch
 ```
 
 **Resolution**: Merge both parents:
