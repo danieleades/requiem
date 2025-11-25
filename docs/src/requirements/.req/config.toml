@@ -1,5 +1,6 @@
 _version = "1"
 allowed_kinds = [
+    "DFT",
     "USR",
     "SYS",
     "SPC",

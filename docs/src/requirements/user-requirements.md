@@ -75,7 +75,7 @@ The tool shall integrate with documentation frameworks (Sphinx, MdBook) so requi
 
 **Why this matters**: Requirements shouldn't live in isolation. They should integrate with design docs, user guides, and API documentation in a single published site.
 
-**Child requirements**: SYS-006, SYS-007
+**Child requirements**: SYS-006, SYS-007, SYS-035
 
 [Read full requirement →](./USR-005.md)
 
@@ -165,7 +165,8 @@ USR-004 (Graph Analysis and Validation)
 
 USR-005 (Static Site Generator Integration)
   ├── SYS-006 (Sphinx and MyST Parser Compatibility)
-  └── SYS-007 (MdBook Compatibility)
+  ├── SYS-007 (MdBook Compatibility)
+  └── SYS-035 (MdBook Navigation Synchronization)
 
 USR-006 (Requirement Templates)
   ├── SYS-011 (Template File Storage)

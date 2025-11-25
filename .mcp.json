@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "req": {
+      "command": "cargo",
+      "args": [
+        "run",
+        "-r",
+        "-p",
+        "req-mcp"
+      ],
+      "env": {
+        "REQ_ROOT": "/home/danieleades/code/req/docs/src/requirements"
+      }
+    }
+  }
+}

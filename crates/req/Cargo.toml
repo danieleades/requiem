@@ -1,0 +1,50 @@
+[package]
+name = "requirements-manager"
+description = "Plain-text requirements management tool"
+repository = "https://github.com/danieleades/requirements-manager"
+keywords = ["requirements", "plain-text", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "req"
+path = "src/main.rs"
+
+[dependencies]
+requirements-manager-core = { path = "../req-core" }
+anyhow.workspace = true
+borsh = { version = "1.5.7", features = ["derive"] }
+chrono.workspace = true
+clap = { version = "4.5.51", features = ["derive"] }
+petgraph.workspace = true
+non-empty-string = "0.2.6"
+nonempty = "0.12.0"
+rayon.workspace = true
+serde.workspace = true
+serde_yaml.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+walkdir.workspace = true
+regex = "1.11.1"
+serde_json.workspace = true
+dialoguer = "0.12.0"
+owo-colors = "4.1.0"
+supports-color = "3.0.1"
+indicatif = "0.18.3"
+terminal_size = "0.4.1"
+
+[dev-dependencies]
+criterion = "0.7.0"
+tempfile = "3.20.0"
+test-case = "3.3.1"
+
+[lints]
+workspace = true
