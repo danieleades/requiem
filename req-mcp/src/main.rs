@@ -5,6 +5,7 @@
 
 mod server;
 mod state;
+mod tools;
 
 use std::path::PathBuf;
 

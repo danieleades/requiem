@@ -5,7 +5,7 @@
 //! performance.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     num::NonZeroUsize,
 };
 
@@ -742,6 +742,66 @@ impl Tree {
         }
 
         updated_uuids.into_iter()
+    }
+
+    /// Return all ancestors (transitive parents) of a requirement as UUIDs.
+    ///
+    /// The result is deduplicated; order is deterministic.
+    #[must_use]
+    pub fn ancestors_of(&self, uuid: Uuid) -> Vec<Uuid> {
+        if !self.graph.contains_node(uuid) {
+            return Vec::new();
+        }
+
+        let mut visited: BTreeSet<Uuid> = BTreeSet::new();
+        let mut queue: VecDeque<Uuid> = self
+            .graph
+            .edges(uuid)
+            .map(|(_, parent_uuid, _)| parent_uuid)
+            .collect();
+
+        while let Some(next) = queue.pop_front() {
+            if !visited.insert(next) {
+                continue;
+            }
+
+            for (_, parent_uuid, _) in self.graph.edges(next) {
+                queue.push_back(parent_uuid);
+            }
+        }
+
+        visited.into_iter().collect()
+    }
+
+    /// Return all descendants (transitive children) of a requirement as UUIDs.
+    ///
+    /// The result is deduplicated; order is deterministic.
+    #[must_use]
+    pub fn descendants_of(&self, uuid: Uuid) -> Vec<Uuid> {
+        if !self.graph.contains_node(uuid) {
+            return Vec::new();
+        }
+
+        let mut visited: BTreeSet<Uuid> = BTreeSet::new();
+        let mut queue: VecDeque<Uuid> = self
+            .graph
+            .neighbors_directed(uuid, petgraph::Direction::Incoming)
+            .collect();
+
+        while let Some(next) = queue.pop_front() {
+            if !visited.insert(next) {
+                continue;
+            }
+
+            for child_uuid in self
+                .graph
+                .neighbors_directed(next, petgraph::Direction::Incoming)
+            {
+                queue.push_back(child_uuid);
+            }
+        }
+
+        visited.into_iter().collect()
     }
 
     /// Find all suspect links in the requirement graph.
