@@ -111,6 +111,10 @@ pub enum LinkRequirementError {
     /// The parent HRID was not found in the tree.
     #[error("Parent requirement {0:?} not found")]
     ParentNotFound(Hrid),
+
+    /// The link would create a cycle in the requirement graph.
+    #[error("{0}")]
+    WouldCreateCycle(String),
 }
 
 /// Data stored on each edge in the dependency graph.
@@ -128,6 +132,17 @@ struct EdgeData {
     /// created. Used to detect if the parent has been modified since the
     /// link was established.
     fingerprint: String,
+}
+
+/// Color enum for cycle detection using depth-first search.
+#[derive(Debug, PartialEq)]
+enum DfsColorForDetection {
+    /// Node has not been visited yet.
+    White,
+    /// Node is currently being processed (in the recursion stack).
+    Gray,
+    /// Node has been fully processed.
+    Black,
 }
 
 /// An in-memory representation of the set of requirements with decomposed
@@ -473,8 +488,8 @@ impl Tree {
     ///
     /// # Errors
     ///
-    /// Returns an error when either HRID does not exist in the tree, or when
-    /// the parent/child UUIDs cannot be linked.
+    /// Returns an error when either HRID does not exist in the tree, when
+    /// the parent/child UUIDs cannot be linked, or when the link would create a cycle.
     pub fn link_requirement(
         &mut self,
         child: &Hrid,
@@ -493,6 +508,10 @@ impl Tree {
                 .ok_or_else(|| LinkRequirementError::ParentNotFound(parent.clone()))?;
             (*view.uuid, view.hrid.clone(), view.fingerprint())
         };
+
+        // Check if this link would create a cycle
+        self.check_would_create_cycle(child_uuid, parent_uuid)
+            .map_err(|e| LinkRequirementError::WouldCreateCycle(e.to_string()))?;
 
         let already_linked = self
             .parents(child_uuid)
@@ -961,6 +980,163 @@ impl Tree {
         }
 
         updated
+    }
+
+    /// Detect all cycles in the requirement graph.
+    ///
+    /// Returns a list of cycles, where each cycle is represented as a path of HRIDs
+    /// that forms a loop (e.g., ["USR-001", "SYS-002", "USR-001"]).
+    ///
+    /// Uses depth-first search to detect back edges, which indicate cycles.
+    #[must_use]
+    pub fn detect_cycles(&self) -> Vec<Vec<Hrid>> {
+        use std::collections::HashMap;
+
+        let mut colors: HashMap<Uuid, DfsColorForDetection> = HashMap::new();
+        let mut cycles = Vec::new();
+
+        for start_node in self.graph.nodes() {
+            if colors.get(&start_node) == Some(&DfsColorForDetection::White) {
+                self.dfs_detect_cycles(
+                    start_node,
+                    &mut colors,
+                    &mut Vec::new(),
+                    &mut cycles,
+                );
+            }
+        }
+
+        cycles
+    }
+
+    fn dfs_detect_cycles(
+        &self,
+        node: Uuid,
+        colors: &mut std::collections::HashMap<Uuid, DfsColorForDetection>,
+        path: &mut Vec<Uuid>,
+        cycles: &mut Vec<Vec<Hrid>>,
+    ) {
+        use self::DfsColorForDetection::*;
+
+        colors.insert(node, DfsColorForDetection::Gray);
+        path.push(node);
+
+        for (_, parent_uuid, _) in self.graph.edges(node) {
+            match colors.get(&parent_uuid) {
+                Some(Gray) => {
+                    // Found a back edge - this is a cycle
+                    if let Some(pos) = path.iter().position(|&u| u == parent_uuid) {
+                        let cycle_path: Vec<Hrid> = path[pos..]
+                            .iter()
+                            .chain(std::iter::once(&parent_uuid))
+                            .filter_map(|&uuid| self.hrids.get(&uuid).cloned())
+                            .collect();
+                        if !cycle_path.is_empty() {
+                            cycles.push(cycle_path);
+                        }
+                    }
+                }
+                Some(White) => {
+                    self.dfs_detect_cycles(parent_uuid, colors, path, cycles);
+                }
+                _ => {
+                    // Black or already visited, skip
+                }
+            }
+        }
+
+        colors.insert(node, DfsColorForDetection::Black);
+        path.pop();
+    }
+
+    /// Check if adding a link from child to parent would create a cycle.
+    ///
+    /// Returns `Ok(())` if the link is safe, or `Err()` with the cycle path
+    /// that would be created.
+    pub fn check_would_create_cycle(&self, child_uuid: Uuid, parent_uuid: Uuid) -> anyhow::Result<()> {
+        // If the parent can reach the child in the graph, then child -> parent would create a cycle
+        if self.can_reach(parent_uuid, child_uuid) {
+            // Find the cycle path for error reporting
+            let cycle_path = self.find_cycle_path(parent_uuid, child_uuid);
+            let cycle_str = cycle_path
+                .iter()
+                .filter_map(|&uuid| self.hrids.get(&uuid).map(|h| format!("{}", h.display(3))))
+                .collect::<Vec<_>>()
+                .join(" → ");
+
+            let child_hrid = self
+                .hrids
+                .get(&child_uuid)
+                .map(|h| format!("{}", h.display(3)))
+                .unwrap_or_else(|| format!("(UUID: {child_uuid})"));
+
+            anyhow::bail!(
+                "Cannot create link: would form a cycle: {cycle_str} → {child_hrid}"
+            );
+        }
+        Ok(())
+    }
+
+    /// Check if there's a path from source to target in the graph.
+    fn can_reach(&self, source: Uuid, target: Uuid) -> bool {
+        use std::collections::{HashSet, VecDeque};
+
+        if !self.graph.contains_node(source) {
+            return false;
+        }
+
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+        queue.push_back(source);
+        visited.insert(source);
+
+        while let Some(node) = queue.pop_front() {
+            if node == target {
+                return true;
+            }
+
+            for (_, parent_uuid, _) in self.graph.edges(node) {
+                if !visited.contains(&parent_uuid) {
+                    visited.insert(parent_uuid);
+                    queue.push_back(parent_uuid);
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Find a path from source to target for cycle reporting.
+    fn find_cycle_path(&self, source: Uuid, target: Uuid) -> Vec<Uuid> {
+        use std::collections::{HashMap, VecDeque};
+
+        let mut parent_map: HashMap<Uuid, Uuid> = HashMap::new();
+        let mut queue = VecDeque::new();
+        queue.push_back(source);
+        parent_map.insert(source, source);
+
+        while let Some(node) = queue.pop_front() {
+            if node == target {
+                // Reconstruct path
+                let mut path = vec![target];
+                let mut current = target;
+                while current != source {
+                    current = parent_map[&current];
+                    path.push(current);
+                }
+                path.reverse();
+                return path;
+            }
+
+            for (_, parent_uuid, _) in self.graph.edges(node) {
+                if !parent_map.contains_key(&parent_uuid) {
+                    parent_map.insert(parent_uuid, node);
+                    queue.push_back(parent_uuid);
+                }
+            }
+        }
+
+        vec![]
     }
 }
 

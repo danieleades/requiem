@@ -279,6 +279,10 @@ pub(super) async fn create_requirement(
                     "child requirement missing after creation",
                     Some(json!({ "child": ReqMcpServer::format_hrid(requirement.hrid(), digits) })),
                 ),
+                LinkRequirementError::WouldCreateCycle(message) => McpError::invalid_params(
+                    "cannot create link: would form a cycle",
+                    Some(json!({ "reason": message })),
+                ),
             })?;
     }
 
