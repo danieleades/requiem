@@ -1,59 +1,52 @@
 # Creating Requirements
 
-The `req add` command creates new requirements with automatically generated metadata.
+The `req create` command creates new requirements with automatically generated metadata.
 
 ## Basic Usage
 
 ```bash
-req add <KIND>
+req create <KIND> [--title <TITLE>] [--body <BODY>]
 ```
 
-This creates a requirement with the next available ID for the specified KIND.
+KIND supports namespaces via dash-separated tokens; the last token is the kind (e.g., `AUTH-USR`).
 
 ### Examples
 
 ```bash
-# Create USR-001
-req add USR
+# Create USR-001 with a title
+req create USR --title "Plain Text Requirements"
 
-# Create USR-002
-req add USR
-
-# Create SYS-001
-req add SYS
+# Create SYS-001 with a parent
+req create SYS --parent USR-001 --title "Markdown File Format"
 ```
 
 Output:
 
 ```
 Added requirement USR-001
-Added requirement USR-002
 Added requirement SYS-001
 ```
 
 ## Command Options
 
-### Specify Parent Requirements
+### Parent Requirements
 
 Create a requirement already linked to parents:
 
 ```bash
-req add <KIND> --parents <PARENT1>,<PARENT2>,...
+req create <KIND> --parent <PARENT> [--parent <PARENT>...]
 ```
 
-**Alias**: `-p` for `--parents`
+**Alias**: `-p` for `--parent` (comma-separated values are accepted)
 
 #### Examples
 
 ```bash
 # Create SYS-001 linked to USR-001
-req add SYS --parents USR-001
+req create SYS --parent USR-001
 
 # Create SYS-002 linked to both USR-001 and USR-002
-req add SYS --parents USR-001,USR-002
-
-# Using short form
-req add SYS -p USR-001,USR-002
+req create SYS -p USR-001,USR-002
 ```
 
 ### Specify Root Directory
@@ -61,19 +54,14 @@ req add SYS -p USR-001,USR-002
 By default, `req` operates in the current directory. Use `--root` to specify a different directory:
 
 ```bash
-req --root /path/to/requirements add USR
+req --root /path/to/requirements create USR --title "Scoped Root"
 ```
-
-**Alias**: `-r` for `--root`
 
 This is useful when running Requiem from outside the requirements directory:
 
 ```bash
 # Run from project root
-req --root ./docs/requirements add USR
-
-# Using short form
-req -r ./docs/requirements add USR
+req --root ./docs/src/requirements create USR --title "Doc Requirement"
 ```
 
 ### Verbosity
@@ -81,16 +69,16 @@ req -r ./docs/requirements add USR
 Control log output:
 
 ```bash
-req -v add USR      # INFO level
-req -vv add USR     # DEBUG level
-req -vvv add USR    # TRACE level
+req -v create USR      # INFO level
+req -vv create USR     # DEBUG level
+req -vvv create USR    # TRACE level
 ```
 
 More v's = more verbose. Useful for troubleshooting.
 
 ## Generated Content
 
-When you run `req add USR`, a file `USR-001.md` is created with:
+When you run `req create USR`, a file `USR-001.md` is created with:
 
 ```markdown
 ---
@@ -116,8 +104,8 @@ created: 2025-07-22T12:19:56.950194157Z
 After creating a requirement, edit it to add content:
 
 ```bash
-req add USR
-# Output: Added requirement USR-001
+req create USR --title "Title Placeholder"
+```
 
 # Edit the file
 vim USR-001.md
@@ -149,7 +137,7 @@ Note that the HRID (`USR-001`) is the first token in the heading, followed by th
 When you specify parents, they're included in the frontmatter:
 
 ```bash
-req add SYS --parents USR-001
+req create SYS --parent USR-001
 ```
 
 Creates `SYS-001.md`:
@@ -180,7 +168,7 @@ parents:
 ### Multiple Parents
 
 ```bash
-req add SYS --parents USR-001,USR-002,USR-003
+req create SYS --parent USR-001,USR-002,USR-003
 ```
 
 Creates `SYS-001.md` with three parent entries:
@@ -204,13 +192,13 @@ Create requirements with namespaces by including them in the KIND:
 
 ```bash
 # Create AUTH-USR-001
-req add AUTH-USR
+req create AUTH-USR
 
 # Create AUTH-LOGIN-SYS-001
-req add AUTH-LOGIN-SYS
+req create AUTH-LOGIN-SYS
 
 # Create PAYMENT-API-SWR-001
-req add PAYMENT-API-SWR
+req create PAYMENT-API-SWR
 ```
 
 The filename matches the full HRID:
@@ -228,17 +216,17 @@ PAYMENT-API-SWR-001.md
 Start with user requirements:
 
 ```bash
-req add USR
-req add USR
-req add USR
+req create USR
+req create USR
+req create USR
 ```
 
 Edit them to add content. Then create system requirements that satisfy them:
 
 ```bash
-req add SYS --parents USR-001
-req add SYS --parents USR-001
-req add SYS --parents USR-002
+req create SYS --parent USR-001
+req create SYS --parent USR-001
+req create SYS --parent USR-002
 ```
 
 This top-down approach ensures traceability from the start.
@@ -248,7 +236,7 @@ This top-down approach ensures traceability from the start.
 If you know you need five user requirements:
 
 ```bash
-for i in {1..5}; do req add USR; done
+for i in {1..5}; do req create USR; done
 ```
 
 This creates `USR-001` through `USR-005`. Then edit each file to add content.
@@ -258,8 +246,8 @@ This creates `USR-001` through `USR-005`. Then edit each file to add content.
 After creating requirements, commit them:
 
 ```bash
-req add USR
-req add USR
+req create USR
+req create USR
 git add USR-001.md USR-002.md
 git commit -m "Add initial user requirements (placeholders)"
 
@@ -275,7 +263,7 @@ This creates a clear history of requirement evolution.
 ### Parent Not Found
 
 ```bash
-req add SYS --parents USR-999
+req create SYS --parent USR-999
 ```
 
 If `USR-999.md` doesn't exist, you'll get an error:
@@ -289,25 +277,25 @@ Error: Failed to load requirement USR-999
 ### Invalid HRID Format
 
 ```bash
-req add usr-001  # Trying to specify ID manually (not supported)
+req create usr-001  # Trying to specify ID manually (not supported)
 ```
 
 The KIND should not include the ID. Use:
 
 ```bash
-req add USR  # Correct - ID is auto-assigned
+req create USR  # Correct - ID is auto-assigned
 ```
 
 ### Malformed Parent List
 
 ```bash
-req add SYS --parents USR-001, USR-002  # Space after comma
+req create SYS --parent USR-001, USR-002  # Space after comma
 ```
 
 Don't include spaces in the parent list:
 
 ```bash
-req add SYS --parents USR-001,USR-002  # Correct
+req create SYS --parent USR-001,USR-002  # Correct
 ```
 
 ## Advanced: Scripting Requirement Creation
@@ -325,7 +313,7 @@ requirements=(
 )
 
 for i in "${!requirements[@]}"; do
-  req add USR
+  req create USR
   hrid="USR-$(printf '%03d' $((i+1)))"
 
   # Append requirement text to the file

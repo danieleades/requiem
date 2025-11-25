@@ -4,21 +4,23 @@ This 5-minute tutorial introduces Requiem's basic workflow. You'll create a simp
 
 ## Creating a Requirements Directory
 
-First, create a directory for your requirements:
+First, create a directory for your requirements and initialize it:
 
 ```bash
 mkdir my-requirements
 cd my-requirements
+req init                 # creates .req/config.toml and templates folder
+req kind add USR SYS     # optional: restrict allowed kinds
 ```
 
-Requiem works with any directory - there's no special initialization needed. Requirements are simply markdown files with YAML frontmatter.
+Requiem works with any directory—requirements are markdown files with YAML frontmatter.
 
 ## Adding Your First Requirement
 
-Let's create a user requirement using the `add` command:
+Create a user requirement using `create`:
 
 ```bash
-req add USR
+req create USR --title "Plain Text Requirements"
 ```
 
 This creates a file named `USR-001.md` with automatically generated metadata. Output:
@@ -35,7 +37,7 @@ _version: '1'
 uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
 created: 2025-07-22T12:19:56.950194157Z
 ---
-# USR-001
+# USR-001 Plain Text Requirements
 
 
 ```
@@ -73,8 +75,8 @@ Notice the HRID (`USR-001`) appears as the first token in the first heading, fol
 Create a few more user requirements:
 
 ```bash
-req add USR  # Creates USR-002
-req add USR  # Creates USR-003
+req create USR --title "Version Control Integration"        # USR-002
+req create USR --title "Requirement Traceability"           # USR-003
 ```
 
 Edit these files to add meaningful content. For example:
@@ -108,7 +110,7 @@ The system shall support requirement traceability and linkage.
 Now let's create system-level requirements that satisfy the user requirements:
 
 ```bash
-req add SYS  # Creates SYS-001
+req create SYS --title "Markdown File Format"  # Creates SYS-001
 ```
 
 ## Linking Requirements
@@ -152,7 +154,7 @@ The `parents` section contains:
 You can link a requirement to multiple parents when creating it:
 
 ```bash
-req add SYS --parents USR-001,USR-002
+req create SYS --parent USR-001 --parent USR-002
 ```
 
 This creates `SYS-002` already linked to both `USR-001` and `USR-002`.
@@ -172,9 +174,9 @@ Or use your favorite text editor, IDE, or markdown viewer.
 
 You've learned the three core commands:
 
-1. **`req add <KIND>`** - Create a new requirement
+1. **`req create <KIND>`** - Create a new requirement
 2. **`req link <CHILD> <PARENT>`** - Link two requirements
-3. **`req add <KIND> --parents <PARENT1>,<PARENT2>`** - Create with parents
+3. **`req create <KIND> --parent <PARENT>`** - Create with parents
 
 These commands form the foundation of requirements management with Requiem.
 

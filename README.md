@@ -9,25 +9,29 @@ Requiem is a plain-text requirements management tool. It is a spiritual successo
 - support multiple parents per requirement
 - integrate with existing plain-text documentation tools such as [Sphinx](https://github.com/sphinx-doc/sphinx) and [MdBook](https://github.com/rust-lang/mdBook).
 
-This project is in its early stages, and is not yet ready for production use. It is currently being developed as a personal project, but contributions are welcome.
+This project is in its early stages and not ready for production use yet. Contributions are welcome.
 
-A note on naming:
+Workspace layout:
+
+- `req-core`: domain and storage library (HRIDs, Directory, fingerprinting)
+- `req`: CLI binary (`req`)
+- `req-mcp`: Model Context Protocol server (read-only MVP; editing tools stubbed)
+- `docs/`: mdBook docs and the project's own requirements (`docs/src/requirements/`)
+
+Naming note:
 
 The name of the package is `requirements-manager`, but the name of this project is `Requiem` (a contraction). The tool is invoked on the command line as `req`.
 
 ## Features
 
-- [x] Manage requirements, specifications, and other documents in plain text (Markdown with YAML frontmatter)
-- [x] Link documents together to form a directed acyclic graph (DAG)
-- [x] Support multiple parent requirements per document
-- [x] Detect cycles in the graph and report them
-- [x] Trigger reviews when parent requirements are changed (suspect link detection via fingerprinting)
-- [x] Human-readable IDs (HRIDs) stored in document titles for Sphinx/MdBook compatibility
-- [x] Flexible directory organization (filename-based or path-based with namespaces)
-- [x] Template system for new requirements
-- [x] Path diagnostics and validation
-- [ ] Generate coverage reports
-- [ ] Import and export requirements in standard formats
+- [x] Manage requirements as Markdown with YAML frontmatter (UUIDs, timestamps, tags, parents)
+- [x] HRIDs stored in headings (Sphinx/MdBook friendly) with optional namespaces and configurable digit width
+- [x] Multiple parents per requirement with fingerprint-based suspect link detection
+- [x] Templates for new requirements in `.req/templates/` (matched by kind or namespace)
+- [x] Sync HRID drift and path drift (`req sync`), detailed path diagnostics (`req diagnose paths`)
+- [x] Rich querying (`req list`, `req show`) with filters, relationship views, and machine-readable output
+- [ ] Cycle detection, structural validation, and broken-reference checks (not implemented yet)
+- [ ] Coverage reports; import/export in standard formats
 
 ## File Format
 
@@ -38,6 +42,9 @@ Requirements are stored as Markdown files with YAML frontmatter. The HRID (Human
 _version: '1'
 uuid: 12345678-1234-5678-1234-567812345678
 created: 2025-01-01T12:00:00Z
+tags:
+- api
+- auth
 parents:
 - uuid: parent-uuid-here
   fingerprint: sha256-hash-of-parent-content
@@ -67,9 +74,9 @@ If you're using an AI agent, see the MCP server guide in `req-mcp/README.md` to 
 cargo install requirements-manager
 ```
 
-## Cli
+## CLI
 
-The most up-to-date documentation for the command line interface can be found by running:
+The most up-to-date reference is available via `--help`:
 
 ```sh
 req --help
@@ -77,43 +84,41 @@ req --help
 
 Quick start:
 
-Requiem does not require a dedicated initialization command—create a directory (optionally a Git repository) and start adding requirements.
+```sh
+# Initialize a repository (creates .req/config.toml and templates folder)
+req init
+
+# Register kinds (optional; skip if you allow all kinds)
+req kind add USR SYS
+
+# Create requirements (HRIDs are assigned automatically)
+req create USR --title "User Login" --body "Users shall be able to log in"
+req create SYS --parent USR-001 --title "Authentication Service"
+
+# Inspect and navigate
+req status               # default command: counts + suspect/path drift summary
+req list --view parents  # filter/list with relationship views
+req show USR-001         # pretty detail view
+
+# Review fingerprint drift (parents changed since linking)
+req review               # exits 2 if suspects exist
+req review --accept --all --yes
+
+# Keep metadata tidy
+req sync                 # update stored parent HRIDs
+req sync --what paths    # move files to canonical locations
+req diagnose paths       # print detailed path drift issues
+req validate             # currently checks path/HRID drift and suspect links
+```
+
+## Project Requirements (Dogfooding)
+
+This repository manages its own requirements under `docs/src/requirements/`. Common tasks:
 
 ```sh
-# Create a new requirements repository directory
-mkdir my-requirements && cd my-requirements
-
-# (Optional) create git repository alongside your requirements
-# git init && git commit --allow-empty -m "Start requirements repo"
-
-# Add a couple of user requirements
-req add USR --title "User Login" --body "Users shall be able to log in"
-# Creates USR-001.md with HRID in the title: # USR-001 User Login
-
-req add USR --title "Password Reset" --body "Users shall be able to reset passwords"
-# Creates USR-002.md
-
-# Add a system requirement that implements a user requirement
-req add SYS --parent USR-001 --title "Authentication Service"
-# Creates SYS-001.md with parent link to USR-001
-
-# Link an existing requirement to a parent
-req link SYS-001 USR-002
-
-# View repository status at any time
-req status
-
-# Check for suspect links (parent requirements that have changed)
-req suspect
-
-# Accept and update suspect links after review
-req accept SYS-001 USR-001
-
-# Validate that files are in the correct locations
-req diagnose paths
-
-# Clean up outdated parent HRIDs after moving requirements
-req clean
+cargo run -r -- -r docs/src/requirements status
+cargo run -r -- -r docs/src/requirements list
+cargo run -r -- -r docs/src/requirements review
 ```
 
 ---

@@ -120,7 +120,7 @@ allowed_kinds = [
 When `allowed_kinds` is non-empty, attempting to create a requirement with a disallowed kind will fail:
 
 ```bash
-$ req add INVALID
+$ req create INVALID
 Error: Kind 'INVALID' is not in the allowed list
 ```
 

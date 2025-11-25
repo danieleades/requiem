@@ -25,7 +25,7 @@ cd my-requirements
 git init
 
 # Create first requirement
-req add USR
+req create USR
 git add config.toml USR-001.md
 git commit -m "Initial commit: add USR-001"
 ```
@@ -36,7 +36,7 @@ When creating requirements:
 
 ```bash
 # Create requirement
-req add USR
+req create USR
 
 # Stage and commit
 git add USR-002.md
@@ -151,8 +151,8 @@ Develop requirements for new features in branches:
 git checkout -b feature/payment-system
 
 # Add requirements
-req add USR  # USR-042
-req add SYS  # SYS-012
+req create USR  # USR-042
+req create SYS  # SYS-012
 # Edit and link requirements
 
 # Commit changes

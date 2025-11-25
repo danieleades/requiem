@@ -319,14 +319,14 @@ Use the namespace in the KIND argument:
 
 ```bash
 # Single namespace
-req add AUTH-USR
+req create AUTH-USR
 
 # Output: Added requirement AUTH-USR-001
 ```
 
 ```bash
 # Two namespace levels
-req add MOBILE-AUTH-SYS
+req create MOBILE-AUTH-SYS
 
 # Output: Added requirement MOBILE-AUTH-SYS-001
 ```

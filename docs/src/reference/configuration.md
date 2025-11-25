@@ -134,17 +134,17 @@ All kinds accepted: `USR-001`, `SYS-001`, `CUSTOM-001`, etc.
 allowed_kinds = ["USR", "SYS"]
 ```
 Only listed kinds accepted:
-- `req add USR` ✓ Succeeds
-- `req add SYS` ✓ Succeeds
-- `req add TST` ✗ Fails (TST not in allowed list)
+- `req create USR` ✓ Succeeds
+- `req create SYS` ✓ Succeeds
+- `req create TST` ✗ Fails (TST not in allowed list)
 
 **With namespaces**:
 ```toml
 allowed_kinds = ["AUTH-USR", "AUTH-SYS", "PAYMENT-USR"]
 ```
 Exact match required:
-- `req add AUTH-USR` ✓ Succeeds
-- `req add USR` ✗ Fails (USR not in allowed list)
+- `req create AUTH-USR` ✓ Succeeds
+- `req create USR` ✗ Fails (USR not in allowed list)
 
 **Examples**:
 
@@ -600,7 +600,7 @@ Currently allowed (forward compatibility), but may be rejected in strict mode.
 ### Runtime Validation
 
 Configuration is loaded at:
-- `req add`
+- `req create`
 - `req link`
 - `req clean`
 
@@ -683,7 +683,7 @@ python -c "import sys, toml; toml.load(open('config.toml'))"
 
 ### Requirements Rejected
 
-**Problem**: `req add` fails with "Kind not in allowed list"
+**Problem**: `req create` fails with "Kind not in allowed list"
 
 **Diagnosis**: Check `allowed_kinds` in config.
 

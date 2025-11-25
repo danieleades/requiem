@@ -66,7 +66,7 @@ req --help
 For help with a specific command:
 
 ```bash
-req add --help
+req create --help
 req link --help
 ```
 

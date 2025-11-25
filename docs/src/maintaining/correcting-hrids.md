@@ -1,6 +1,6 @@
 # Correcting HRIDs
 
-The `req clean` command corrects outdated parent HRIDs in requirement files. This chapter explains when and how to use it.
+The `req sync` command corrects outdated parent HRIDs in requirement files. This chapter explains when and how to use it.
 
 ## The Problem
 
@@ -23,9 +23,9 @@ parents:
 
 The UUID remains correct (traceability is preserved), but the HRID shown to humans is misleading.
 
-## The Solution: `req clean`
+## The Solution: `req sync`
 
-The `req clean` command:
+The `req sync` command:
 
 1. Loads all requirements
 2. For each requirement, checks parent HRIDs against actual parent files
@@ -35,7 +35,7 @@ The `req clean` command:
 ### Basic Usage
 
 ```bash
-req clean
+req sync
 ```
 
 Run in your requirements directory. No output means success (all HRIDs were correct or have been fixed).
@@ -43,7 +43,7 @@ Run in your requirements directory. No output means success (all HRIDs were corr
 ### With Custom Root
 
 ```bash
-req --root /path/to/requirements clean
+req --root /path/to/requirements sync
 ```
 
 Specify a different requirements directory.
@@ -51,7 +51,7 @@ Specify a different requirements directory.
 ### Verbose Output
 
 ```bash
-req -v clean
+req -v sync
 ```
 
 Shows what's being corrected:
@@ -61,7 +61,7 @@ INFO Corrected parent HRID in SYS-001: USR-001 → USR-100
 INFO Corrected parent HRID in SYS-002: USR-001 → USR-100
 ```
 
-## When to Run `req clean`
+## When to Run `req sync`
 
 ### After Renaming Requirements
 
@@ -75,7 +75,7 @@ mv USR-001.md USR-100.md
 
 2. Correct parent references:
 ```bash
-req clean
+req sync
 ```
 
 3. Verify changes:
@@ -99,7 +99,7 @@ mv USR-002.md PAYMENT-USR-002.md
 
 2. Fix all references at once:
 ```bash
-req clean
+req sync
 ```
 
 3. Verify:
@@ -110,10 +110,10 @@ git diff      # Review changes
 
 ### Before Committing
 
-**Best practice**: Run `req clean` before every commit involving requirement changes.
+**Best practice**: Run `req sync` before every commit involving requirement changes.
 
 ```bash
-req clean && git add -A && git commit -m "Reorganize requirements"
+req sync && git add -A && git commit -m "Reorganize requirements"
 ```
 
 This ensures the repository always has correct HRIDs.
@@ -123,7 +123,7 @@ This ensures the repository always has correct HRIDs.
 **Frequency**: Run periodically (e.g., before releases) to catch any drift.
 
 ```bash
-req clean
+req sync
 ```
 
 If requirements are managed carefully, this should show no changes.
@@ -191,9 +191,9 @@ parents:
 mv USR-001.md USR-100.md
 ```
 
-**Run clean**:
+**Run sync**:
 ```bash
-req clean
+req sync
 ```
 
 **After**:
@@ -224,9 +224,9 @@ requirements/
 mv USR-001.md USR-050.md
 ```
 
-**Run clean**:
+**Run sync**:
 ```bash
-req -v clean
+req -v sync
 ```
 
 **Output**:
@@ -259,9 +259,9 @@ mv SYS-001.md AUTH-SYS-001.md
 mv SYS-002.md PAYMENT-SYS-002.md
 ```
 
-**Run clean**:
+**Run sync**:
 ```bash
-req clean
+req sync
 ```
 
 **Result**: All parent references updated to namespaced HRIDs.
@@ -280,7 +280,7 @@ parents:
   hrid: USR-999
 ```
 
-**Behavior**: `req clean` panics with error message:
+**Behavior**: `req sync` panics with error message:
 
 ```
 Error: Parent requirement 00000000-0000-0000-0000-000000000000 not found!
@@ -303,7 +303,7 @@ parents:
   hrid: SYS-001
 ```
 
-**Behavior**: `req clean` panics with error message:
+**Behavior**: `req sync` panics with error message:
 
 ```
 Error: Requirement 4bfeb7d5-... is its own parent!
@@ -315,7 +315,7 @@ Error: Requirement 4bfeb7d5-... is its own parent!
 
 **Scenario**: Requirement A depends on B, B depends on C, C depends on A.
 
-**Current behavior**: `req clean` doesn't detect cycles (cycle detection is planned but not implemented).
+**Current behavior**: `req sync` doesn't detect cycles (cycle detection is planned but not implemented).
 
 **Impact**: HRIDs will be corrected, but the circular dependency remains undetected.
 
@@ -332,14 +332,14 @@ Automatically correct HRIDs before every commit:
 # .git/hooks/pre-commit
 
 echo "Correcting requirement HRIDs..."
-req clean
+req sync
 
 if [ $? -ne 0 ]; then
     echo "Error: Failed to correct HRIDs"
     exit 1
 fi
 
-# Stage any changes made by req clean
+# Stage any changes made by req sync
 git add -u
 ```
 
@@ -355,7 +355,7 @@ Validate HRIDs in CI:
 # .github/workflows/requirements.yml
 - name: Validate HRIDs
   run: |
-    req clean
+    req sync
     if [ -n "$(git status --porcelain)" ]; then
       echo "Error: HRIDs are out of sync"
       git diff
@@ -370,8 +370,8 @@ Validate HRIDs in CI:
 For critical projects, manually review HRID corrections:
 
 ```bash
-# Run clean
-req clean
+# Run sync
+req sync
 
 # Review changes
 git diff
@@ -383,7 +383,7 @@ git commit -m "Correct parent HRIDs after reorganization"
 
 ## Performance
 
-`req clean` loads all requirements in parallel, making it fast even for large projects:
+`req sync` loads all requirements in parallel, making it fast even for large projects:
 
 - **100 requirements**: < 1 second
 - **1000 requirements**: ~2-3 seconds
@@ -393,68 +393,43 @@ git commit -m "Correct parent HRIDs after reorganization"
 
 ## Limitations
 
-### No Dry-Run Mode
-
-Currently, `req clean` modifies files immediately. There's no preview mode.
-
-**Workaround**: Use Git to preview changes:
-
-```bash
-req clean         # Make changes
-git diff          # Preview
-git checkout -- . # Undo if needed (before committing)
-```
-
-### No Selective Correction
-
-Can't correct only specific requirements; it's all-or-nothing.
-
-**Workaround**: Use Git to selectively stage changes:
-
-```bash
-req clean
-git add SYS-001.md SYS-002.md  # Stage only specific files
-```
-
-### Requires All Parents Present
-
-If a parent requirement is missing, `req clean` fails. Can't correct partial sets.
-
-**Workaround**: Ensure all requirements are present, or manually fix references.
+- Dry-run mode is available (`req sync --dry-run`) to preview moves/updates.
+- Requires all parents present: missing parents are surfaced as suspect links and can block path moves; fix or restore parents first.
+- No selective correction flag; stage specific files with Git if you only want to keep a subset of changes.
 
 ## Best Practices
 
 ### 1. Run Before Committing
 
 ```bash
-req clean && git add -A && git commit
+req sync && git add -A && git commit
 ```
 
 Make it a habit.
 
 ### 2. Review Changes
 
-Always review what `req clean` changed:
+Always review what `req sync` changed:
 
 ```bash
-req clean
+req sync
 git diff  # See what was corrected
 ```
 
 ### 3. Use Verbose Mode for Learning
 
-When first using `req clean`, run with `-v` to understand what it's doing:
+When first using `req sync`, run with `-v` to understand what it's doing:
 
 ```bash
-req -v clean
+req -v sync
 ```
 
 ### 4. Combine with Validation
 
-Use `req clean` as a validation step:
+Use `req sync` as a validation step:
 
 ```bash
-req clean
+req sync
 if [ $? -eq 0 ]; then
     echo "Requirements are consistent"
 else
@@ -470,7 +445,7 @@ Include in your team's documentation:
 ## Renaming Requirements
 
 1. Rename the file
-2. Run `req clean`
+2. Run `req sync`
 3. Review changes with `git diff`
 4. Commit
 ```
@@ -500,10 +475,10 @@ cargo install requirements-manager
 
 ### Unexpected Changes
 
-**Issue**: `req clean` makes unexpected modifications.
+**Issue**: `req sync` makes unexpected modifications.
 
 **Diagnosis**:
-1. Run with verbose: `req -v clean`
+1. Run with verbose: `req -v sync`
 2. Examine which HRIDs are being corrected
 3. Check if requirement files were renamed
 
@@ -514,12 +489,12 @@ cargo install requirements-manager
 **Key points**:
 
 - **Purpose**: Correct outdated parent HRIDs after renaming requirements
-- **Usage**: `req clean` in requirements directory
+- **Usage**: `req sync` in requirements directory
 - **When**: After renaming files, before committing, regular maintenance
 - **How**: Loads all requirements, checks parent HRIDs, corrects mismatches
 - **Safe**: Uses UUIDs for correctness; HRIDs are display-only
 
-**Best practice**: Run `req clean` before every commit involving requirements.
+**Best practice**: Run `req sync` before every commit involving requirements.
 
 **Limitation**: No dry-run or selective correction (yet).
 
