@@ -17,7 +17,10 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 use crate::{
-    domain::{hrid::KindString, requirement::LoadError, Config, Hrid, RequirementView, Tree},
+    domain::{
+        hrid::KindString, requirement::LoadError, Config, Hrid, LinkRequirementError,
+        RequirementView, Tree,
+    },
     storage::markdown::trim_empty_lines,
     Requirement,
 };
@@ -56,7 +59,7 @@ impl Directory {
         &mut self,
         child: &Hrid,
         parent: &Hrid,
-    ) -> anyhow::Result<RequirementView<'_>> {
+    ) -> Result<RequirementView<'_>, LinkRequirementError> {
         let outcome = self.tree.link_requirement(child, parent)?;
         self.mark_dirty(outcome.child_uuid);
 
@@ -71,7 +74,7 @@ impl Directory {
 
         self.tree
             .requirement(outcome.child_uuid)
-            .ok_or_else(|| LoadError::NotFound.into())
+            .ok_or(LinkRequirementError::ChildNotFound(outcome.child_hrid))
     }
 
     /// Unlink two requirements, removing the parent-child relationship.

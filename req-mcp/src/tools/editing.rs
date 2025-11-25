@@ -1,6 +1,6 @@
 use std::fs;
 
-use requiem_core::{Directory, Hrid};
+use requiem_core::{Directory, Hrid, LinkRequirementError};
 use rmcp::{handler::server::wrapper::Parameters, model::CallToolResult, ErrorData as McpError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -261,15 +261,13 @@ pub(super) async fn create_requirement(
         directory
             .link_requirement(requirement.hrid(), &parent)
             .map_err(|error| match error {
-                requiem_core::domain::requirement::LoadError::NotFound => {
-                    McpError::resource_not_found(
-                        "parent requirement not found",
-                        Some(json!({ "parent": ReqMcpServer::format_hrid(&parent, digits) })),
-                    )
-                }
-                other => McpError::internal_error(
-                    "failed to link parent",
-                    Some(json!({ "reason": other.to_string() })),
+                LinkRequirementError::ParentNotFound(_) => McpError::resource_not_found(
+                    "parent requirement not found",
+                    Some(json!({ "parent": ReqMcpServer::format_hrid(&parent, digits) })),
+                ),
+                LinkRequirementError::ChildNotFound(_) => McpError::internal_error(
+                    "child requirement missing after creation",
+                    Some(json!({ "child": ReqMcpServer::format_hrid(requirement.hrid(), digits) })),
                 ),
             })?;
     }

@@ -15,11 +15,8 @@ use uuid::Uuid;
 
 use crate::{
     domain::{
-        hrid::KindString,
-        requirement::{LoadError, Parent},
-        requirement_data::RequirementData,
-        requirement_view::RequirementView,
-        Hrid,
+        hrid::KindString, requirement::Parent, requirement_data::RequirementData,
+        requirement_view::RequirementView, Hrid,
     },
     Requirement,
 };
@@ -102,6 +99,18 @@ pub enum LinkError {
     /// The parent requirement was not found in the tree.
     #[error("Parent UUID {0} not found in tree")]
     ParentNotFound(Uuid),
+}
+
+/// Error type for linking requirements.
+#[derive(Debug, thiserror::Error)]
+pub enum LinkRequirementError {
+    /// The child HRID was not found in the tree.
+    #[error("Child requirement {0:?} not found")]
+    ChildNotFound(Hrid),
+
+    /// The parent HRID was not found in the tree.
+    #[error("Parent requirement {0:?} not found")]
+    ParentNotFound(Hrid),
 }
 
 /// Data stored on each edge in the dependency graph.
@@ -466,14 +475,22 @@ impl Tree {
     ///
     /// Returns an error when either HRID does not exist in the tree, or when
     /// the parent/child UUIDs cannot be linked.
-    pub fn link_requirement(&mut self, child: &Hrid, parent: &Hrid) -> anyhow::Result<LinkOutcome> {
+    pub fn link_requirement(
+        &mut self,
+        child: &Hrid,
+        parent: &Hrid,
+    ) -> Result<LinkOutcome, LinkRequirementError> {
         let (child_uuid, child_hrid) = {
-            let view = self.find_by_hrid(child).ok_or(LoadError::NotFound)?;
+            let view = self
+                .find_by_hrid(child)
+                .ok_or_else(|| LinkRequirementError::ChildNotFound(child.clone()))?;
             (*view.uuid, view.hrid.clone())
         };
 
         let (parent_uuid, parent_hrid, parent_fingerprint) = {
-            let view = self.find_by_hrid(parent).ok_or(LoadError::NotFound)?;
+            let view = self
+                .find_by_hrid(parent)
+                .ok_or_else(|| LinkRequirementError::ParentNotFound(parent.clone()))?;
             (*view.uuid, view.hrid.clone(), view.fingerprint())
         };
 
@@ -482,7 +499,15 @@ impl Tree {
             .into_iter()
             .any(|(uuid, _)| uuid == parent_uuid);
 
-        self.upsert_parent_link(child_uuid, parent_uuid, parent_fingerprint)?;
+        self.upsert_parent_link(child_uuid, parent_uuid, parent_fingerprint)
+            .map_err(|error| match error {
+                LinkError::ChildNotFound(_) => {
+                    LinkRequirementError::ChildNotFound(child_hrid.clone())
+                }
+                LinkError::ParentNotFound(_) => {
+                    LinkRequirementError::ParentNotFound(parent_hrid.clone())
+                }
+            })?;
 
         Ok(LinkOutcome {
             child_uuid,
