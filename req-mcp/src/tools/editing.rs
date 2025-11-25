@@ -207,6 +207,16 @@ pub(super) async fn create_requirement(
     let mut directory = server.state.directory.write().await;
     let digits = directory.config().digits();
 
+    // Validate all parent HRIDs before creating anything to avoid partial inserts.
+    for parent in &parent_hrids {
+        if directory.find_by_hrid(parent).is_none() {
+            return Err(McpError::resource_not_found(
+                "parent requirement not found",
+                Some(json!({ "parent": ReqMcpServer::format_hrid(parent, digits) })),
+            ));
+        }
+    }
+
     let requirement = if namespace.is_empty() {
         directory
             .add_requirement(&kind, content)
