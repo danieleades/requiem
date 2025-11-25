@@ -170,7 +170,7 @@ impl Hrid {
     /// ```
     /// use std::num::NonZeroUsize;
     ///
-    /// use requiem::{domain::hrid::KindString, Hrid};
+    /// use requiem_core::{domain::hrid::KindString, Hrid};
     ///
     /// let kind = KindString::new("USR".to_string()).unwrap();
     /// let id = NonZeroUsize::new(42).unwrap();

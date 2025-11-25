@@ -1,4 +1,5 @@
-//! MCP server implementation exposing requirement discovery and navigation tools.
+//! MCP server implementation exposing requirement discovery and navigation
+//! tools.
 
 use std::collections::BTreeSet;
 
@@ -247,9 +248,7 @@ impl ReqMcpServer {
             kinds.into_iter().collect()
         };
 
-        let response = ListRequirementKindsResponse {
-            kinds,
-        };
+        let response = ListRequirementKindsResponse { kinds };
         let summary = format!("Found {} requirement kinds", response.kinds.len());
         Ok(Self::success(
             summary,
@@ -280,7 +279,10 @@ impl ReqMcpServer {
                 .requirements()
                 .filter(|view| view.hrid.kind() == filter_kind)
                 .filter(|view| {
-                    query.as_ref().is_none_or(|query| view.title.to_lowercase().contains(query) || view.body.to_lowercase().contains(query))
+                    query.as_ref().is_none_or(|query| {
+                        view.title.to_lowercase().contains(query)
+                            || view.body.to_lowercase().contains(query)
+                    })
                 })
                 .map(|view| RequirementSummary {
                     hrid: Self::format_hrid(view.hrid, digits),
@@ -503,7 +505,9 @@ impl ServerHandler for ReqMcpServer {
         ServerInfo {
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             instructions: Some(
-                "Use list_requirement_kinds → list_requirements → get_requirement → get_children to explore requirements. Other tools are stubbed.".to_string(),
+                "Use list_requirement_kinds → list_requirements → get_requirement → get_children \
+                 to explore requirements. Other tools are stubbed."
+                    .to_string(),
             ),
             ..ServerInfo::default()
         }
