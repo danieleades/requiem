@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +16,11 @@ pub struct Config {
     ///
     /// If this is empty, all kinds are allowed.
     allowed_kinds: Vec<String>,
+
+    /// Optional metadata describing requirement kinds.
+    ///
+    /// Keyed by the KIND identifier (e.g., "USR").
+    kind_metadata: HashMap<String, KindMetadata>,
 
     /// The number of digits in the HRID.
     ///
@@ -47,6 +52,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             allowed_kinds: Vec::new(),
+            kind_metadata: HashMap::new(),
             digits: default_digits(),
             allow_unrecognised: false,
             subfolders_are_namespaces: false,
@@ -91,6 +97,20 @@ impl Config {
         &self.allowed_kinds
     }
 
+    /// Returns the metadata for all configured kinds.
+    #[must_use]
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn kind_metadata(&self) -> &HashMap<String, KindMetadata> {
+        &self.kind_metadata
+    }
+
+    /// Returns metadata for a specific kind, if present.
+    #[must_use]
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn metadata_for_kind(&self, kind: &str) -> Option<&KindMetadata> {
+        self.kind_metadata.get(kind)
+    }
+
     /// Checks if a kind is allowed by the configuration.
     ///
     /// If `allowed_kinds` is empty, all kinds are allowed.
@@ -130,15 +150,52 @@ impl Config {
         let kind = kind.to_uppercase();
         if let Some(pos) = self.allowed_kinds.iter().position(|k| k == &kind) {
             self.allowed_kinds.remove(pos);
+            self.kind_metadata.remove(&kind);
             true
         } else {
             false
+        }
+    }
+
+    /// Sets or clears a description for a kind (stored uppercase).
+    ///
+    /// An empty or `None` description removes existing metadata.
+    pub fn set_kind_description(&mut self, kind: &str, description: Option<String>) {
+        let key = kind.to_uppercase();
+        let description = description
+            .and_then(|d| {
+                let trimmed = d.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            })
+            .map(Some);
+
+        match description {
+            Some(description) => {
+                // Ensure the kind is explicitly allowed when attaching metadata.
+                self.add_kind(&key);
+                self.kind_metadata.insert(key, KindMetadata { description });
+            }
+            None => {
+                self.kind_metadata.remove(&key);
+            }
         }
     }
 }
 
 const fn default_digits() -> usize {
     3
+}
+
+/// Metadata describing a requirement kind.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct KindMetadata {
+    /// Human-readable description of the kind's purpose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// The serialized versions of the configuration.
@@ -150,7 +207,7 @@ enum Versions {
     #[serde(rename = "1")]
     V1 {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        allowed_kinds: Vec<String>,
+        allowed_kinds: Vec<AllowedKindEntry>,
 
         /// The number of digits in the HRID.
         ///
@@ -184,7 +241,15 @@ impl From<Versions> for super::Config {
                 allow_invalid: _, // Ignored for backward compatibility
                 subfolders_are_namespaces,
             } => Self {
-                allowed_kinds,
+                allowed_kinds: allowed_kinds
+                    .iter()
+                    .map(AllowedKindEntry::kind)
+                    .map(ToString::to_string)
+                    .collect(),
+                kind_metadata: allowed_kinds
+                    .into_iter()
+                    .filter_map(AllowedKindEntry::into_metadata)
+                    .collect(),
                 digits,
                 allow_unrecognised,
                 subfolders_are_namespaces,
@@ -195,12 +260,63 @@ impl From<Versions> for super::Config {
 
 impl From<super::Config> for Versions {
     fn from(config: super::Config) -> Self {
+        let super::Config {
+            allowed_kinds,
+            mut kind_metadata,
+            digits,
+            allow_unrecognised,
+            subfolders_are_namespaces,
+        } = config;
+
+        let serialized_kinds: Vec<AllowedKindEntry> = allowed_kinds
+            .iter()
+            .map(|kind| {
+                kind_metadata.remove(kind).map_or_else(
+                    || AllowedKindEntry::Simple(kind.clone()),
+                    |meta| AllowedKindEntry::Detailed {
+                        kind: kind.clone(),
+                        description: meta.description,
+                    },
+                )
+            })
+            .collect();
+
         Self::V1 {
-            allowed_kinds: config.allowed_kinds,
-            digits: config.digits,
-            allow_unrecognised: config.allow_unrecognised,
+            allowed_kinds: serialized_kinds,
+            digits,
+            allow_unrecognised,
             allow_invalid: false, // No longer used
-            subfolders_are_namespaces: config.subfolders_are_namespaces,
+            subfolders_are_namespaces,
+        }
+    }
+}
+
+/// Serialization helper for allowed kinds that supports either bare strings or
+/// inline tables with metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+enum AllowedKindEntry {
+    /// A bare kind identifier, e.g. "USR".
+    Simple(String),
+    /// A kind identifier with optional metadata fields.
+    Detailed {
+        kind: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+    },
+}
+
+impl AllowedKindEntry {
+    fn kind(&self) -> &str {
+        match self {
+            Self::Simple(kind) | Self::Detailed { kind, .. } => kind,
+        }
+    }
+
+    fn into_metadata(self) -> Option<(String, KindMetadata)> {
+        match self {
+            Self::Simple(_) => None,
+            Self::Detailed { kind, description } => Some((kind, KindMetadata { description })),
         }
     }
 }
@@ -247,6 +363,82 @@ mod tests {
 
         let error = Config::load(file.path()).unwrap_err();
         assert!(error.starts_with("Failed to parse config file:"));
+    }
+
+    #[test]
+    fn load_kinds_with_metadata() {
+        let config: Config = toml::from_str(
+            r#"_version = "1"
+allowed_kinds = [
+  { kind = "USR", description = "User-facing change" },
+  "SYS"
+]
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.allowed_kinds(),
+            &["USR".to_string(), "SYS".to_string()]
+        );
+
+        let usr = config.kind_metadata().get("USR").unwrap();
+        assert_eq!(usr.description.as_deref(), Some("User-facing change"));
+
+        assert!(config.kind_metadata().get("SYS").is_none());
+    }
+
+    #[test]
+    fn set_kind_description_adds_and_removes_metadata() {
+        let mut config = Config::default();
+        config.add_kind("usr");
+
+        config.set_kind_description("usr", Some("User stories".into()));
+        assert_eq!(
+            config
+                .metadata_for_kind("USR")
+                .and_then(|m| m.description.as_deref()),
+            Some("User stories")
+        );
+
+        config.set_kind_description("USR", Some("Refined".into()));
+        assert_eq!(
+            config
+                .metadata_for_kind("USR")
+                .and_then(|m| m.description.as_deref()),
+            Some("Refined")
+        );
+
+        config.set_kind_description("usr", Some("   ".into()));
+        assert!(config.metadata_for_kind("USR").is_none());
+    }
+
+    #[test]
+    fn serialize_round_trip_preserves_kind_metadata() {
+        let mut config = Config::default();
+        config.add_kind("usr");
+        config.set_kind_description("usr", Some("User stories".into()));
+        config.set_kind_description("doc", Some("Documentation".into()));
+
+        let toml = toml::to_string(&config).unwrap();
+        let round_tripped: Config = toml::from_str(&toml).unwrap();
+
+        assert_eq!(
+            round_tripped.allowed_kinds(),
+            &["USR".to_string(), "DOC".to_string()]
+        );
+        assert_eq!(
+            round_tripped
+                .metadata_for_kind("USR")
+                .and_then(|m| m.description.as_deref()),
+            Some("User stories")
+        );
+        assert_eq!(
+            round_tripped
+                .metadata_for_kind("DOC")
+                .and_then(|m| m.description.as_deref()),
+            Some("Documentation")
+        );
     }
 
     #[test]

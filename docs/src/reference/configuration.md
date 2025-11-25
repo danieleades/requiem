@@ -90,18 +90,30 @@ Error: Failed to parse config file: invalid type: integer, expected a string
 
 Restrict which requirement kinds are permitted.
 
-**Type**: Array of strings
+**Type**: Array of strings or inline tables with metadata
 
 **Required**: No
 
 **Default**: `[]` (empty array = all kinds allowed)
 
-**Valid Values**: Array of non-empty strings
+**Valid Values**: Array of non-empty strings or tables with keys:
+- `kind` (required)
+- `description` (optional)
 
 **Example**:
 ```toml
 allowed_kinds = ["USR", "SYS", "SWR", "TST"]
 ```
+
+**Example with metadata**:
+```toml
+allowed_kinds = [
+  { kind = "USR", description = "User-facing requirements" },
+  { kind = "SYS", description = "System behavior and constraints" },
+]
+```
+
+*NB: metadata is surfaced through both the CLI and the MCP server and is recommended for making the structure of your requirements project more discoverable.*
 
 **Purpose**:
 - Enforce project conventions
