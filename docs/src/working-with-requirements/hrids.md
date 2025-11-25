@@ -180,13 +180,13 @@ Use namespaces only when they add clarity, not as a default.
 
 ### Auto-Incrementing
 
-`req add` automatically assigns the next available ID:
+`req create` automatically assigns the next available ID:
 
 ```bash
-req add USR    # Creates USR-001
-req add USR    # Creates USR-002
-req add SYS    # Creates SYS-001
-req add USR    # Creates USR-003
+req create USR    # Creates USR-001
+req create USR    # Creates USR-002
+req create SYS    # Creates SYS-001
+req create USR    # Creates USR-003
 ```
 
 The next ID is determined by examining existing requirements and incrementing the highest ID found.
@@ -196,10 +196,10 @@ The next ID is determined by examining existing requirements and incrementing th
 Specify the namespace in the KIND argument:
 
 ```bash
-req add AUTH-USR        # Creates AUTH-USR-001
-req add AUTH-SYS        # Creates AUTH-SYS-001
-req add PAYMENT-USR     # Creates PAYMENT-USR-001
-req add AUTH-USR        # Creates AUTH-USR-002
+req create AUTH-USR        # Creates AUTH-USR-001
+req create AUTH-SYS        # Creates AUTH-SYS-001
+req create PAYMENT-USR     # Creates PAYMENT-USR-001
+req create AUTH-USR        # Creates AUTH-USR-002
 ```
 
 Each NAMESPACE-KIND combination has its own sequence.
@@ -214,7 +214,7 @@ USR-001.md  # Exists
 USR-003.md  # Exists
 ```
 
-The next `req add USR` creates `USR-004`, not `USR-002`. Requiem always uses the next number after the highest existing ID.
+The next `req create USR` creates `USR-004`, not `USR-002`. Requiem always uses the next number after the highest existing ID.
 
 **Rationale**: Reusing deleted IDs could confuse people referring to old documentation or Git history that mentioned USR-002.
 
@@ -371,4 +371,4 @@ The HRID in the filename is authoritative. Requiem derives the HRID from the fil
 
 ## Next Steps
 
-Now that you understand HRIDs, learn how to [create requirements](./creating.md) with `req add`.
+Now that you understand HRIDs, learn how to [create requirements](./creating.md) with `req create`.

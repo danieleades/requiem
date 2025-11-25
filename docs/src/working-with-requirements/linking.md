@@ -69,12 +69,12 @@ Instead of linking after creation, you can specify parents when creating:
 
 ```bash
 # Instead of:
-req add SYS
+req create SYS
 req link SYS-001 USR-001
 req link SYS-001 USR-002
 
 # Do:
-req add SYS --parents USR-001,USR-002
+req create SYS --parent USR-001,USR-002
 ```
 
 This is more efficient and ensures traceability from the start.
@@ -195,10 +195,10 @@ USR-001
 ```
 
 ```bash
-req add USR
-req add SYS --parents USR-001
-req add SYS --parents USR-001
-req add SYS --parents USR-001
+req create USR
+req create SYS --parent USR-001
+req create SYS --parent USR-001
+req create SYS --parent USR-001
 ```
 
 ### Many-to-One (Parents → Child)
@@ -212,10 +212,10 @@ USR-003 ─┘
 ```
 
 ```bash
-req add USR
-req add USR
-req add USR
-req add SYS --parents USR-001,USR-002,USR-003
+req create USR
+req create USR
+req create USR
+req create SYS --parent USR-001,USR-002,USR-003
 ```
 
 ### Many-to-Many
@@ -230,9 +230,9 @@ USR-002 ─┬─ SYS-002
 ```
 
 ```bash
-req add SYS --parents USR-001
-req add SYS --parents USR-001,USR-002
-req add SYS --parents USR-002
+req create SYS --parent USR-001
+req create SYS --parent USR-001,USR-002
+req create SYS --parent USR-002
 ```
 
 ## Best Practices
@@ -241,10 +241,10 @@ req add SYS --parents USR-002
 
 ```bash
 # Preferred
-req add SYS --parents USR-001
+req create SYS --parent USR-001
 
 # Works but requires two commands
-req add SYS
+req create SYS
 req link SYS-001 USR-001
 ```
 

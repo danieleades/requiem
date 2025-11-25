@@ -48,7 +48,7 @@ Logging satisfies needs from login (debug), export (audit), and admin (monitorin
 **Implementation**:
 
 ```bash
-req add SYS --parents USR-001,USR-002,USR-003
+req create SYS --parent USR-001,USR-002,USR-003
 ```
 
 ### Derived Requirements
@@ -66,11 +66,11 @@ USR-001 (Secure authentication)
 **Implementation**:
 
 ```bash
-req add USR
-req add SYS --parents USR-001  # SYS-001
-req add SYS --parents USR-001  # SYS-002
-req add SYS --parents USR-001  # SYS-003
-req add SYS --parents USR-001  # SYS-004
+req create USR
+req create SYS --parent USR-001  # SYS-001
+req create SYS --parent USR-001  # SYS-002
+req create SYS --parent USR-001  # SYS-003
+req create SYS --parent USR-001  # SYS-004
 ```
 
 ### Composite Requirements
@@ -86,7 +86,7 @@ SYS-022 (JSON serialization)─┘
 **Implementation**:
 
 ```bash
-req add SWR --parents SYS-010,SYS-015,SYS-022
+req create SWR --parent SYS-010,SYS-015,SYS-022
 ```
 
 ## Traceability Queries

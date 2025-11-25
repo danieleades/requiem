@@ -4,7 +4,7 @@ Templates provide default body content when creating new requirements, helping m
 
 ## Overview
 
-When you create a new requirement using `req add <KIND>`, the tool looks for a template file in the `.req/templates/` directory. If found, the template content is used as the body of the new requirement. The HRID is automatically generated, and the title can be provided via the `--title` flag or edited after creation.
+When you create a new requirement using `req create <KIND>`, the tool looks for a template file in the `.req/templates/` directory. If found, the template content is used as the body of the new requirement. The HRID is automatically generated, and the title can be provided via the `--title` flag or edited after creation.
 
 ## Template Location
 
@@ -97,10 +97,10 @@ When you create a requirement without content flags, the template body is automa
 
 ```bash
 # Without title - creates requirement with empty title and template body
-req add USR
+req create USR
 
 # With title - creates requirement with specified title and template body
-req add USR --title "User Registration"
+req create USR --title "User Registration"
 ```
 
 The generated file will have this structure:
@@ -122,13 +122,13 @@ Templates are ignored when you provide content via CLI flags:
 
 ```bash
 # Template ignored - uses title and body from flags
-req add USR -t "Custom Title" -b "Custom content"
+req create USR -t "Custom Title" -b "Custom content"
 
 # Template ignored - uses title from flag
-req add USR -t "Custom Title"
+req create USR -t "Custom Title"
 
 # Template ignored - uses body from flag
-req add USR -b "Custom content"
+req create USR -b "Custom content"
 ```
 
 ## Examples

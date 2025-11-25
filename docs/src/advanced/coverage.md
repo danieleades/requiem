@@ -160,7 +160,7 @@ req coverage --detailed > review-report.md
 # - SYS-003: Orphan requirement
 
 # Fix gaps
-req add SYS --parent USR-002  # Add missing SYS requirement
+req create SYS --parent USR-002  # Add missing SYS requirement
 req link SYS-003 USR-007      # Link orphan to parent
 
 # Verify

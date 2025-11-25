@@ -27,9 +27,9 @@ cd task-app-requirements
 User requirements describe what users need, not how it's implemented.
 
 ```bash
-req add USR  # USR-001
-req add USR  # USR-002
-req add USR  # USR-003
+req create USR  # USR-001
+req create USR  # USR-002
+req create USR  # USR-003
 ```
 
 Edit each file to add content:
@@ -77,8 +77,8 @@ System requirements break down user requirements into technical specifications.
 For `USR-001` (creating tasks), we need:
 
 ```bash
-req add SYS --parents USR-001  # SYS-001
-req add SYS --parents USR-001  # SYS-002
+req create SYS --parent USR-001  # SYS-001
+req create SYS --parent USR-001  # SYS-002
 ```
 
 **SYS-001.md:**
@@ -116,7 +116,7 @@ The system shall validate that task titles are non-empty strings with maximum 10
 For `USR-002` (marking complete):
 
 ```bash
-req add SYS --parents USR-002  # SYS-003
+req create SYS --parent USR-002  # SYS-003
 ```
 
 **SYS-003.md:**
@@ -138,7 +138,7 @@ The system shall provide a method to toggle the completed status of a task.
 For `USR-003` (filtering):
 
 ```bash
-req add SYS --parents USR-003  # SYS-004
+req create SYS --parent USR-003  # SYS-004
 ```
 
 **SYS-004.md:**
@@ -162,7 +162,7 @@ The system shall provide a method to filter tasks returning only those matching 
 Some requirements affect multiple user needs. For example, persistence:
 
 ```bash
-req add SYS --parents USR-001,USR-002,USR-003  # SYS-005
+req create SYS --parent USR-001,USR-002,USR-003  # SYS-005
 ```
 
 **SYS-005.md:**

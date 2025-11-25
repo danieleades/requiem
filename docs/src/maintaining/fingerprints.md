@@ -189,7 +189,7 @@ No built-in command yet, but you can compute it manually:
 
 ```bash
 # Create temp requirement
-req add TEMP
+req create TEMP
 # Link to target
 req link TEMP-001 USR-001
 # View fingerprint in TEMP-001.md
@@ -574,7 +574,7 @@ When creating a requirement with parents:
 
 ```bash
 # Create requirement
-req add SYS --parents USR-001
+req create SYS --parent USR-001
 
 # Fingerprint is captured immediately
 ```

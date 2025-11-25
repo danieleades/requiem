@@ -12,21 +12,22 @@ Requiem provides tools for:
 
 ## Common Maintenance Tasks
 
-### Regular Cleanup
+### Regular Synchronization
 
-Run `req clean` periodically to ensure consistency:
+Run `req sync` periodically to ensure consistency:
 
 ```bash
-req clean
+req sync               # update stored parent HRIDs
+req sync --what paths  # move files to canonical locations
 ```
 
 This command:
 - Loads all requirements
-- Validates frontmatter and format
-- Corrects parent HRIDs if requirements were renamed
-- Reports any errors or inconsistencies
+- Corrects stored parent HRIDs if requirements were renamed
+- Optionally fixes file locations to match the configured path mode
+- Exits non-zero when drift exists (use `--check` for CI-friendly checks)
 
-**Frequency**: Run after major reorganizations or before releases.
+**Frequency**: Run after major reorganizations, renames, or before releases.
 
 ### After Renaming Requirements
 
@@ -39,7 +40,7 @@ mv USR-001.md USR-100.md
 
 2. Update parent references:
 ```bash
-req clean
+req sync
 ```
 
 3. Verify changes:
@@ -47,7 +48,7 @@ req clean
 git diff
 ```
 
-The `clean` command updates all parent HRIDs automatically.
+The `sync` command updates all parent HRIDs automatically.
 
 ### After Editing Content
 
@@ -91,10 +92,10 @@ grep -r "uuid: <parent-uuid>" *.md
 
 ### 1. Validate Before Committing
 
-Always run `req clean` before committing changes:
+Always check for drift before committing changes:
 
 ```bash
-req clean && git add -A && git commit -m "Update requirements"
+req review && req sync --check && git add -A && git commit -m "Update requirements"
 ```
 
 This catches errors before they enter the repository.
@@ -143,13 +144,13 @@ Create a `CONTRIBUTING.md` or similar:
 # Requirements Maintenance
 
 ## Before Committing
-1. Run `req clean`
+1. Run `req review` and `req sync --check`
 2. Review diffs carefully
 3. Don't modify UUIDs manually
 
 ## Renaming Requirements
 1. Rename file
-2. Run `req clean` to update parent references
+2. Run `req sync` to update parent references
 3. Commit changes
 
 ## Adding Tags
@@ -167,7 +168,7 @@ Automate validation with Git hooks:
 # .git/hooks/pre-commit
 
 echo "Validating requirements..."
-req clean
+req review && req sync --check
 
 if [ $? -ne 0 ]; then
     echo "Error: Requirements validation failed"
@@ -193,7 +194,7 @@ jobs:
       - name: Install Requiem
         run: cargo install requirements-manager
       - name: Validate requirements
-        run: req clean
+        run: req review && req sync --check
         working-directory: ./requirements
 ```
 
@@ -229,7 +230,7 @@ If YAML becomes invalid:
 
 1. Check syntax:
 ```bash
-req clean  # Reports specific error
+req status  # Fails fast with the parse error
 ```
 
 2. Fix manually or restore from Git:
@@ -253,18 +254,18 @@ uuidgen  # Generate new UUID
 
 4. Verify:
 ```bash
-req clean
+req status
 ```
 
 ### Missing Parents
 
 If a parent requirement is deleted but children still reference it:
 
-1. Requiem reports error during `req clean`
+1. `req review` will surface the missing parent as a suspect link (empty current fingerprint)
 2. Options:
-   - Restore deleted parent
-   - Remove parent reference from child
-   - Link child to different parent
+   - Restore the deleted parent
+   - Remove the parent reference from the child
+   - Link the child to a different parent
 
 ### Merge Conflicts
 
@@ -279,7 +280,7 @@ When merging Git branches with requirement changes:
 
 3. After resolving:
 ```bash
-req clean  # Validate merged result
+req review && req sync --check  # Validate merged result
 ```
 
 ## Monitoring and Reporting
@@ -314,6 +315,6 @@ comm -23 \
 
 Dive deeper into specific maintenance topics:
 
-- **[Correcting HRIDs](./maintaining/correcting-hrids.md)** - Using the `req clean` command
+- **[Correcting HRIDs](./maintaining/correcting-hrids.md)** - Using the `req sync` command
 - **[Fingerprints](./maintaining/fingerprints.md)** - How change detection works
 - **[Review Workflows](./maintaining/review-workflows.md)** - Managing reviews (planned)

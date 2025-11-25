@@ -139,7 +139,7 @@ Open Claude in this directory; it will pick up the config. In chat, run `/mcp li
 
 **CLI add (from repo root):**
 ```sh
-claude mcp add --transport stdio req --env REQ_ROOT=${pwd}/docs/src/requirements -- cargo run -r --manifest-path ${pwd}/Cargo.toml --bin req-mcp --scope project
+claude mcp add --transport stdio req --env REQ_ROOT=$(pwd)/docs/src/requirements  --scope project -- cargo run -r --manifest-path $(pwd)/Cargo.toml --bin req-mcp
 ```
 
 ### Codex CLI
@@ -161,5 +161,5 @@ rmcp_client = true
 Restart Codex. Alternatively, add via CLI:
 
 ```sh
-codex mcp add req --env REQ_ROOT=${pwd}/docs/src/requirements -- cargo run -r --manifest-path ${pwd}/Cargo.toml --bin req-mcp
+codex mcp add req --env REQ_ROOT=$(pwd)/docs/src/requirements -- cargo run -r --manifest-path $(pwd)/Cargo.toml --bin req-mcp
 ```
