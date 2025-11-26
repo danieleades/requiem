@@ -53,7 +53,7 @@ impl Command {
 
         // Check if we have an empty repository
         if total == 0 {
-            println!("No requirements found yet. Create one with 'req add'.");
+            println!("No requirements found yet. Create one with 'req create'.");
             return Ok(());
         }
 
@@ -170,10 +170,7 @@ impl Command {
         if suspect_count > 0 || path_issues > 0 {
             println!();
             if suspect_count > 0 {
-                println!(
-                    "{}",
-                    "Run 'req suspect' to investigate suspect links.".dim()
-                );
+                println!("{}", "Run 'req review' to investigate suspect links.".dim());
             }
             if path_issues > 0 {
                 println!("{}", "Run 'req diagnose paths' to see path details.".dim());
