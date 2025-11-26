@@ -1418,4 +1418,70 @@ mod tests {
             "Should allow D→A since it doesn't create a cycle"
         );
     }
+
+    #[test]
+    fn test_check_would_create_cycle_simple_reverse() {
+        // Test the specific scenario from the review comment:
+        // B → A exists (B depends on A)
+        // Try to add A → B (would create a cycle)
+        // This should FAIL but currently SUCCEEDS due to wrong traversal direction
+        let mut tree = Tree::default();
+
+        let req_a = Requirement::new("USR-001".parse().unwrap(), "A".to_string(), String::new());
+        let uuid_a = req_a.uuid();
+        tree.insert(req_a).unwrap();
+
+        let req_b = Requirement::new("USR-002".parse().unwrap(), "B".to_string(), String::new());
+        let uuid_b = req_b.uuid();
+        tree.insert(req_b).unwrap();
+
+        // Create B → A (B depends on A)
+        tree.upsert_parent_link(uuid_b, uuid_a, "fp".to_string())
+            .unwrap();
+
+        // Now try to add A → B (which would create cycle A → B → A)
+        let result = tree.check_would_create_cycle(uuid_a, uuid_b);
+        assert!(
+            result.is_err(),
+            "Should detect that A→B would create cycle (B→A already exists)"
+        );
+    }
+
+    #[test]
+    fn test_check_would_create_cycle_detects_ancestor_to_descendant() {
+        let mut tree = Tree::default();
+
+        // Create chain: A → B → C → D
+        let req_a = Requirement::new("USR-001".parse().unwrap(), "A".to_string(), String::new());
+        let uuid_a = req_a.uuid();
+        tree.insert(req_a).unwrap();
+
+        let req_b = Requirement::new("USR-002".parse().unwrap(), "B".to_string(), String::new());
+        let uuid_b = req_b.uuid();
+        tree.insert(req_b).unwrap();
+
+        let req_c = Requirement::new("USR-003".parse().unwrap(), "C".to_string(), String::new());
+        let uuid_c = req_c.uuid();
+        tree.insert(req_c).unwrap();
+
+        let req_d = Requirement::new("USR-004".parse().unwrap(), "D".to_string(), String::new());
+        let uuid_d = req_d.uuid();
+        tree.insert(req_d).unwrap();
+
+        // Create A → B, B → C, C → D
+        tree.upsert_parent_link(uuid_a, uuid_b, "fp".to_string())
+            .unwrap();
+        tree.upsert_parent_link(uuid_b, uuid_c, "fp".to_string())
+            .unwrap();
+        tree.upsert_parent_link(uuid_c, uuid_d, "fp".to_string())
+            .unwrap();
+
+        // This test case specifically targets the bug in can_reach:
+        // Trying to link D → A should fail because A already reaches D
+        let result = tree.check_would_create_cycle(uuid_d, uuid_a);
+        assert!(
+            result.is_err(),
+            "Should detect that D→A would create cycle (A→B→C→D→A)"
+        );
+    }
 }
