@@ -164,7 +164,8 @@ impl Validate {
 
         // Exit with error code if any remaining issues exist
         // What counts as "remaining" depends on what was actually executed:
-        // - If --fix was actually applied: only unfixable issues remain (fixable were repaired)
+        // - If --fix was actually applied: only unfixable issues remain (fixable were
+        //   repaired)
         // - If --fix --dry-run or no --fix: all issues remain
         let remaining_issues = if self.fix && !self.dry_run {
             result.count_unfixable_issues()
