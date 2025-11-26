@@ -134,15 +134,38 @@ struct EdgeData {
     fingerprint: String,
 }
 
-/// Color enum for cycle detection using depth-first search.
-#[derive(Debug, PartialEq)]
+/// Vertex coloring state for cycle detection using the three-color DFS
+/// algorithm.
+///
+/// This implements a standard graph algorithm for detecting cycles in directed
+/// graphs. The three states track DFS traversal:
+///
+/// - **Gray**: The node is currently being visited (appears in the current
+///   recursion stack). A back edge to a Gray node indicates a cycle.
+/// - **Black**: The node has been completely processed (finished recursing on
+///   all descendants). A back edge to a Black node is a cross edge, not a
+///   cycle.
+/// - **Unvisited**: Nodes not in the map have never been visited.
+///
+/// # Algorithm
+///
+/// This is the standard three-color depth-first search algorithm:
+/// 1. Mark node Gray when entering (push to recursion stack)
+/// 2. Recursively visit unvisited neighbors
+/// 3. If we encounter a Gray ancestor, we've found a cycle (back edge)
+/// 4. Mark node Black when leaving (pop from recursion stack)
+///
+/// This allows us to detect cycles in a single O(V+E) pass while simultaneously
+/// extracting the complete cycle paths (e.g., `[A, B, C, A]`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DfsColorForDetection {
-    /// Node has not been visited yet.
-    White,
-    /// Node is currently being processed (in the recursion stack).
+    /// Node is currently being visited (on the recursion stack).
+    /// A back edge to a Gray node indicates a cycle.
     Gray,
-    /// Node has been fully processed.
+    /// Node has been completely finished. Edges to Black nodes are cross edges,
+    /// not cycles.
     Black,
+    // Unvisited nodes are represented by the absence of an entry in the HashMap.
 }
 
 /// An in-memory representation of the set of requirements with decomposed
@@ -489,7 +512,8 @@ impl Tree {
     /// # Errors
     ///
     /// Returns an error when either HRID does not exist in the tree, when
-    /// the parent/child UUIDs cannot be linked, or when the link would create a cycle.
+    /// the parent/child UUIDs cannot be linked, or when the link would create a
+    /// cycle.
     pub fn link_requirement(
         &mut self,
         child: &Hrid,
@@ -982,12 +1006,22 @@ impl Tree {
         updated
     }
 
-    /// Detect all cycles in the requirement graph.
+    /// Detect all cycles in the requirement graph using three-color depth-first
+    /// search.
     ///
-    /// Returns a list of cycles, where each cycle is represented as a path of HRIDs
-    /// that forms a loop (e.g., ["USR-001", "SYS-002", "USR-001"]).
+    /// Returns a list of cycles, where each cycle is represented as a path of
+    /// HRIDs that forms a loop (e.g., `vec![USR-001, SYS-002, USR-001]`).
     ///
-    /// Uses depth-first search to detect back edges, which indicate cycles.
+    /// # Algorithm
+    ///
+    /// Uses the standard three-color DFS algorithm to detect back edges in
+    /// O(V+E) time. When a back edge to a Gray ancestor is found, the full
+    /// cycle path is extracted and deduplicated before being added to the
+    /// result.
+    ///
+    /// # Example
+    ///
+    /// If the graph has edges: `A→B→C→A`, this returns `vec![vec![A, B, C, A]]`
     #[must_use]
     pub fn detect_cycles(&self) -> Vec<Vec<Hrid>> {
         use std::collections::HashMap;
@@ -995,6 +1029,7 @@ impl Tree {
         let mut colors: HashMap<Uuid, DfsColorForDetection> = HashMap::new();
         let mut cycles = Vec::new();
 
+        // Start DFS from each unvisited node to ensure we find all cycles
         for start_node in self.graph.nodes() {
             if !colors.contains_key(&start_node) {
                 self.dfs_detect_cycles(start_node, &mut colors, &mut Vec::new(), &mut cycles);
@@ -1004,6 +1039,10 @@ impl Tree {
         cycles
     }
 
+    /// Recursive helper for three-color DFS cycle detection.
+    ///
+    /// Maintains the recursion path to extract full cycle information when back
+    /// edges (edges to Gray nodes) are encountered.
     fn dfs_detect_cycles(
         &self,
         node: Uuid,
@@ -1011,43 +1050,43 @@ impl Tree {
         path: &mut Vec<Uuid>,
         cycles: &mut Vec<Vec<Hrid>>,
     ) {
-        use self::DfsColorForDetection::*;
+        use self::DfsColorForDetection::{Black, Gray};
 
+        // Mark node Gray (entering DFS)
         colors.insert(node, Gray);
         path.push(node);
 
+        // Visit all outgoing edges (children in the parent relation)
         for (_, parent_uuid, _) in self.graph.edges(node) {
-            if let Some(color) = colors.get(&parent_uuid) {
-                match color {
-                    Gray => {
-                        // Found a back edge - this is a cycle
-                        if let Some(pos) = path.iter().position(|&u| u == parent_uuid) {
-                            let cycle_path: Vec<Hrid> = path[pos..]
-                                .iter()
-                                .chain(std::iter::once(&parent_uuid))
-                                .filter_map(|&uuid| self.hrids.get(&uuid).cloned())
-                                .collect();
-                            if !cycle_path.is_empty() {
-                                // Check if this cycle already exists to avoid duplicates
-                                if !cycles.iter().any(|c| Self::cycles_equal(c, &cycle_path)) {
-                                    cycles.push(cycle_path);
-                                }
+            match colors.get(&parent_uuid) {
+                Some(Gray) => {
+                    // Back edge found! This node is an ancestor in the current path.
+                    // Extract and record the cycle.
+                    if let Some(pos) = path.iter().position(|&u| u == parent_uuid) {
+                        let cycle_path: Vec<Hrid> = path[pos..]
+                            .iter()
+                            .chain(std::iter::once(&parent_uuid))
+                            .filter_map(|&uuid| self.hrids.get(&uuid).cloned())
+                            .collect();
+                        if !cycle_path.is_empty() {
+                            // Avoid duplicate cycles by checking if we've already found this one
+                            if !cycles.iter().any(|c| Self::cycles_equal(c, &cycle_path)) {
+                                cycles.push(cycle_path);
                             }
                         }
                     }
-                    White => {
-                        self.dfs_detect_cycles(parent_uuid, colors, path, cycles);
-                    }
-                    Black => {
-                        // Already fully processed, skip
-                    }
                 }
-            } else {
-                // Not visited yet, treat as White and recurse
-                self.dfs_detect_cycles(parent_uuid, colors, path, cycles);
+                Some(Black) => {
+                    // Already processed this subtree, skip (cross edge)
+                }
+                None => {
+                    // Unvisited node, recurse
+                    self.dfs_detect_cycles(parent_uuid, colors, path, cycles);
+                }
             }
         }
 
+        // Mark node Black (leaving DFS, all descendants processed)
         colors.insert(node, Black);
         path.pop();
     }
@@ -1061,13 +1100,16 @@ impl Tree {
             return true;
         }
         // Check if b is a rotation of a
-        let b_str = b.iter().map(|h| h.display(3).to_string()).collect::<Vec<_>>();
-        let doubled = format!(
-            "{}{}",
-            b_str.join(","),
-            b_str.join(",")
-        );
-        let a_str = a.iter().map(|h| h.display(3).to_string()).collect::<Vec<_>>().join(",");
+        let b_str = b
+            .iter()
+            .map(|h| h.display(3).to_string())
+            .collect::<Vec<_>>();
+        let doubled = format!("{}{}", b_str.join(","), b_str.join(","));
+        let a_str = a
+            .iter()
+            .map(|h| h.display(3).to_string())
+            .collect::<Vec<_>>()
+            .join(",");
         doubled.contains(&a_str)
     }
 
@@ -1075,8 +1117,17 @@ impl Tree {
     ///
     /// Returns `Ok(())` if the link is safe, or `Err()` with the cycle path
     /// that would be created.
-    pub fn check_would_create_cycle(&self, child_uuid: Uuid, parent_uuid: Uuid) -> anyhow::Result<()> {
-        // If the parent can reach the child in the graph, then child -> parent would create a cycle
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if creating the link would form a cycle in the graph.
+    pub fn check_would_create_cycle(
+        &self,
+        child_uuid: Uuid,
+        parent_uuid: Uuid,
+    ) -> anyhow::Result<()> {
+        // If the parent can reach the child in the graph, then child -> parent would
+        // create a cycle
         if self.can_reach(parent_uuid, child_uuid) {
             // Find the cycle path for error reporting
             let cycle_path = self.find_cycle_path(parent_uuid, child_uuid);
@@ -1086,15 +1137,12 @@ impl Tree {
                 .collect::<Vec<_>>()
                 .join(" → ");
 
-            let child_hrid = self
-                .hrids
-                .get(&child_uuid)
-                .map(|h| format!("{}", h.display(3)))
-                .unwrap_or_else(|| format!("(UUID: {child_uuid})"));
-
-            anyhow::bail!(
-                "Cannot create link: would form a cycle: {cycle_str} → {child_hrid}"
+            let child_hrid = self.hrids.get(&child_uuid).map_or_else(
+                || format!("(UUID: {child_uuid})"),
+                |h| format!("{}", h.display(3)),
             );
+
+            anyhow::bail!("Cannot create link: would form a cycle: {cycle_str} → {child_hrid}");
         }
         Ok(())
     }
@@ -1118,8 +1166,7 @@ impl Tree {
             }
 
             for (_, parent_uuid, _) in self.graph.edges(node) {
-                if !visited.contains(&parent_uuid) {
-                    visited.insert(parent_uuid);
+                if visited.insert(parent_uuid) {
                     queue.push_back(parent_uuid);
                 }
             }
@@ -1151,8 +1198,9 @@ impl Tree {
             }
 
             for (_, parent_uuid, _) in self.graph.edges(node) {
-                if !parent_map.contains_key(&parent_uuid) {
-                    parent_map.insert(parent_uuid, node);
+                if let std::collections::hash_map::Entry::Vacant(e) = parent_map.entry(parent_uuid)
+                {
+                    e.insert(node);
                     queue.push_back(parent_uuid);
                 }
             }

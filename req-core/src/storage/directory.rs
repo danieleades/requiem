@@ -937,7 +937,8 @@ impl Directory {
 
     /// Detect all cycles in the requirement graph.
     ///
-    /// Returns a list of cycles, where each cycle is represented as a path of HRIDs.
+    /// Returns a list of cycles, where each cycle is represented as a path of
+    /// HRIDs.
     #[must_use]
     pub fn detect_cycles(&self) -> Vec<Vec<Hrid>> {
         self.tree.detect_cycles()
