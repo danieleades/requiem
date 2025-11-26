@@ -162,11 +162,18 @@ impl Validate {
             self.apply_fixes(&result, directory)?;
         }
 
-        // Exit with error code if ANY issues exist (fixed or not)
-        // Even fixable issues like path drift or stale HRIDs should cause non-zero exit
-        // to signal that the repository was not in a healthy state
-        if result.count_total_issues() > 0 {
-            std::process::exit(2);
+        // Exit with appropriate code based on whether fixes were applied
+        if self.fix {
+            // If we attempted fixes, only fail if unfixable issues remain
+            // (fixable issues like paths and stale HRIDs should have been repaired)
+            if result.count_unfixable_issues() > 0 {
+                std::process::exit(2);
+            }
+        } else {
+            // If no fixes were attempted, any issues = failure
+            if result.count_total_issues() > 0 {
+                std::process::exit(2);
+            }
         }
 
         Ok(())
