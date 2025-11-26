@@ -242,12 +242,16 @@ impl Validate {
         issues
     }
 
-    fn output_table(&self, result: &ValidationResult, _directory: &Directory) {
+    fn output_table(&self, result: &ValidationResult, directory: &Directory) {
         if self.quiet {
             return;
         }
 
         println!("Validating repository...\n");
+
+        // Structure (always valid if we got here)
+        let req_count = directory.requirements().count();
+        println!("✓ Structure:  {req_count} requirements, all valid");
 
         // Paths
         if result.paths.is_empty() {
@@ -384,6 +388,7 @@ impl Validate {
         let output = json!({
             "status": if total_issues == 0 { "healthy" } else { "issues_found" },
             "issues": {
+                "structure": [],
                 "paths": path_issues,
                 "links": link_issues,
                 "suspect": suspect_issues
