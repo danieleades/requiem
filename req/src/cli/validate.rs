@@ -59,16 +59,39 @@ enum OutputFormat {
 
 #[derive(Debug, Default)]
 struct ValidationResult {
-    structure: Vec<StructureIssue>,
     paths: Vec<PathIssue>,
     links: Vec<LinkIssue>,
     suspect: Vec<SuspectIssue>,
 }
 
-#[derive(Debug)]
-struct StructureIssue {
-    _file: PathBuf,
-    _message: String,
+impl ValidationResult {
+    /// Count the total number of issues across all categories.
+    fn count_total_issues(&self) -> usize {
+        self.paths.len() + self.links.len() + self.suspect.len()
+    }
+
+    /// Count only the fixable issues (paths + stale HRIDs).
+    fn count_fixable_issues(&self) -> usize {
+        self.paths.len()
+            + self
+                .links
+                .iter()
+                .filter(|link| matches!(link, LinkIssue::StaleHrid { .. }))
+                .count()
+    }
+
+    /// Count unfixable issues (structure + broken refs + cycles + suspect).
+    fn count_unfixable_issues(&self) -> usize {
+        self.count_total_issues() - self.count_fixable_issues()
+    }
+
+    /// Count only stale HRID issues (subset of links).
+    fn count_stale_hrids(&self) -> usize {
+        self.links
+            .iter()
+            .filter(|link| matches!(link, LinkIssue::StaleHrid { .. }))
+            .count()
+    }
 }
 
 #[derive(Debug)]
@@ -80,16 +103,9 @@ struct PathIssue {
 
 #[derive(Debug)]
 enum LinkIssue {
-    _BrokenReference {
-        _child: String,
-        _parent_uuid: String,
-    },
-    _CircularDependency {
-        _cycle: Vec<String>,
-    },
-    StaleHrid {
-        child: String,
-    },
+    BrokenReference { child: String, parent_uuid: String },
+    CircularDependency { cycle: Vec<String> },
+    StaleHrid { child: String },
 }
 
 #[derive(Debug)]
@@ -105,28 +121,34 @@ impl Validate {
 
         // Determine which checks to run
         let checks = if self.check.is_empty() || self.check.contains(&CheckType::All) {
-            vec![
+            &[
                 CheckType::Structure,
                 CheckType::Paths,
                 CheckType::Links,
                 CheckType::Suspect,
             ]
         } else {
-            self.check.clone()
+            self.check.as_slice()
         };
 
-        // Run checks
-        let mut result = ValidationResult::default();
-
-        for check in &checks {
-            match check {
-                CheckType::Structure => Self::check_structure(),
-                CheckType::Paths => Self::check_paths(&directory, &mut result),
-                CheckType::Links => Self::check_links(&directory, &mut result),
-                CheckType::Suspect => Self::check_suspect(&directory, &mut result),
-                CheckType::All => unreachable!("All should have been expanded"),
-            }
-        }
+        // Run checks and construct result immutably
+        let result = ValidationResult {
+            paths: if checks.contains(&CheckType::Paths) {
+                Self::check_paths(&directory)
+            } else {
+                vec![]
+            },
+            links: if checks.contains(&CheckType::Links) {
+                Self::check_links(&directory)
+            } else {
+                vec![]
+            },
+            suspect: if checks.contains(&CheckType::Suspect) {
+                Self::check_suspect(&directory)
+            } else {
+                vec![]
+            },
+        };
 
         // Output results
         match self.output {
@@ -140,30 +162,33 @@ impl Validate {
             self.apply_fixes(&result, directory)?;
         }
 
-        // Exit with appropriate code
-        if Self::count_issues(&result) > 0 {
+        // Exit with error code if any remaining issues exist
+        // What counts as "remaining" depends on what was actually executed:
+        // - If --fix was actually applied: only unfixable issues remain (fixable were
+        //   repaired)
+        // - If --fix --dry-run or no --fix: all issues remain
+        let remaining_issues = if self.fix && !self.dry_run {
+            result.count_unfixable_issues()
+        } else {
+            result.count_total_issues()
+        };
+
+        if remaining_issues > 0 {
             std::process::exit(2);
         }
 
         Ok(())
     }
 
-    const fn check_structure() {
-        // TODO: Implement structure checks
-        // - Valid YAML frontmatter
-        // - Required fields present
-        // - HRID format valid
-        // - No duplicate UUIDs/HRIDs
-    }
-
-    fn check_paths(directory: &Directory, result: &mut ValidationResult) {
+    fn check_paths(directory: &Directory) -> Vec<PathIssue> {
         let digits = directory.config().digits();
+        let mut issues = Vec::new();
 
         for req in directory.requirements() {
             if let Some(actual_path) = directory.path_for(req.hrid) {
                 let canonical_path = directory.canonical_path_for(req.hrid);
                 if actual_path != canonical_path {
-                    result.paths.push(PathIssue {
+                    issues.push(PathIssue {
                         hrid: req.hrid.display(digits).to_string(),
                         current_path: actual_path.to_path_buf(),
                         expected_path: canonical_path,
@@ -171,34 +196,60 @@ impl Validate {
                 }
             }
         }
+
+        issues
     }
 
-    fn check_links(directory: &Directory, result: &mut ValidationResult) {
+    fn check_links(directory: &Directory) -> Vec<LinkIssue> {
+        let digits = directory.config().digits();
+        let mut issues = Vec::new();
+
         // Check for stale parent HRIDs
         let stale_hrids = directory.check_hrid_drift();
-        let digits = directory.config().digits();
-
         for hrid in stale_hrids {
-            result.links.push(LinkIssue::StaleHrid {
+            issues.push(LinkIssue::StaleHrid {
                 child: hrid.display(digits).to_string(),
             });
         }
 
-        // TODO: Implement other link checks
-        // - Broken references (parent UUIDs don't exist)
-        // - Circular dependencies
+        // Check for circular dependencies
+        let cycles = directory.detect_cycles();
+        for cycle in cycles {
+            let cycle_path: Vec<String> = cycle
+                .iter()
+                .map(|hrid| hrid.display(digits).to_string())
+                .collect();
+            issues.push(LinkIssue::CircularDependency { cycle: cycle_path });
+        }
+
+        // Check for broken references (parent UUIDs that don't exist)
+        for req in directory.requirements() {
+            for (parent_uuid, _parent_info) in &req.parents {
+                if directory.find_by_uuid(*parent_uuid).is_none() {
+                    issues.push(LinkIssue::BrokenReference {
+                        child: req.hrid.display(digits).to_string(),
+                        parent_uuid: parent_uuid.to_string(),
+                    });
+                }
+            }
+        }
+
+        issues
     }
 
-    fn check_suspect(directory: &Directory, result: &mut ValidationResult) {
+    fn check_suspect(directory: &Directory) -> Vec<SuspectIssue> {
         let suspect_links = directory.suspect_links();
         let digits = directory.config().digits();
+        let mut issues = Vec::new();
 
         for link in suspect_links {
-            result.suspect.push(SuspectIssue {
+            issues.push(SuspectIssue {
                 child: link.child_hrid.display(digits).to_string(),
                 parent: link.parent_hrid.display(digits).to_string(),
             });
         }
+
+        issues
     }
 
     fn output_table(&self, result: &ValidationResult, directory: &Directory) {
@@ -208,18 +259,9 @@ impl Validate {
 
         println!("Validating repository...\n");
 
-        // Structure
-        if result.structure.is_empty() {
-            println!(
-                "✓ Structure:  {} requirements, all valid",
-                directory.requirements().count()
-            );
-        } else {
-            println!(
-                "{}",
-                format!("✗ Structure:  {} issues found", result.structure.len()).warning()
-            );
-        }
+        // Structure (always valid if we got here)
+        let req_count = directory.requirements().count();
+        println!("✓ Structure:  {req_count} requirements, all valid");
 
         // Paths
         if result.paths.is_empty() {
@@ -236,12 +278,28 @@ impl Validate {
         }
 
         // Links
+        let (cycles, broken, stale) = Self::categorize_link_issues(&result.links);
         if result.links.is_empty() {
-            println!("✓ Links:      No broken references, all HRIDs current");
+            println!("✓ Links:      No broken references, cycles, or stale HRIDs");
         } else {
+            let mut issues_desc = Vec::new();
+            if !cycles.is_empty() {
+                issues_desc.push(format!("{} cycle(s)", cycles.len()));
+            }
+            if !broken.is_empty() {
+                issues_desc.push(format!("{} broken ref(s)", broken.len()));
+            }
+            if !stale.is_empty() {
+                issues_desc.push(format!("{} stale HRID(s)", stale.len()));
+            }
             println!(
                 "{}",
-                format!("✗ Links:      {} issues found", result.links.len()).warning()
+                format!(
+                    "✗ Links:      {} ({})",
+                    result.links.len(),
+                    issues_desc.join(", ")
+                )
+                .warning()
             );
         }
 
@@ -256,7 +314,7 @@ impl Validate {
         }
 
         // Summary
-        let total_issues = Self::count_issues(result);
+        let total_issues = result.count_total_issues();
         if total_issues == 0 {
             println!("\n{}", "Repository is healthy (0 issues)".success());
         } else {
@@ -289,6 +347,7 @@ impl Validate {
             .iter()
             .map(|issue| {
                 json!({
+                    "type": "path",
                     "hrid": issue.hrid,
                     "current_path": issue.current_path,
                     "expected_path": issue.expected_path,
@@ -297,11 +356,35 @@ impl Validate {
             })
             .collect();
 
+        let link_issues: Vec<_> = result
+            .links
+            .iter()
+            .map(|issue| match issue {
+                LinkIssue::CircularDependency { cycle } => json!({
+                    "type": "circular_dependency",
+                    "cycle": cycle,
+                    "fixable": false
+                }),
+                LinkIssue::BrokenReference { child, parent_uuid } => json!({
+                    "type": "broken_reference",
+                    "child": child,
+                    "parent_uuid": parent_uuid,
+                    "fixable": false
+                }),
+                LinkIssue::StaleHrid { child } => json!({
+                    "type": "stale_hrid",
+                    "child": child,
+                    "fixable": true
+                }),
+            })
+            .collect();
+
         let suspect_issues: Vec<_> = result
             .suspect
             .iter()
             .map(|issue| {
                 json!({
+                    "type": "suspect",
                     "child": issue.child,
                     "parent": issue.parent,
                     "fixable": false
@@ -309,15 +392,15 @@ impl Validate {
             })
             .collect();
 
-        let total_issues = Self::count_issues(result);
-        let fixable_issues = result.paths.len() + result.links.len();
+        let total_issues = result.count_total_issues();
+        let fixable_issues = result.count_fixable_issues();
 
         let output = json!({
             "status": if total_issues == 0 { "healthy" } else { "issues_found" },
             "issues": {
-                "structure": result.structure.len(),
+                "structure": [],
                 "paths": path_issues,
-                "links": result.links.len(),
+                "links": link_issues,
                 "suspect": suspect_issues
             },
             "summary": {
@@ -332,12 +415,26 @@ impl Validate {
     }
 
     fn output_summary(result: &ValidationResult) {
-        let total = Self::count_issues(result);
+        let total = result.count_total_issues();
         println!("issues={total}");
     }
 
-    fn count_issues(result: &ValidationResult) -> usize {
-        result.structure.len() + result.paths.len() + result.links.len() + result.suspect.len()
+    fn categorize_link_issues(
+        links: &[LinkIssue],
+    ) -> (Vec<&LinkIssue>, Vec<&LinkIssue>, Vec<&LinkIssue>) {
+        let mut cycles = Vec::new();
+        let mut broken = Vec::new();
+        let mut stale = Vec::new();
+
+        for link in links {
+            match link {
+                LinkIssue::CircularDependency { .. } => cycles.push(link),
+                LinkIssue::BrokenReference { .. } => broken.push(link),
+                LinkIssue::StaleHrid { .. } => stale.push(link),
+            }
+        }
+
+        (cycles, broken, stale)
     }
 
     fn apply_fixes(
@@ -357,7 +454,7 @@ impl Validate {
         if !self.yes && !self.quiet {
             use std::io::{self, BufRead};
 
-            let fixable = result.paths.len() + result.links.len();
+            let fixable = result.count_fixable_issues();
             println!("\nWill fix {fixable} issues:");
             Self::preview_fixes(result);
 
@@ -380,11 +477,7 @@ impl Validate {
         }
 
         // Fix stale HRIDs
-        let stale_count = result
-            .links
-            .iter()
-            .filter(|issue| matches!(issue, LinkIssue::StaleHrid { .. }))
-            .count();
+        let stale_count = result.count_stale_hrids();
         if stale_count > 0 {
             let updated = directory.update_hrids();
             if !updated.is_empty() {
@@ -410,11 +503,7 @@ impl Validate {
             }
         }
 
-        let stale_count = result
-            .links
-            .iter()
-            .filter(|issue| matches!(issue, LinkIssue::StaleHrid { .. }))
-            .count();
+        let stale_count = result.count_stale_hrids();
         if stale_count > 0 {
             println!("\nLinks ({stale_count} stale HRIDs):");
             for issue in &result.links {

@@ -935,6 +935,21 @@ impl Directory {
         self.tree.suspect_links()
     }
 
+    /// Detect all cycles in the requirement graph.
+    ///
+    /// Returns a list of cycles, where each cycle is represented as a path of
+    /// HRIDs.
+    #[must_use]
+    pub fn detect_cycles(&self) -> Vec<Vec<Hrid>> {
+        self.tree.detect_cycles()
+    }
+
+    /// Find a requirement by its UUID.
+    #[must_use]
+    pub fn find_by_uuid(&self, uuid: uuid::Uuid) -> Option<RequirementView<'_>> {
+        self.tree.find_by_uuid(uuid)
+    }
+
     /// Accept a specific suspect link by updating its fingerprint.
     ///
     /// # Errors
