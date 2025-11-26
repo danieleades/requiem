@@ -162,18 +162,18 @@ impl Validate {
             self.apply_fixes(&result, directory)?;
         }
 
-        // Exit with appropriate code based on whether fixes were applied
-        if self.fix {
-            // If we attempted fixes, only fail if unfixable issues remain
-            // (fixable issues like paths and stale HRIDs should have been repaired)
-            if result.count_unfixable_issues() > 0 {
-                std::process::exit(2);
-            }
+        // Exit with error code if any remaining issues exist
+        // What counts as "remaining" depends on what was actually executed:
+        // - If --fix was actually applied: only unfixable issues remain (fixable were repaired)
+        // - If --fix --dry-run or no --fix: all issues remain
+        let remaining_issues = if self.fix && !self.dry_run {
+            result.count_unfixable_issues()
         } else {
-            // If no fixes were attempted, any issues = failure
-            if result.count_total_issues() > 0 {
-                std::process::exit(2);
-            }
+            result.count_total_issues()
+        };
+
+        if remaining_issues > 0 {
+            std::process::exit(2);
         }
 
         Ok(())
