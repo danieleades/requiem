@@ -9,7 +9,9 @@ Requiem is a plain-text requirements management tool. It is a spiritual successo
 - support multiple parents per requirement
 - integrate with existing plain-text documentation tools such as [Sphinx](https://github.com/sphinx-doc/sphinx) and [MdBook](https://github.com/rust-lang/mdBook).
 
-This project is in its early stages and not ready for production use yet. Contributions are welcome.
+This project is in its early stages and not ready for production use yet. There will be bugs and errors in the documentation. Contributions are very welcome.
+
+This project also serves as an experiment in using structured specifications to drive AI agent based development workflows. To that end, this project also provides a Model Context Protocol (MCP) server in `req-mcp/` which exposes the project requirements to AI agents such as [Claude](https://claude.ai) and [GPT-4](https://openai.com). See `req-mcp/README.md` for details.
 
 Workspace layout:
 
@@ -28,9 +30,9 @@ The name of the package is `requirements-manager`, but the name of this project 
 - [x] HRIDs stored in headings (Sphinx/MdBook friendly) with optional namespaces and configurable digit width
 - [x] Multiple parents per requirement with fingerprint-based suspect link detection
 - [x] Templates for new requirements in `.req/templates/` (matched by kind or namespace)
-- [x] Sync HRID drift and path drift (`req sync`), detailed path diagnostics (`req diagnose paths`)
+- [x] Sync HRID drift and path drift (`req sync`), detailed path diagnostics (`req sync --apply`)
 - [x] Rich querying (`req list`, `req show`) with filters, relationship views, and machine-readable output
-- [ ] Cycle detection, structural validation, and broken-reference checks (not implemented yet)
+- [x] Cycle detection, structural validation, and broken-reference checks (`req validate`)
 - [ ] Coverage reports; import/export in standard formats
 
 ## File Format
