@@ -15,8 +15,11 @@ use uuid::Uuid;
 
 use crate::{
     domain::{
-        hrid::KindString, requirement::Parent, requirement_data::RequirementData,
-        requirement_view::RequirementView, Hrid,
+        hrid::{KindString, NamespaceSegment},
+        requirement::Parent,
+        requirement_data::RequirementData,
+        requirement_view::RequirementView,
+        Hrid,
     },
     Requirement,
 };
@@ -398,7 +401,7 @@ impl Tree {
     /// Panics if the provided kind is invalid (empty or contains non-alphabetic
     /// characters).
     #[must_use]
-    pub fn next_index(&self, namespace: &[KindString], kind: &KindString) -> NonZeroUsize {
+    pub fn next_index(&self, namespace: &[NamespaceSegment], kind: &KindString) -> NonZeroUsize {
         // Construct range bounds for this namespace+kind combination
         // Start: namespace+kind with ID 1 (MIN), End: namespace+kind with ID MAX
         let start = crate::domain::Hrid::new_with_namespace(

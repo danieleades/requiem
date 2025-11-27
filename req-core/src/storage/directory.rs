@@ -18,8 +18,9 @@ use walkdir::WalkDir;
 
 use crate::{
     domain::{
-        hrid::KindString, requirement::LoadError, Config, Hrid, LinkRequirementError,
-        RequirementView, Tree,
+        hrid::{KindString, NamespaceSegment},
+        requirement::LoadError,
+        Config, Hrid, LinkRequirementError, RequirementView, Tree,
     },
     storage::markdown::trim_empty_lines,
     Requirement,
@@ -763,10 +764,13 @@ impl Directory {
             });
         }
 
-        // Validate namespace segments (CLI already normalized to uppercase)
+        // Validate namespace segments (allow lowercase/mixed-case)
         let namespace_strings: Result<Vec<_>, _> = namespace
             .into_iter()
-            .map(|seg| KindString::new(seg).map_err(crate::domain::hrid::Error::from))
+            .map(|seg| {
+                NamespaceSegment::new(seg)
+                    .map_err(|e| crate::domain::hrid::Error::Namespace(String::new(), e))
+            })
             .collect();
         let namespace_strings = namespace_strings?;
 
@@ -1224,6 +1228,8 @@ impl std::error::Error for AcceptSuspectLinkError {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use tempfile::TempDir;
 
     use super::*;
@@ -1427,10 +1433,6 @@ created: 2025-01-01T00:00:00Z
 
     #[test]
     fn path_based_mode_saves_in_subdirectories() {
-        use std::num::NonZeroUsize;
-
-        use crate::domain::hrid::KindString;
-
         let tmp = TempDir::new().expect("failed to create temp dir");
         let root = tmp.path();
 
@@ -1446,14 +1448,7 @@ created: 2025-01-01T00:00:00Z
         let dir = Directory::new(root.to_path_buf()).unwrap();
 
         // Add a requirement with namespace
-        let hrid = Hrid::new_with_namespace(
-            vec![
-                KindString::new("SYSTEM".to_string()).unwrap(),
-                KindString::new("AUTH".to_string()).unwrap(),
-            ],
-            KindString::new("REQ".to_string()).unwrap(),
-            NonZeroUsize::new(1).unwrap(),
-        );
+        let hrid = Hrid::from_str("SYSTEM-AUTH-REQ-001").unwrap();
         let req = Requirement::new(
             hrid.clone(),
             "Test Title".to_string(),
@@ -1522,10 +1517,6 @@ created: 2025-01-01T00:00:00Z
 
     #[test]
     fn filename_based_mode_saves_in_root() {
-        use std::num::NonZeroUsize;
-
-        use crate::domain::hrid::KindString;
-
         let tmp = TempDir::new().expect("failed to create temp dir");
         let root = tmp.path();
 
@@ -1537,14 +1528,7 @@ created: 2025-01-01T00:00:00Z
         let dir = Directory::new(root.to_path_buf()).unwrap();
 
         // Add a requirement with namespace
-        let hrid = Hrid::new_with_namespace(
-            vec![
-                KindString::new("SYSTEM".to_string()).unwrap(),
-                KindString::new("AUTH".to_string()).unwrap(),
-            ],
-            KindString::new("REQ".to_string()).unwrap(),
-            NonZeroUsize::new(1).unwrap(),
-        );
+        let hrid = Hrid::from_str("SYSTEM-AUTH-REQ-001").unwrap();
         let req = Requirement::new(hrid, "Test Title".to_string(), "Test content".to_string());
 
         // Save using config

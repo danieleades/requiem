@@ -1512,11 +1512,11 @@ mod tests {
                 hrid: {
                     use std::num::NonZeroUsize;
 
-                    use requiem_core::domain::hrid::KindString;
+                    use requiem_core::domain::hrid::{KindString, NamespaceSegment};
                     Hrid::new_with_namespace(
                         vec![
-                            KindString::new("SYSTEM".to_string()).unwrap(),
-                            KindString::new("AUTH".to_string()).unwrap(),
+                            NamespaceSegment::new("SYSTEM".to_string()).unwrap(),
+                            NamespaceSegment::new("AUTH".to_string()).unwrap(),
                         ],
                         KindString::new("USR".to_string()).unwrap(),
                         NonZeroUsize::new(7).unwrap(),
