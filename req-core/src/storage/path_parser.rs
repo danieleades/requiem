@@ -207,4 +207,105 @@ mod tests {
         let path = construct_path_from_hrid(&root, &hrid, false, 3);
         assert_eq!(path, root.join("auth-api-SYS-001.md"));
     }
+
+    #[test]
+    fn parse_hrid_from_path_filename_based() {
+        let root = PathBuf::from("/root");
+        let path = root.join("SYSTEM-AUTH-REQ-001.md");
+        let mut config = crate::domain::Config::default();
+        config.subfolders_are_namespaces = false;
+
+        let hrid = hrid_from_path(&path, &root, &config).unwrap();
+        assert_eq!(hrid.display(3).to_string(), "SYSTEM-AUTH-REQ-001");
+    }
+
+    #[test]
+    fn parse_hrid_from_path_path_based() {
+        let root = PathBuf::from("/root");
+        let path = root.join("SYSTEM/AUTH/REQ/001.md");
+        let mut config = crate::domain::Config::default();
+        config.subfolders_are_namespaces = true;
+
+        let hrid = hrid_from_path(&path, &root, &config).unwrap();
+        assert_eq!(hrid.display(3).to_string(), "SYSTEM-AUTH-REQ-001");
+    }
+
+    #[test]
+    fn parse_hrid_from_path_path_based_no_namespace() {
+        let root = PathBuf::from("/root");
+        let path = root.join("REQ/001.md");
+        let mut config = crate::domain::Config::default();
+        config.subfolders_are_namespaces = true;
+
+        let hrid = hrid_from_path(&path, &root, &config).unwrap();
+        assert_eq!(hrid.display(3).to_string(), "REQ-001");
+    }
+
+    #[test]
+    fn parse_hrid_from_path_lowercase_namespace() {
+        let root = PathBuf::from("/root");
+        let path = root.join("auth/api/SYS/001.md");
+        let mut config = crate::domain::Config::default();
+        config.subfolders_are_namespaces = true;
+
+        let hrid = hrid_from_path(&path, &root, &config).unwrap();
+        assert_eq!(hrid.display(3).to_string(), "auth-api-SYS-001");
+    }
+
+    #[test]
+    fn parse_hrid_from_path_lowercase_namespace_filename_based() {
+        let root = PathBuf::from("/root");
+        let path = root.join("auth-api-SYS-001.md");
+        let mut config = crate::domain::Config::default();
+        config.subfolders_are_namespaces = false;
+
+        let hrid = hrid_from_path(&path, &root, &config).unwrap();
+        assert_eq!(hrid.display(3).to_string(), "auth-api-SYS-001");
+    }
+
+    #[test]
+    fn parse_hrid_from_path_not_under_root() {
+        let root = PathBuf::from("/root");
+        let path = PathBuf::from("/other/REQ-001.md");
+        let config = crate::domain::Config::default();
+
+        let result = hrid_from_path(&path, &root, &config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_hrid_from_path_invalid_id_path_based() {
+        let root = PathBuf::from("/root");
+        let path = root.join("REQ/invalid.md");
+        let mut config = crate::domain::Config::default();
+        config.subfolders_are_namespaces = true;
+
+        let result = hrid_from_path(&path, &root, &config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_hrid_from_path_roundtrip_filename_based() {
+        let root = PathBuf::from("/root");
+        let original_hrid = Hrid::try_from("auth-api-SYS-001").unwrap();
+
+        let path = construct_path_from_hrid(&root, &original_hrid, false, 3);
+        let config = crate::domain::Config::default();
+
+        let parsed_hrid = hrid_from_path(&path, &root, &config).unwrap();
+        assert_eq!(original_hrid.display(3).to_string(), parsed_hrid.display(3).to_string());
+    }
+
+    #[test]
+    fn parse_hrid_from_path_roundtrip_path_based() {
+        let root = PathBuf::from("/root");
+        let original_hrid = Hrid::try_from("auth-api-SYS-001").unwrap();
+
+        let path = construct_path_from_hrid(&root, &original_hrid, true, 3);
+        let mut config = crate::domain::Config::default();
+        config.subfolders_are_namespaces = true;
+
+        let parsed_hrid = hrid_from_path(&path, &root, &config).unwrap();
+        assert_eq!(original_hrid.display(3).to_string(), parsed_hrid.display(3).to_string());
+    }
 }

@@ -199,3 +199,80 @@ fn prompt_to_proceed() -> io::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_hrid_uppercase_kind() {
+        let result = parse_hrid("SYSTEM-AUTH-REQ-001").unwrap();
+        assert_eq!(result.display(3).to_string(), "SYSTEM-AUTH-REQ-001");
+    }
+
+    #[test]
+    fn parse_hrid_lowercase_kind_normalization() {
+        let result = parse_hrid("auth-sys-001").unwrap();
+        assert_eq!(result.display(3).to_string(), "auth-SYS-001");
+    }
+
+    #[test]
+    fn parse_hrid_mixed_case_kind_normalization() {
+        let result = parse_hrid("auth-SyS-001").unwrap();
+        assert_eq!(result.display(3).to_string(), "auth-SYS-001");
+    }
+
+    #[test]
+    fn parse_hrid_lowercase_namespace_preserved() {
+        let result = parse_hrid("auth-api-SYS-001").unwrap();
+        assert_eq!(result.display(3).to_string(), "auth-api-SYS-001");
+    }
+
+    #[test]
+    fn parse_hrid_mixed_case_namespace_preserved() {
+        let result = parse_hrid("Auth-Api-SYS-001").unwrap();
+        assert_eq!(result.display(3).to_string(), "Auth-Api-SYS-001");
+    }
+
+    #[test]
+    fn parse_hrid_no_namespace() {
+        let result = parse_hrid("req-001").unwrap();
+        assert_eq!(result.display(3).to_string(), "REQ-001");
+    }
+
+    #[test]
+    fn parse_hrid_lowercase_no_namespace() {
+        let result = parse_hrid("req-001").unwrap();
+        assert_eq!(result.display(3).to_string(), "REQ-001");
+    }
+
+    #[test]
+    fn parse_hrid_too_few_segments() {
+        let result = parse_hrid("invalid");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_hrid_invalid_id() {
+        let result = parse_hrid("auth-SYS-invalid");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_hrid_zero_id() {
+        let result = parse_hrid("auth-SYS-000");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_hrid_long_namespace() {
+        let result = parse_hrid("a-b-c-d-SYS-001").unwrap();
+        assert_eq!(result.display(3).to_string(), "a-b-c-d-SYS-001");
+    }
+
+    #[test]
+    fn parse_hrid_large_id() {
+        let result = parse_hrid("auth-SYS-99999").unwrap();
+        assert_eq!(result.display(5).to_string(), "auth-SYS-99999");
+    }
+}
