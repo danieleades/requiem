@@ -125,11 +125,11 @@ pub fn hrid_from_path(
             })
             .collect::<Result<_, _>>()?;
 
-        // Convert namespace strings to KindStrings
+        // Convert namespace strings to NamespaceSegments
         let namespace: Vec<_> = namespace_strings
             .into_iter()
             .map(|s| {
-                crate::domain::hrid::KindString::new(s)
+                crate::domain::hrid::NamespaceSegment::new(s)
                     .map_err(|e| format!("Invalid namespace component: {e}"))
             })
             .collect::<Result<_, _>>()?;
@@ -188,5 +188,23 @@ mod tests {
 
         let path = construct_path_from_hrid(&root, &hrid, true, 5);
         assert_eq!(path, root.join("REQ/00001.md"));
+    }
+
+    #[test]
+    fn construct_path_with_lowercase_namespace() {
+        let root = PathBuf::from("/root");
+        let hrid = Hrid::try_from("auth-api-SYS-001").unwrap();
+
+        let path = construct_path_from_hrid(&root, &hrid, true, 3);
+        assert_eq!(path, root.join("auth/api/SYS/001.md"));
+    }
+
+    #[test]
+    fn construct_path_lowercase_namespace_filename_based() {
+        let root = PathBuf::from("/root");
+        let hrid = Hrid::try_from("auth-api-SYS-001").unwrap();
+
+        let path = construct_path_from_hrid(&root, &hrid, false, 3);
+        assert_eq!(path, root.join("auth-api-SYS-001.md"));
     }
 }

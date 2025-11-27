@@ -183,7 +183,7 @@ pub(super) async fn create_requirement(
     let namespace: Vec<String> = params
         .namespace
         .into_iter()
-        .map(|segment| segment.trim().to_uppercase())
+        .map(|segment| segment.trim().to_string())
         .filter(|segment| !segment.is_empty())
         .collect();
     let kind = params.kind.trim().to_uppercase();

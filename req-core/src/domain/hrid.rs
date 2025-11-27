@@ -2,10 +2,85 @@ use std::{fmt, num::NonZeroUsize, ops::Deref, str::FromStr};
 
 use non_empty_string::NonEmptyString;
 
+/// A validated namespace segment (allows lowercase/mixed-case alphabetic).
+///
+/// Used for HRID namespace segments to allow human-friendly names like `auth`,
+/// `api`, etc. while keeping kinds (e.g., `USR`, `SYS`) uppercase.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct NamespaceSegment(String);
+
+impl NamespaceSegment {
+    /// Creates a new `NamespaceSegment` from a string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the string is empty or contains
+    /// characters other than alphabetic letters (a-z, A-Z).
+    pub fn new(s: String) -> Result<Self, String> {
+        if s.is_empty() || !s.chars().all(|c| c.is_ascii_alphabetic()) {
+            return Err(
+                "namespace segment must be non-empty and contain only letters (a-z, A-Z)"
+                    .to_string(),
+            );
+        }
+        Ok(Self(s))
+    }
+
+    /// Returns the string slice.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for NamespaceSegment {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl TryFrom<&str> for NamespaceSegment {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::new(value.to_string())
+    }
+}
+
+impl AsRef<str> for NamespaceSegment {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Deref for NamespaceSegment {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl fmt::Display for NamespaceSegment {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl FromStr for NamespaceSegment {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::new(s.to_string())
+    }
+}
+
 /// A validated string containing only uppercase alphabetic characters ([A-Z]+).
 ///
-/// Used for HRID kind and namespace segments to ensure they conform to the
-/// required format.
+/// Used for HRID kinds (e.g., `USR`, `SYS`) to ensure they conform to the
+/// required uppercase format.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct KindString(NonEmptyString);
 
@@ -88,15 +163,15 @@ pub struct InvalidKindError(String);
 ///
 /// Format:
 /// `{NAMESPACE*}-{KIND}-{ID}`, where:
-/// - `NAMESPACE` is an optional sequence of uppercase alphabetic segments (e.g.
-///   `COMPONENT-SUBCOMPONENT`)
-/// - `KIND` is an uppercase alphabetic category string (e.g. `URS`, `SYS`)
+/// - `NAMESPACE` is an optional sequence of alphabetic segments with lowercase
+///   support (e.g. `component-subcomponent`, `auth-api`)
+/// - `KIND` is an uppercase alphabetic category string (e.g. `USR`, `SYS`)
 /// - `ID` is a positive non-zero integer (e.g. `001`, `123`)
 ///
-/// Examples: `URS-001`, `SYS-099`, `COMPONENT-SUBCOMPONENT-SYS-005`
+/// Examples: `USR-001`, `SYS-099`, `auth-api-SYS-005`
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Hrid {
-    namespace: Vec<KindString>,
+    namespace: Vec<NamespaceSegment>,
     kind: KindString,
     id: NonZeroUsize,
 }
@@ -115,7 +190,7 @@ impl Hrid {
     /// This is an infallible constructor that takes pre-validated types.
     #[must_use]
     pub const fn new_with_namespace(
-        namespace: Vec<KindString>,
+        namespace: Vec<NamespaceSegment>,
         kind: KindString,
         id: NonZeroUsize,
     ) -> Self {
@@ -128,7 +203,10 @@ impl Hrid {
 
     /// Returns the namespace segments as strings.
     pub fn namespace(&self) -> Vec<&str> {
-        self.namespace.iter().map(KindString::as_str).collect()
+        self.namespace
+            .iter()
+            .map(NamespaceSegment::as_str)
+            .collect()
     }
 
     /// Returns the kind component as a string.
@@ -156,7 +234,7 @@ impl Hrid {
             let namespace_str = self
                 .namespace
                 .iter()
-                .map(KindString::as_str)
+                .map(NamespaceSegment::as_str)
                 .collect::<Vec<_>>()
                 .join("-");
             format!("{}-{}", namespace_str, self.kind)
@@ -206,7 +284,7 @@ impl fmt::Display for FormattedHrid<'_> {
                 .hrid
                 .namespace
                 .iter()
-                .map(KindString::as_str)
+                .map(NamespaceSegment::as_str)
                 .collect::<Vec<_>>()
                 .join("-");
             write!(f, "{}-{}-{}", namespace_str, self.hrid.kind, id_str)
@@ -232,6 +310,10 @@ pub enum Error {
     /// Invalid kind string (not uppercase alphabetic).
     #[error(transparent)]
     Kind(InvalidKindError),
+
+    /// Invalid namespace segment.
+    #[error("Invalid namespace segment in HRID '{0}': {1}")]
+    Namespace(String, String),
 }
 
 impl From<InvalidKindError> for Error {
@@ -277,8 +359,9 @@ impl FromStr for Hrid {
         let namespace = if parts.len() > 2 {
             parts[..parts.len() - 2]
                 .iter()
-                .map(|&segment| KindString::new(segment.to_string()))
-                .collect::<Result<Vec<_>, _>>()?
+                .map(|&segment| NamespaceSegment::new(segment.to_string()))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| Error::Namespace(s.to_string(), e))?
         } else {
             Vec::new()
         };
@@ -311,15 +394,9 @@ mod tests {
 
     #[test]
     fn hrid_creation_with_namespace() {
-        let namespace = vec![
-            KindString::new("COMPONENT".to_string()).unwrap(),
-            KindString::new("SUBCOMPONENT".to_string()).unwrap(),
-        ];
-        let kind = KindString::new("SYS".to_string()).unwrap();
-        let id = NonZeroUsize::new(5).unwrap();
-        let hrid = Hrid::new_with_namespace(namespace, kind, id);
+        let hrid = Hrid::from_str("component-subcomponent-SYS-005").unwrap();
 
-        assert_eq!(hrid.namespace(), vec!["COMPONENT", "SUBCOMPONENT"]);
+        assert_eq!(hrid.namespace(), vec!["component", "subcomponent"]);
         assert_eq!(hrid.kind(), "SYS");
         assert_eq!(hrid.id().get(), 5);
     }
@@ -356,10 +433,7 @@ mod tests {
     #[test_case(5, 1, "SYS-00001"; "5 digits id 1")]
     #[test_case(5, 99999, "SYS-99999"; "5 digits at boundary")]
     fn hrid_display_no_namespace(digits: usize, id: usize, expected: &str) {
-        let hrid = Hrid::new(
-            KindString::new("SYS".to_string()).unwrap(),
-            NonZeroUsize::new(id).unwrap(),
-        );
+        let hrid = Hrid::from_str(&format!("SYS-{id:03}")).unwrap();
         assert_eq!(hrid.display(digits).to_string(), expected);
     }
 
@@ -369,27 +443,29 @@ mod tests {
     #[test_case(4, 5, "COMPONENT-SYS-0005"; "4 digits single namespace")]
     #[test_case(3, 123, "A-B-C-REQ-123"; "3 digits multi namespace")]
     fn hrid_display_with_namespace(digits: usize, id: usize, expected: &str) {
-        let namespace = if expected.starts_with("COMPONENT") {
-            vec![KindString::new("COMPONENT".to_string()).unwrap()]
+        // Construct HRID string from expected format by reversing the logic
+        let (namespace_part, kind_part) = if expected.starts_with("COMPONENT") {
+            (
+                "COMPONENT-",
+                if expected.contains("SYS") {
+                    "SYS"
+                } else {
+                    "REQ"
+                },
+            )
         } else {
-            vec![
-                KindString::new("A".to_string()).unwrap(),
-                KindString::new("B".to_string()).unwrap(),
-                KindString::new("C".to_string()).unwrap(),
-            ]
+            (
+                "A-B-C-",
+                if expected.contains("SYS") {
+                    "SYS"
+                } else {
+                    "REQ"
+                },
+            )
         };
 
-        let kind = if expected.contains("SYS") {
-            "SYS"
-        } else {
-            "REQ"
-        };
-
-        let hrid = Hrid::new_with_namespace(
-            namespace,
-            KindString::new(kind.to_string()).unwrap(),
-            NonZeroUsize::new(id).unwrap(),
-        );
+        let hrid_str = format!("{namespace_part}{kind_part}-{id:03}");
+        let hrid = Hrid::from_str(&hrid_str).unwrap();
         assert_eq!(hrid.display(digits).to_string(), expected);
     }
 
@@ -399,10 +475,7 @@ mod tests {
     #[test_case(4, 10000, "BIG-10000"; "4 digits to 5")]
     #[test_case(4, 100_000, "BIG-100000"; "4 digits to 6")]
     fn hrid_display_large_numbers(digits: usize, id: usize, expected: &str) {
-        let hrid = Hrid::new(
-            KindString::new("BIG".to_string()).unwrap(),
-            NonZeroUsize::new(id).unwrap(),
-        );
+        let hrid = Hrid::from_str(&format!("BIG-{id:03}")).unwrap();
         assert_eq!(hrid.display(digits).to_string(), expected);
     }
 
@@ -526,9 +599,33 @@ mod tests {
     }
 
     #[test]
-    fn try_from_invalid_lowercase_namespace() {
+    fn try_from_valid_lowercase_namespace() {
         let result = Hrid::try_from("ns-URS-001");
-        assert!(matches!(result, Err(Error::Kind(_))));
+        assert!(result.is_ok());
+        let hrid = result.unwrap();
+        assert_eq!(hrid.namespace(), vec!["ns"]);
+        assert_eq!(hrid.kind(), "URS");
+        assert_eq!(hrid.id().get(), 1);
+    }
+
+    #[test]
+    fn lowercase_namespace_preserves_case() {
+        let hrid = Hrid::from_str("auth-SYS-001").unwrap();
+        assert_eq!(hrid.namespace(), vec!["auth"]);
+        assert_eq!(hrid.display(3).to_string(), "auth-SYS-001");
+    }
+
+    #[test]
+    fn mixed_case_namespace_preserves_case() {
+        let hrid = Hrid::from_str("Auth-Api-SYS-001").unwrap();
+        assert_eq!(hrid.namespace(), vec!["Auth", "Api"]);
+        assert_eq!(hrid.display(3).to_string(), "Auth-Api-SYS-001");
+    }
+
+    #[test]
+    fn lowercase_kind_still_rejected() {
+        let result = Hrid::from_str("auth-sys-001");
+        assert!(result.is_err());
     }
 
     #[test]
@@ -548,11 +645,7 @@ mod tests {
 
     #[test]
     fn hrid_clone_and_eq() {
-        let hrid1 = Hrid::new_with_namespace(
-            vec![KindString::new("NS".to_string()).unwrap()],
-            KindString::new("URS".to_string()).unwrap(),
-            NonZeroUsize::new(42).unwrap(),
-        );
+        let hrid1 = Hrid::from_str("ns-URS-042").unwrap();
         let hrid2 = hrid1.clone();
 
         assert_eq!(hrid1, hrid2);
@@ -563,23 +656,10 @@ mod tests {
 
     #[test]
     fn hrid_not_eq() {
-        let hrid1 = Hrid::new(
-            KindString::new("URS".to_string()).unwrap(),
-            NonZeroUsize::new(42).unwrap(),
-        );
-        let hrid2 = Hrid::new(
-            KindString::new("SYS".to_string()).unwrap(),
-            NonZeroUsize::new(42).unwrap(),
-        );
-        let hrid3 = Hrid::new(
-            KindString::new("URS".to_string()).unwrap(),
-            NonZeroUsize::new(43).unwrap(),
-        );
-        let hrid4 = Hrid::new_with_namespace(
-            vec![KindString::new("NS".to_string()).unwrap()],
-            KindString::new("URS".to_string()).unwrap(),
-            NonZeroUsize::new(42).unwrap(),
-        );
+        let hrid1 = Hrid::from_str("URS-042").unwrap();
+        let hrid2 = Hrid::from_str("SYS-042").unwrap();
+        let hrid3 = Hrid::from_str("URS-043").unwrap();
+        let hrid4 = Hrid::from_str("ns-URS-042").unwrap();
 
         assert_ne!(hrid1, hrid2);
         assert_ne!(hrid1, hrid3);
@@ -588,11 +668,7 @@ mod tests {
 
     #[test]
     fn roundtrip_conversion_no_namespace() {
-        let original = Hrid::new(
-            KindString::new("TEST".to_string()).unwrap(),
-            NonZeroUsize::new(123).unwrap(),
-        );
-
+        let original = Hrid::from_str("TEST-123").unwrap();
         let as_string = original.display(3).to_string();
         let parsed = Hrid::try_from(as_string.as_str()).unwrap();
 
@@ -601,15 +677,7 @@ mod tests {
 
     #[test]
     fn roundtrip_conversion_with_namespace() {
-        let original = Hrid::new_with_namespace(
-            vec![
-                KindString::new("COMPONENT".to_string()).unwrap(),
-                KindString::new("SUBCOMPONENT".to_string()).unwrap(),
-            ],
-            KindString::new("SYS".to_string()).unwrap(),
-            NonZeroUsize::new(5).unwrap(),
-        );
-
+        let original = Hrid::from_str("COMPONENT-SUBCOMPONENT-SYS-005").unwrap();
         let as_string = original.display(3).to_string();
         let parsed = Hrid::try_from(as_string.as_str()).unwrap();
 

@@ -25,15 +25,34 @@ use requiem_core::Hrid;
 use show::Show;
 use validate::Validate;
 
-/// Parse an HRID from a string, normalizing to uppercase.
+/// Parse an HRID from a string, normalizing only the KIND segment to uppercase.
 ///
-/// This is a CLI boundary function that accepts lowercase input
-/// and normalizes it before parsing.
+/// This is a CLI boundary function that accepts lowercase namespaces
+/// but normalizes the kind (category) to uppercase for user convenience.
+/// For example: `auth-sys-001` → `auth-SYS-001`
 fn parse_hrid(s: &str) -> Result<Hrid, String> {
-    // Normalize to uppercase
-    let uppercase = s.to_uppercase();
-    // Parse using FromStr (strict validation)
-    uppercase.parse().map_err(|e| format!("{e}"))
+    // Split on '-' to normalize only the KIND segment (second-to-last position)
+    let parts: Vec<&str> = s.split('-').collect();
+    if parts.len() < 2 {
+        return Err("Invalid HRID format".to_string());
+    }
+
+    // Uppercase the kind segment (second-to-last position)
+    let kind_idx = parts.len() - 2;
+    let normalized = parts
+        .iter()
+        .enumerate()
+        .map(|(i, part)| {
+            if i == kind_idx {
+                part.to_uppercase()
+            } else {
+                (*part).to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("-");
+
+    normalized.parse().map_err(|e| format!("{e}"))
 }
 
 #[derive(Debug, clap::Parser)]
