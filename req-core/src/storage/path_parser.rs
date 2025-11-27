@@ -293,7 +293,10 @@ mod tests {
         let config = crate::domain::Config::default();
 
         let parsed_hrid = hrid_from_path(&path, &root, &config).unwrap();
-        assert_eq!(original_hrid.display(3).to_string(), parsed_hrid.display(3).to_string());
+        assert_eq!(
+            original_hrid.display(3).to_string(),
+            parsed_hrid.display(3).to_string()
+        );
     }
 
     #[test]
@@ -306,6 +309,9 @@ mod tests {
         config.subfolders_are_namespaces = true;
 
         let parsed_hrid = hrid_from_path(&path, &root, &config).unwrap();
-        assert_eq!(original_hrid.display(3).to_string(), parsed_hrid.display(3).to_string());
+        assert_eq!(
+            original_hrid.display(3).to_string(),
+            parsed_hrid.display(3).to_string()
+        );
     }
 }
