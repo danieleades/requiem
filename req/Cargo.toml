@@ -17,7 +17,7 @@ path = "src/main.rs"
 [dependencies]
 requirements-manager-core = { path = "../req-core" }
 anyhow = "1.0.98"
-borsh = { version = "1.5.7", features = ["derive"] }
+borsh = { version = "1.6.0", features = ["derive"] }
 chrono = { version = "0.4.41", features = ["serde"] }
 clap = { version = "4.5.51", features = ["derive"] }
 petgraph = "0.8"
