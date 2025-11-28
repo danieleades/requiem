@@ -87,6 +87,11 @@ jobs:
         with:
           tool: mdbook
 
+      - name: Install mdbook-yml-header
+        uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook-yml-header
+
       - name: Build mdBook example
         run: mdbook build
         working-directory: examples/mdbook
