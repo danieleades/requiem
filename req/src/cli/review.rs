@@ -382,7 +382,7 @@ impl Command {
                 println!();
                 println!("  ACTIONS:");
                 println!(
-                    "    req accept {} {} --apply",
+                    "    req review --accept --child {} --parent {}",
                     link.child_hrid.display(digits),
                     link.parent_hrid.display(digits)
                 );
@@ -425,11 +425,11 @@ impl Command {
             println!();
             println!(
                 "{}",
-                "Run 'req suspect --detail' for paths and fingerprints".dim()
+                "Run 'req review --detail' for paths and fingerprints".dim()
             );
             println!(
                 "{}",
-                "Run 'req accept --all --apply' to accept all changes".dim()
+                "Run 'req review --accept --all --yes' to accept all changes".dim()
             );
         }
     }
