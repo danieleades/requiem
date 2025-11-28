@@ -64,17 +64,8 @@ impl Command {
             (parts, kind)
         };
 
-        let requirement = if namespace.is_empty() {
-            directory.add_requirement(&kind, content)?
-        } else {
-            directory.add_requirement_with_namespace(namespace, &kind, content)?
-        };
-
-        for parent in &self.parent {
-            // TODO: the linkage should be done before the requirement is saved by the
-            // 'add_requirement' method to avoid unnecessary IO.
-            directory.link_requirement(requirement.hrid(), parent)?;
-        }
+        let requirement =
+            directory.add_requirement_with_parents(namespace, &kind, content, self.parent)?;
         directory.flush()?;
 
         println!("Added requirement {}", requirement.hrid().display(digits));

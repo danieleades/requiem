@@ -1,6 +1,6 @@
 use std::fs;
 
-use requiem_core::{Directory, Hrid, LinkRequirementError};
+use requiem_core::{Directory, Hrid};
 use rmcp::{handler::server::wrapper::Parameters, model::CallToolResult, ErrorData as McpError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -166,7 +166,6 @@ pub(super) async fn create_requirement_kind(
     ))
 }
 
-#[allow(clippy::too_many_lines)]
 pub(super) async fn create_requirement(
     server: &ReqMcpServer,
     params: Parameters<CreateRequirementParams>,
@@ -187,16 +186,7 @@ pub(super) async fn create_requirement(
         .filter(|segment| !segment.is_empty())
         .collect();
     let kind = params.kind.trim().to_uppercase();
-
-    let content = match (
-        params.title.trim().is_empty(),
-        params.body.trim().is_empty(),
-    ) {
-        (false, false) => format!("# {}\n\n{}", params.title.trim(), params.body),
-        (false, true) => format!("# {}", params.title.trim()),
-        (true, false) => params.body,
-        (true, true) => String::new(),
-    };
+    let content = build_requirement_content(&params.title, &params.body);
 
     let parent_hrids: Vec<Hrid> = params
         .parents
@@ -207,84 +197,10 @@ pub(super) async fn create_requirement(
     let mut directory = server.state.directory.write().await;
     let digits = directory.config().digits();
 
-    // Validate all parent HRIDs before creating anything to avoid partial inserts.
-    for parent in &parent_hrids {
-        if directory.find_by_hrid(parent).is_none() {
-            return Err(McpError::resource_not_found(
-                "parent requirement not found",
-                Some(json!({ "parent": ReqMcpServer::format_hrid(parent, digits) })),
-            ));
-        }
-    }
-
-    let requirement = if namespace.is_empty() {
-        directory
-            .add_requirement(&kind, content)
-            .map_err(|error| match error {
-                requiem_core::storage::directory::AddRequirementError::Hrid(reason) => {
-                    McpError::invalid_params(
-                        "invalid kind or namespace",
-                        Some(json!({ "kind": kind, "reason": reason.to_string() })),
-                    )
-                }
-                requiem_core::storage::directory::AddRequirementError::Duplicate(reason) => {
-                    McpError::invalid_params(
-                        "requirement already exists",
-                        Some(json!({ "reason": reason.to_string() })),
-                    )
-                }
-                requiem_core::storage::directory::AddRequirementError::DisallowedKind {
-                    kind,
-                    allowed_kinds,
-                } => McpError::invalid_params(
-                    "kind is not allowed by configuration",
-                    Some(json!({ "kind": kind, "allowed_kinds": allowed_kinds })),
-                ),
-            })?
-    } else {
-        directory
-            .add_requirement_with_namespace(namespace, &kind, content)
-            .map_err(|error| match error {
-                requiem_core::storage::directory::AddRequirementError::Hrid(reason) => {
-                    McpError::invalid_params(
-                        "invalid kind or namespace",
-                        Some(json!({ "kind": kind, "reason": reason.to_string() })),
-                    )
-                }
-                requiem_core::storage::directory::AddRequirementError::Duplicate(reason) => {
-                    McpError::invalid_params(
-                        "requirement already exists",
-                        Some(json!({ "reason": reason.to_string() })),
-                    )
-                }
-                requiem_core::storage::directory::AddRequirementError::DisallowedKind {
-                    kind,
-                    allowed_kinds,
-                } => McpError::invalid_params(
-                    "kind is not allowed by configuration",
-                    Some(json!({ "kind": kind, "allowed_kinds": allowed_kinds })),
-                ),
-            })?
-    };
-
-    for parent in parent_hrids {
-        directory
-            .link_requirement(requirement.hrid(), &parent)
-            .map_err(|error| match error {
-                LinkRequirementError::ParentNotFound(_) => McpError::resource_not_found(
-                    "parent requirement not found",
-                    Some(json!({ "parent": ReqMcpServer::format_hrid(&parent, digits) })),
-                ),
-                LinkRequirementError::ChildNotFound(_) => McpError::internal_error(
-                    "child requirement missing after creation",
-                    Some(json!({ "child": ReqMcpServer::format_hrid(requirement.hrid(), digits) })),
-                ),
-                LinkRequirementError::WouldCreateCycle(message) => McpError::invalid_params(
-                    "cannot create link: would form a cycle",
-                    Some(json!({ "reason": message })),
-                ),
-            })?;
-    }
+    // Create requirement with parent links (atomic operation)
+    let requirement = directory
+        .add_requirement_with_parents(namespace, &kind, content, parent_hrids)
+        .map_err(|error| map_add_requirement_with_parents_error(error, digits))?;
 
     directory.flush().map_err(|error| {
         McpError::internal_error(
@@ -301,27 +217,7 @@ pub(super) async fn create_requirement(
         ));
     };
 
-    let parents: Vec<String> = view
-        .parents
-        .iter()
-        .map(|(_, parent)| ReqMcpServer::format_hrid(&parent.hrid, digits))
-        .collect();
-
-    let children: Vec<String> = directory
-        .children_of(&hrid)
-        .iter()
-        .map(|child| ReqMcpServer::format_hrid(child, digits))
-        .collect();
-
-    let response = RequirementDetails {
-        hrid: ReqMcpServer::format_hrid(&hrid, digits),
-        title: view.title.to_string(),
-        body: view.body.to_string(),
-        tags: view.tags.iter().cloned().collect(),
-        parents,
-        children,
-    };
-
+    let response = build_requirement_response(&hrid, &view, &directory, digits);
     drop(directory);
 
     let summary = format!("Created requirement {}", response.hrid);
@@ -409,4 +305,100 @@ pub(super) async fn review_requirement(
         "Suspect link marked as reviewed",
         ReqMcpServer::serialize(response, "review_requirement response")?,
     ))
+}
+
+/// Build requirement content from title and body.
+fn build_requirement_content(title: &str, body: &str) -> String {
+    let title = title.trim();
+    let body = body.trim();
+    match (title.is_empty(), body.is_empty()) {
+        (false, false) => format!("# {}\n\n{}", title, body),
+        (false, true) => format!("# {}", title),
+        (true, false) => body.to_string(),
+        (true, true) => String::new(),
+    }
+}
+
+/// Map AddRequirementWithParentsError to McpError.
+fn map_add_requirement_with_parents_error(
+    error: requiem_core::AddRequirementWithParentsError,
+    digits: usize,
+) -> McpError {
+    use requiem_core::AddRequirementWithParentsError;
+
+    match error {
+        AddRequirementWithParentsError::AddFailed(err) => {
+            use requiem_core::storage::directory::AddRequirementError;
+
+            match err {
+                AddRequirementError::Hrid(reason) => McpError::invalid_params(
+                    "invalid kind or namespace",
+                    Some(json!({ "reason": reason.to_string() })),
+                ),
+                AddRequirementError::Duplicate(reason) => McpError::invalid_params(
+                    "requirement already exists",
+                    Some(json!({ "reason": reason.to_string() })),
+                ),
+                AddRequirementError::DisallowedKind {
+                    kind,
+                    allowed_kinds,
+                } => McpError::invalid_params(
+                    "kind is not allowed by configuration",
+                    Some(json!({ "kind": kind, "allowed_kinds": allowed_kinds })),
+                ),
+            }
+        }
+        AddRequirementWithParentsError::ParentNotFound(parent_hrid) => {
+            McpError::resource_not_found(
+                "parent requirement not found",
+                Some(json!({ "parent": ReqMcpServer::format_hrid(&parent_hrid, digits) })),
+            )
+        }
+        AddRequirementWithParentsError::LinkFailed(err) => {
+            use requiem_core::LinkRequirementError;
+
+            match err {
+                LinkRequirementError::ParentNotFound(_) => {
+                    McpError::resource_not_found("parent requirement not found", Some(json!({})))
+                }
+                LinkRequirementError::ChildNotFound(_) => McpError::internal_error(
+                    "child requirement missing after creation",
+                    Some(json!({})),
+                ),
+                LinkRequirementError::WouldCreateCycle(message) => McpError::invalid_params(
+                    "cannot create link: would form a cycle",
+                    Some(json!({ "reason": message })),
+                ),
+            }
+        }
+    }
+}
+
+/// Build the response for a requirement.
+fn build_requirement_response(
+    hrid: &Hrid,
+    view: &requiem_core::RequirementView<'_>,
+    directory: &Directory,
+    digits: usize,
+) -> RequirementDetails {
+    let parents: Vec<String> = view
+        .parents
+        .iter()
+        .map(|(_, parent)| ReqMcpServer::format_hrid(&parent.hrid, digits))
+        .collect();
+
+    let children: Vec<String> = directory
+        .children_of(hrid)
+        .iter()
+        .map(|child| ReqMcpServer::format_hrid(child, digits))
+        .collect();
+
+    RequirementDetails {
+        hrid: ReqMcpServer::format_hrid(hrid, digits),
+        title: view.title.to_string(),
+        body: view.body.to_string(),
+        tags: view.tags.iter().cloned().collect(),
+        parents,
+        children,
+    }
 }

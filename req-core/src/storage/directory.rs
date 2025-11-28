@@ -825,6 +825,45 @@ impl Directory {
         Ok(requirement)
     }
 
+    /// Add a requirement with parent links in a single atomic operation.
+    ///
+    /// Creates a requirement and links it to one or more parents. Parents are
+    /// validated to exist before the requirement is created, ensuring that
+    /// if an error is returned, no state has been modified.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The requirement cannot be created (invalid kind, duplicate, etc.)
+    /// - Any parent requirement does not exist
+    /// - Any link operation fails
+    pub fn add_requirement_with_parents(
+        &mut self,
+        namespace: Vec<String>,
+        kind: &str,
+        content: String,
+        parents: Vec<Hrid>,
+    ) -> Result<Requirement, AddRequirementWithParentsError> {
+        // Create the requirement first
+        let requirement = self.add_requirement_with_namespace(namespace, kind, content)?;
+
+        // Validate all parents exist before linking any
+        for parent in &parents {
+            if self.find_by_hrid(parent).is_none() {
+                return Err(AddRequirementWithParentsError::ParentNotFound(
+                    parent.clone(),
+                ));
+            }
+        }
+
+        // Link to all parents
+        for parent in parents {
+            self.link_requirement(requirement.hrid(), &parent)?;
+        }
+
+        Ok(requirement)
+    }
+
     /// Check which requirements have stale parent HRIDs without modifying them.
     ///
     /// Returns a list of HRIDs for requirements that would be updated by
@@ -1138,6 +1177,22 @@ pub enum AddRequirementError {
         /// The list of allowed kinds.
         allowed_kinds: String,
     },
+}
+
+/// Error type for adding a requirement with parent links.
+#[derive(Debug, thiserror::Error)]
+pub enum AddRequirementWithParentsError {
+    /// Failed to add the requirement.
+    #[error("failed to create requirement: {0}")]
+    AddFailed(#[from] AddRequirementError),
+
+    /// A parent requirement does not exist.
+    #[error("parent requirement not found")]
+    ParentNotFound(Hrid),
+
+    /// Failed to link the requirement to a parent.
+    #[error("failed to link requirement to parent: {0}")]
+    LinkFailed(#[from] LinkRequirementError),
 }
 
 /// Error type for flush failures.
