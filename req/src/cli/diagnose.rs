@@ -54,6 +54,7 @@ impl Command {
 
                 if issues.is_empty() {
                     println!("{}", "✅ No path issues detected.".success());
+                    Ok(())
                 } else {
                     let issue_count = issues.len();
                     println!(
@@ -68,9 +69,11 @@ impl Command {
                         "\n{}",
                         "Review the issues above and fix them manually.".dim()
                     );
+                    Err(anyhow::anyhow!(
+                        "{issue_count} path issue{} found",
+                        if issue_count == 1 { "" } else { "s" }
+                    ))
                 }
-
-                Ok(())
             }
         }
     }
