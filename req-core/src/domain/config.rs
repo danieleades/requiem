@@ -99,8 +99,7 @@ impl Config {
 
     /// Returns the metadata for all configured kinds.
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)]
-    pub fn kind_metadata(&self) -> &HashMap<String, KindMetadata> {
+    pub const fn kind_metadata(&self) -> &HashMap<String, KindMetadata> {
         &self.kind_metadata
     }
 

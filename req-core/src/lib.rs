@@ -11,4 +11,4 @@ pub use domain::{
 
 /// Filesystem storage and directory management for requirements.
 pub mod storage;
-pub use storage::{hrid_from_path, AcceptResult, Directory};
+pub use storage::{hrid_from_path, AcceptResult, AddRequirementWithParentsError, Directory};

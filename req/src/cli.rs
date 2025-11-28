@@ -1,5 +1,6 @@
 use std::{io::BufRead, path::PathBuf};
 
+mod complete;
 mod config;
 mod create;
 mod delete;
@@ -156,6 +157,9 @@ pub enum Command {
 
     /// Diagnose path-related issues
     Diagnose(diagnose::Command),
+
+    /// Generate shell completion scripts
+    Complete(complete::Command),
 }
 
 impl Default for Command {
@@ -183,6 +187,7 @@ impl Command {
             Self::Rename(command) => command.run(root)?,
             Self::Move(command) => command.run(&root)?,
             Self::Diagnose(command) => command.run(&root)?,
+            Self::Complete(command) => command.run(),
         }
         Ok(())
     }

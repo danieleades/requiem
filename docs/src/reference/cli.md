@@ -14,6 +14,7 @@ Current command set for the `req` CLI. The default command is `status`.
 - `list` — filtered listings with relationship views (`parents`, `children`, `tree`, etc.)
 - `show` — pretty detail view of a single requirement
 - `validate` — health checks (paths/HRID drift/suspect links for now)
+- `complete` — generate shell completion scripts (bash, zsh, fish, PowerShell)
 - `init`, `kind`, `rename`, `move`, `delete`, `config`, `diagnose paths`
 
 ## Global Synopsis
@@ -145,3 +146,34 @@ req diagnose paths
 ```
 
 Reports files that are not at their canonical paths (namespaces/path mode aware).
+
+### complete
+
+```
+req complete <SHELL>
+```
+
+Generates shell completion scripts for the specified shell. Supported shells are `bash`, `zsh`, `fish`, and `powershell`. Output the completion script to stdout and install it to your shell's completion directory.
+
+**Examples:**
+
+```bash
+# Generate bash completions
+req complete bash > req.bash
+sudo install -Dm644 req.bash /usr/share/bash-completion/completions/req
+
+# Generate zsh completions
+req complete zsh > _req
+mkdir -p ~/.local/share/zsh/site-functions
+mv _req ~/.local/share/zsh/site-functions/
+
+# Generate fish completions
+req complete fish > req.fish
+mkdir -p ~/.config/fish/completions
+mv req.fish ~/.config/fish/completions/
+
+# Generate PowerShell completions
+req complete powershell >> $PROFILE
+```
+
+See the [Shell Completions](../guide/installation.md#shell-completions) section in the installation guide for detailed setup instructions.
