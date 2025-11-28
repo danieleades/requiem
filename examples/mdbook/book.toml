@@ -3,3 +3,5 @@ authors = ["daniel eades"]
 language = "en"
 src = "src"
 title = "mdbook example"
+
+[preprocessor.yml-header]

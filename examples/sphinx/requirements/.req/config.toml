@@ -1,0 +1,5 @@
+_version = "1"
+allowed_kinds = [
+    { kind = "USR", description = "User requirements" },
+]
+digits = 3
