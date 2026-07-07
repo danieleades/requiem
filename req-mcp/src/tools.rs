@@ -225,12 +225,9 @@ impl ReqMcpServer {
     }
 }
 
-impl ReqMcpServer {
-    pub(crate) fn build_tool_router() -> rmcp::handler::server::router::tool::ToolRouter<Self> {
-        Self::tool_router()
-    }
-}
-
+// The `#[tool_handler]` macro expands to `ServerHandler` methods that are async
+// (as required by the trait) but contain no `.await`; allow the resulting lint.
+#[allow(clippy::unused_async_trait_impl)]
 #[tool_handler]
 impl ServerHandler for ReqMcpServer {
     fn get_info(&self) -> ServerInfo {
@@ -241,13 +238,13 @@ impl ServerHandler for ReqMcpServer {
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
         info.instructions = Some(
             "Requirements graph MCP server (requires REQ_ROOT pointing at your requirements \
-             repo). Start with list_requirement_kinds, then list_requirements(kind) to get \
-             HRIDs. Fetch details with get_requirement(hrid) and traverse with \
-             get_children(hrid), get_parents(hrid), get_ancestors(hrid), or \
-             get_descendants(hrid). Create new kinds/requirements with create_requirement_kind \
-             and create_requirement. For link drift, call review to list suspect child→parent \
-             links (fingerprint mismatches), then review_requirement to accept if the child \
-             still satisfies the parent. Search/update tools remain placeholders for now."
+             repo). Start with list_requirement_kinds, then list_requirements(kind) to get HRIDs. \
+             Fetch details with get_requirement(hrid) and traverse with get_children(hrid), \
+             get_parents(hrid), get_ancestors(hrid), or get_descendants(hrid). Create new \
+             kinds/requirements with create_requirement_kind and create_requirement. For link \
+             drift, call review to list suspect child→parent links (fingerprint mismatches), then \
+             review_requirement to accept if the child still satisfies the parent. Search/update \
+             tools remain placeholders for now."
                 .to_owned(),
         );
         info

@@ -3,8 +3,7 @@
 
 use requiem_core::Hrid;
 use rmcp::{
-    handler::server::router::tool::ToolRouter,
-    model::{content::Content, CallToolResult},
+    model::{CallToolResult, ContentBlock},
     ErrorData as McpError,
 };
 use serde::Serialize;
@@ -17,18 +16,13 @@ use crate::state::ServerState;
 pub struct ReqMcpServer {
     /// Shared directory and configuration state.
     pub(crate) state: ServerState,
-    /// Generated router containing all exposed tools.
-    pub(crate) tool_router: ToolRouter<Self>,
 }
 
 impl ReqMcpServer {
     /// Create a new server with the provided state.
     #[must_use]
-    pub fn new(state: ServerState) -> Self {
-        Self {
-            state,
-            tool_router: Self::build_tool_router(),
-        }
+    pub const fn new(state: ServerState) -> Self {
+        Self { state }
     }
 
     pub(crate) fn format_hrid(hrid: &Hrid, digits: usize) -> String {
@@ -45,15 +39,14 @@ impl ReqMcpServer {
     }
 
     pub(crate) fn success(summary: impl Into<String>, data: Value) -> CallToolResult {
-        let mut result = CallToolResult::success(vec![Content::text(summary.into())]);
+        let mut result = CallToolResult::success(vec![ContentBlock::text(summary.into())]);
         result.structured_content = Some(data);
         result
     }
 
     pub(crate) fn stub(tool: &str, params: Option<Value>) -> CallToolResult {
-        let mut result = CallToolResult::success(vec![Content::text(format!(
-            "{tool} is not implemented yet"
-        ))]);
+        let message = format!("{tool} is not implemented yet");
+        let mut result = CallToolResult::success(vec![ContentBlock::text(message)]);
         result.is_error = Some(true);
         result.structured_content = Some(json!({
             "status": "not_implemented",
