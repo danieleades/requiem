@@ -80,9 +80,23 @@ impl Config {
     /// Returns an error if the configuration cannot be serialized to TOML or if
     /// the file cannot be written.
     pub fn save(&self, path: &Path) -> Result<(), String> {
+        use std::io::Write as _;
+
         let content =
             toml::to_string_pretty(self).map_err(|e| format!("Failed to serialize config: {e}"))?;
-        std::fs::write(path, content).map_err(|e| format!("Failed to write config file: {e}"))
+
+        // Write to a temporary file in the same directory, then rename it over
+        // the destination so a crash mid-write cannot truncate the config.
+        let dir = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let write_err = |e: &dyn std::fmt::Display| format!("Failed to write config file: {e}");
+        let mut tmp = tempfile::NamedTempFile::new_in(dir).map_err(|e| write_err(&e))?;
+        tmp.write_all(content.as_bytes())
+            .map_err(|e| write_err(&e))?;
+        tmp.persist(path).map_err(|e| write_err(&e))?;
+        Ok(())
     }
 
     /// Returns the number of digits for padding HRID IDs.
@@ -363,6 +377,27 @@ mod tests {
 
         let error = Config::load(file.path()).unwrap_err();
         assert!(error.starts_with("Failed to parse config file:"));
+    }
+
+    #[test]
+    fn save_load_round_trip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+
+        let mut config = Config::default();
+        config.add_kind("USR");
+        config.subfolders_are_namespaces = true;
+        config.save(&path).unwrap();
+
+        let loaded = Config::load(&path).unwrap();
+        assert_eq!(loaded, config);
+
+        // The atomic write must not leave temporary files behind.
+        let entries: Vec<_> = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("config.toml")]);
     }
 
     #[test]
