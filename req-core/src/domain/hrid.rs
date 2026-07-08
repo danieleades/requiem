@@ -201,6 +201,39 @@ impl Hrid {
         }
     }
 
+    /// Parses an HRID, normalizing the KIND segment to uppercase.
+    ///
+    /// This is a convenience for user-facing boundaries (CLI arguments, tool
+    /// parameters): `auth-sys-001` parses as `auth-SYS-001`. Namespace case
+    /// is preserved.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the string is not a valid HRID.
+    pub fn parse_lenient(s: &str) -> Result<Self, Error> {
+        let parts: Vec<&str> = s.split('-').collect();
+        if parts.len() < 2 {
+            return Err(Error::Syntax(s.to_string()));
+        }
+
+        // Uppercase only the KIND segment (second-to-last position).
+        let kind_index = parts.len() - 2;
+        let normalized = parts
+            .iter()
+            .enumerate()
+            .map(|(i, part)| {
+                if i == kind_index {
+                    part.to_uppercase()
+                } else {
+                    (*part).to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("-");
+
+        normalized.parse()
+    }
+
     /// Returns the namespace segments as strings.
     pub fn namespace(&self) -> Vec<&str> {
         self.namespace
@@ -414,6 +447,31 @@ mod tests {
     #[test]
     fn hrid_creation_zero_id_fails() {
         assert!(NonZeroUsize::new(0).is_none());
+    }
+
+    #[test]
+    fn parse_lenient_normalizes_kind_only() {
+        // The KIND segment is normalized to uppercase; namespaces keep their
+        // case; already-uppercase input is untouched.
+        for (input, expected) in [
+            ("SYSTEM-AUTH-REQ-001", "SYSTEM-AUTH-REQ-001"),
+            ("auth-sys-001", "auth-SYS-001"),
+            ("auth-SyS-001", "auth-SYS-001"),
+            ("auth-api-SYS-001", "auth-api-SYS-001"),
+            ("Auth-Api-SYS-001", "Auth-Api-SYS-001"),
+            ("req-001", "REQ-001"),
+            ("a-b-c-d-SYS-001", "a-b-c-d-SYS-001"),
+        ] {
+            let hrid = Hrid::parse_lenient(input).unwrap();
+            assert_eq!(hrid.display(3).to_string(), expected, "input: {input}");
+        }
+    }
+
+    #[test]
+    fn parse_lenient_rejects_invalid_input() {
+        for input in ["invalid", "auth-SYS-invalid", "auth-SYS-000", ""] {
+            assert!(Hrid::parse_lenient(input).is_err(), "input: {input}");
+        }
     }
 
     use test_case::test_case;

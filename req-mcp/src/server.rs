@@ -30,7 +30,7 @@ impl ReqMcpServer {
     }
 
     pub(crate) fn parse_hrid(raw: &str) -> Result<Hrid, McpError> {
-        Hrid::try_from(raw).map_err(|error| {
+        Hrid::parse_lenient(raw).map_err(|error| {
             McpError::invalid_params(
                 "invalid HRID provided",
                 Some(json!({ "hrid": raw, "reason": error.to_string() })),

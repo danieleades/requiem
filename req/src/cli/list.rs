@@ -14,6 +14,8 @@ use serde::Serialize;
 use tracing::instrument;
 use uuid::Uuid;
 
+use super::parse_hrid;
+
 const DEFAULT_LIMIT: usize = 200;
 
 /// Command arguments for `req list`.
@@ -1413,10 +1415,6 @@ impl ListColumn {
     }
 }
 
-fn parse_hrid(value: &str) -> Result<Hrid, String> {
-    Hrid::try_from(value).map_err(|err| err.to_string())
-}
-
 impl fmt::Display for OutputFormat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
@@ -1905,12 +1903,6 @@ mod tests {
         assert_eq!(csv_escape("simple"), "simple");
         assert_eq!(csv_escape("needs,comma"), "\"needs,comma\"");
         assert_eq!(csv_escape("quote\"here"), "\"quote\"\"here\"");
-    }
-
-    #[test]
-    fn parse_hrid_accepts_valid_values() {
-        let hrid = parse_hrid("SYS-001").unwrap();
-        assert_eq!(hrid.display(3).to_string(), "SYS-001");
     }
 
     #[test]
