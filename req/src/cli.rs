@@ -1,4 +1,7 @@
-use std::{io::BufRead, path::PathBuf};
+use std::{
+    io::{self, BufRead},
+    path::PathBuf,
+};
 
 mod config;
 mod create;
@@ -18,7 +21,6 @@ mod terminal;
 mod unlink;
 mod validate;
 
-use borsh::io;
 use clap::ArgAction;
 use list::List;
 use requiem_core::Hrid;
