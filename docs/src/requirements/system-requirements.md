@@ -92,7 +92,7 @@ The YAML frontmatter shall include required fields: `_version` (format version),
 
 #### SYS-003: Parent Requirement Links
 
-Parent links shall be stored in a `parents` array, where each link contains `uuid`, `hrid`, and `fingerprint` (SHA256 hash of parent content) for change detection.
+Parent links shall be stored in a `parents` array, where each link contains `uuid`, `hrid`, and `fingerprint` (xxHash3 128-bit hash of parent content) for change detection.
 
 [Read full requirement →](./SYS-003.md)
 

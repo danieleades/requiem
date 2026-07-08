@@ -4,13 +4,13 @@ Requiem uses content fingerprints to detect when requirements change. This chapt
 
 ## What is a Fingerprint?
 
-A fingerprint is a cryptographic hash (SHA256) of a requirement's semantic content. It's stored in parent references:
+A fingerprint is a non-cryptographic hash (xxHash3 128-bit) of a requirement's semantic content. It's stored in parent references:
 
 ```yaml
 # SYS-001.md
 parents:
 - uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
-  fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
+  fingerprint: e533784ff58c16cbf08e436cb06f09e0
   hrid: USR-001
 ```
 
@@ -78,8 +78,8 @@ The system shall validate user email addresses according to RFC 5322.
 Content: "The system shall validate user email addresses according to RFC 5322."
 Tags: ["authentication", "security"]
 → Encode with Borsh
-→ Hash with SHA256
-→ Fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
+→ Hash with xxHash3 128-bit
+→ Fingerprint: e533784ff58c16cbf08e436cb06f09e0
 ```
 
 ## Use Cases
@@ -97,7 +97,7 @@ Tags: ["authentication", "security"]
 # SYS-001.md links to USR-001
 parents:
 - uuid: 4bfeb7d5-...
-  fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
+  fingerprint: e533784ff58c16cbf08e436cb06f09e0
   hrid: USR-001
 ```
 
@@ -110,14 +110,14 @@ Email validation must occur before account creation.  # ← New sentence
 
 3. USR-001's fingerprint changes:
 ```
-New fingerprint: c4020419ead000e9b5f9cfd4ebf6192e73f905c27e6897548d8f6e12fd7f1356
+New fingerprint: c4020419ead000e9b5f9cfd4ebf6192e
 ```
 
 4. SYS-001 still has the old fingerprint:
 ```yaml
 # SYS-001.md
 parents:
-- fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda  # Old!
+- fingerprint: e533784ff58c16cbf08e436cb06f09e0  # Old!
 ```
 
 5. **Mismatch detected**: SYS-001 needs review because its parent changed.
@@ -246,7 +246,7 @@ No suspect links found.
 # SYS-001.md
 parents:
 - uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
-  fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
+  fingerprint: e533784ff58c16cbf08e436cb06f09e0
 ```
 
 2. Compute current fingerprint of parent (see above)
@@ -355,17 +355,17 @@ parents:
 - Consistent across platforms
 - Efficient for hashing
 
-**Hashing**: SHA256
-- Cryptographically secure
-- 256-bit output (64 hex characters)
-- Collision resistant
+**Hashing**: xxHash3 128-bit
+- Non-cryptographic and optimized for deterministic change detection
+- 128-bit output (32 hex characters)
+- Low accidental collision probability for requirement fingerprints
 
 **Process**:
 ```
 1. Collect content and tags
 2. Serialize with Borsh: content + tags → binary
-3. Hash with SHA256: binary → 256-bit hash
-4. Encode as hex: hash → 64-character string
+3. Hash with xxHash3 128-bit: binary → 128-bit hash
+4. Encode as hex: hash → 32-character string
 ```
 
 ### Why These Choices?
@@ -375,15 +375,16 @@ parents:
 - Handles strings and collections consistently
 - Designed for hashing use cases
 
-**SHA256**:
-- Industry standard
-- Strong collision resistance
+**xxHash3 128-bit**:
+- Widely used, well-tested non-cryptographic hash
+- 128-bit output gives negligible accidental-collision risk for realistic
+  requirement repositories
 - Fast to compute
 
 **Benefits**:
 - Consistent fingerprints across systems
 - Detects even small changes
-- Impossible to forge (cryptographically secure)
+- Compact 32-character hexadecimal representation
 
 ## Practical Examples
 
@@ -676,7 +677,7 @@ req link SYS-001 USR-001
 
 **Key Concepts**:
 
-- **Fingerprint**: SHA256 hash of requirement content and tags
+- **Fingerprint**: xxHash3 128-bit hash of requirement content and tags
 - **Purpose**: Detect when parent requirements change
 - **Storage**: Stored in child's parent reference
 - **Automatic**: Computed when linking requirements

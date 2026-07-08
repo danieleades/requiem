@@ -149,7 +149,7 @@ uuid: 81e63bac-4035-47b5-b273-ac13e47a2ff6
 created: 2025-07-22T13:14:40.510075462Z
 parents:
 - uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
-  fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
+  fingerprint: e533784ff58c16cbf08e436cb06f09e0
   hrid: USR-001
 ---
 # SYS-001
