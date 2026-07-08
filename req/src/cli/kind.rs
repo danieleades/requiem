@@ -1,3 +1,5 @@
+//! The `req kind` command: manage requirement kinds.
+
 use std::path::Path;
 
 use tracing::instrument;

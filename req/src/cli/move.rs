@@ -1,3 +1,5 @@
+//! The `req move` command: move a requirement to a new file path.
+
 use std::path::{Path, PathBuf};
 
 use requiem_core::{Directory, Hrid};

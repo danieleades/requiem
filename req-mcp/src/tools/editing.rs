@@ -1,3 +1,5 @@
+//! Editing tools: create, update, link, and review requirements.
+
 use std::fs;
 
 use requiem_core::{Directory, Hrid, LinkRequirementError};

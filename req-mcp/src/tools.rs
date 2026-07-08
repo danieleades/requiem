@@ -1,3 +1,6 @@
+//! MCP tool definitions and the tool router, grouped into submodules by
+//! concern (discovery, editing, lineage, search).
+
 mod discovery;
 mod editing;
 mod lineage;
@@ -194,6 +197,9 @@ impl ReqMcpServer {
 
 // The `#[tool_handler]` macro expands to `ServerHandler` methods that are async
 // (as required by the trait) but contain no `.await`; allow the resulting lint.
+// `unknown_lints` is allowed alongside it because the lint only exists on
+// recent (nightly) clippy, and older/stable clippy would warn about the name.
+#[allow(unknown_lints)]
 #[allow(clippy::unused_async_trait_impl)]
 #[tool_handler]
 impl ServerHandler for ReqMcpServer {

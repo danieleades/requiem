@@ -1,6 +1,5 @@
-// Domain layer data structures for requirements.
-//
-// This module contains the decomposed data structures used by the Tree.
+//! Decomposed requirement data: the content-and-timestamp payload stored
+//! per UUID by the [`Tree`](crate::domain::Tree).
 
 use std::collections::BTreeSet;
 

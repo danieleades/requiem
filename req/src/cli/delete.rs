@@ -1,3 +1,5 @@
+//! The `req delete` command: delete a requirement.
+
 use std::path::PathBuf;
 
 use requiem_core::{Directory, Hrid};

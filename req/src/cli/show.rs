@@ -1,3 +1,5 @@
+//! The `req show` command: show detailed information about a requirement.
+
 use std::{path::PathBuf, process};
 
 use clap::Parser;

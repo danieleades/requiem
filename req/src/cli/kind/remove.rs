@@ -1,3 +1,5 @@
+//! The `req kind remove` subcommand: remove a kind from the allowed list.
+
 use std::path::Path;
 
 use requiem_core::Directory;

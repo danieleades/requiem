@@ -1,4 +1,5 @@
-// RequirementView - a borrowed view of a requirement for serialization.
+//! [`RequirementView`]: a borrowed view of a requirement for cheap read
+//! access and serialization.
 
 use std::collections::BTreeSet;
 

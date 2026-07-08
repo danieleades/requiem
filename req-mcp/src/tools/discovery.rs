@@ -1,3 +1,6 @@
+//! Discovery tools: list requirement kinds, list requirements by kind, and
+//! fetch the details of a single requirement.
+
 use std::collections::BTreeSet;
 
 use rmcp::{handler::server::wrapper::Parameters, model::CallToolResult, ErrorData as McpError};

@@ -1,3 +1,5 @@
+//! The `req rename` command: change a requirement's HRID.
+
 use std::path::PathBuf;
 
 use requiem_core::{Directory, Hrid};

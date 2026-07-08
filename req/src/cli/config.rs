@@ -1,3 +1,5 @@
+//! The `req config` command: show or modify repository configuration.
+
 // TODO: this approach is brittle and difficult to maintain. Consider using a
 // more robust approach, potentially a proc macro which generates
 // setters/getters and enumerates options from the actual Config struct.

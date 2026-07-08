@@ -1,13 +1,15 @@
+//! Markdown serialization for requirements.
+//!
+//! A requirement file is a markdown document with a YAML frontmatter block.
+//! The frontmatter carries identity and link metadata (`frontmatter`
+//! submodule), while the first markdown heading carries the HRID and title
+//! (`content` submodule).
+
 use std::{
-    collections::BTreeSet,
     fs::File,
     io::{self, BufRead, BufReader, Write},
     path::Path,
 };
-
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use crate::{
     domain::{
@@ -16,6 +18,14 @@ use crate::{
     },
     Requirement,
 };
+
+mod content;
+mod frontmatter;
+
+use content::parse_content;
+pub(crate) use content::trim_empty_lines;
+use frontmatter::FrontMatter;
+pub use frontmatter::{hrid_as_string, hrid_from_string, Parent};
 
 /// A requirement serialized in markdown format with YAML frontmatter.
 #[derive(Debug, Clone)]
@@ -186,79 +196,6 @@ impl MarkdownRequirement {
     }
 }
 
-/// Trim empty lines from the start and end of a string, preserving indentation.
-///
-/// Unlike `.trim()`, this function only removes completely empty lines from
-/// the beginning and end, keeping any leading/trailing whitespace on non-empty
-/// lines. This is crucial for preserving markdown structures like code blocks,
-/// lists, and blockquotes which rely on indentation.
-pub(crate) fn trim_empty_lines(s: &str) -> String {
-    let lines: Vec<&str> = s.lines().collect();
-
-    // Find first and last non-empty lines
-    let first_non_empty = lines.iter().position(|line| !line.trim().is_empty());
-    let last_non_empty = lines.iter().rposition(|line| !line.trim().is_empty());
-
-    match (first_non_empty, last_non_empty) {
-        (Some(start), Some(end)) => lines[start..=end].join("\n"),
-        _ => String::new(),
-    }
-}
-
-/// Parses markdown content into HRID, title, and body.
-///
-/// The HRID must be the first token in the first heading (after the `#`
-/// markers), followed by the title. The body is everything after the first
-/// heading.
-///
-/// # Errors
-///
-/// Returns an error if no heading is found or if the HRID cannot be parsed.
-fn parse_content(content: &str) -> Result<(Hrid, String, String), LoadError> {
-    // Find the first non-empty line that starts with '#'
-    let (heading_line_idx, line) = content
-        .lines()
-        .enumerate()
-        .find(|(_, line)| line.trim().starts_with('#'))
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "No heading found in content - HRID must be in the first heading",
-            )
-        })?;
-
-    let trimmed = line.trim();
-    // Remove leading '#' characters and whitespace
-    let after_hashes = trimmed.trim_start_matches('#').trim();
-
-    // Extract the first token (should be the HRID)
-    let first_token = after_hashes
-        .split_whitespace()
-        .next()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "No HRID found in title"))?;
-
-    // Parse the HRID
-    let hrid = first_token.parse::<Hrid>().map_err(LoadError::from)?;
-
-    // The rest after the HRID is the title
-    let title = after_hashes
-        .strip_prefix(first_token)
-        .unwrap_or("")
-        .trim()
-        .to_string();
-
-    // The body is everything after the heading line
-    // Preserve leading indentation but trim empty lines from start/end
-    let body_content: String = content
-        .lines()
-        .skip(heading_line_idx + 1)
-        .collect::<Vec<_>>()
-        .join("\n");
-    let body = trim_empty_lines(&body_content);
-
-    Ok((hrid, title, body))
-}
-
 /// Errors that can occur when loading a requirement from markdown.
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
@@ -277,103 +214,6 @@ pub enum LoadError {
     /// The HRID could not be parsed.
     #[error("invalid HRID in title: {0}")]
     Hrid(#[from] HridError),
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-#[serde(from = "FrontMatterVersion")]
-#[serde(into = "FrontMatterVersion")]
-struct FrontMatter {
-    uuid: Uuid,
-    created: DateTime<Utc>,
-    tags: BTreeSet<String>,
-    parents: Vec<Parent>,
-}
-
-/// A parent requirement reference in the serialized format.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct Parent {
-    uuid: Uuid,
-    fingerprint: String,
-    #[serde(
-        serialize_with = "hrid_as_string",
-        deserialize_with = "hrid_from_string"
-    )]
-    hrid: Hrid,
-}
-
-/// Serialize an HRID as a string.
-///
-/// # Errors
-///
-/// Returns an error if serialization fails.
-pub fn hrid_as_string<S>(hrid: &Hrid, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    // Use default 3-digit formatting for frontmatter serialization
-    serializer.serialize_str(&hrid.display(3).to_string())
-}
-
-/// Deserialize an HRID from a string.
-///
-/// # Errors
-///
-/// Returns an error if the string cannot be parsed as a valid HRID.
-pub fn hrid_from_string<'de, D>(deserializer: D) -> Result<Hrid, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    Hrid::try_from(s.as_str()).map_err(serde::de::Error::custom)
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "_version")]
-enum FrontMatterVersion {
-    #[serde(rename = "1")]
-    V1 {
-        uuid: Uuid,
-        created: DateTime<Utc>,
-        #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-        tags: BTreeSet<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        parents: Vec<Parent>,
-    },
-}
-
-impl From<FrontMatterVersion> for FrontMatter {
-    fn from(version: FrontMatterVersion) -> Self {
-        match version {
-            FrontMatterVersion::V1 {
-                uuid,
-                created,
-                tags,
-                parents,
-            } => Self {
-                uuid,
-                created,
-                tags,
-                parents,
-            },
-        }
-    }
-}
-
-impl From<FrontMatter> for FrontMatterVersion {
-    fn from(front_matter: FrontMatter) -> Self {
-        let FrontMatter {
-            uuid,
-            created,
-            tags,
-            parents,
-        } = front_matter;
-        Self::V1 {
-            uuid,
-            created,
-            tags,
-            parents,
-        }
-    }
 }
 
 impl From<Requirement> for MarkdownRequirement {
@@ -461,10 +301,11 @@ impl TryFrom<MarkdownRequirement> for Requirement {
 
 #[cfg(test)]
 mod tests {
-    use std::{io::Cursor, num::NonZeroUsize};
+    use std::{collections::BTreeSet, io::Cursor, num::NonZeroUsize};
 
-    use chrono::TimeZone;
+    use chrono::{TimeZone, Utc};
     use tempfile::TempDir;
+    use uuid::Uuid;
 
     use super::{Parent, *};
     use crate::domain::hrid::KindString;
@@ -790,46 +631,6 @@ created: not-a-date
     }
 
     #[test]
-    fn frontmatter_version_conversion() {
-        let uuid = Uuid::parse_str("12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53").unwrap();
-        let created = Utc.with_ymd_and_hms(2025, 7, 14, 7, 15, 0).unwrap();
-        let tags = BTreeSet::from(["tag1".to_owned()]);
-        let parents = vec![Parent {
-            uuid: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
-            fingerprint: "fp1".to_string(),
-            hrid: req_hrid(),
-        }];
-
-        let frontmatter = FrontMatter {
-            uuid,
-            created,
-            tags,
-            parents,
-        };
-        let version: FrontMatterVersion = frontmatter.clone().into();
-        let back_to_frontmatter: FrontMatter = version.into();
-
-        assert_eq!(frontmatter, back_to_frontmatter);
-    }
-
-    #[test]
-    fn parent_creation() {
-        let uuid = Uuid::parse_str("12b3f5c5-b1a8-4aa8-a882-20ff1c2aab53").unwrap();
-        let fingerprint = "test-fingerprint".to_string();
-        let hrid = req_hrid();
-
-        let parent = Parent {
-            uuid,
-            fingerprint: fingerprint.clone(),
-            hrid: hrid.clone(),
-        };
-
-        assert_eq!(parent.uuid, uuid);
-        assert_eq!(parent.fingerprint, fingerprint);
-        assert_eq!(parent.hrid, hrid);
-    }
-
-    #[test]
     fn content_with_triple_dashes() {
         let content = r"---
 _version: '1'
@@ -909,69 +710,6 @@ Just plain text without a heading
         let result = MarkdownRequirement::read(&mut reader);
 
         assert!(matches!(result, Err(LoadError::Io(_))));
-    }
-
-    #[test]
-    fn trim_empty_lines_removes_only_empty_lines() {
-        assert_eq!(trim_empty_lines(""), "");
-        assert_eq!(trim_empty_lines("\n\n"), "");
-        assert_eq!(trim_empty_lines("content"), "content");
-        assert_eq!(trim_empty_lines("\n\ncontent\n\n"), "content");
-    }
-
-    #[test]
-    fn trim_empty_lines_preserves_leading_indentation() {
-        assert_eq!(trim_empty_lines("    indented"), "    indented");
-        assert_eq!(trim_empty_lines("\n    indented\n"), "    indented");
-        assert_eq!(
-            trim_empty_lines("    code block\n    more code"),
-            "    code block\n    more code"
-        );
-    }
-
-    #[test]
-    fn trim_empty_lines_preserves_internal_empty_lines() {
-        assert_eq!(trim_empty_lines("line1\n\nline2"), "line1\n\nline2");
-        assert_eq!(trim_empty_lines("\nline1\n\nline2\n"), "line1\n\nline2");
-    }
-
-    #[test]
-    fn trim_empty_lines_handles_markdown_structures() {
-        // Code block
-        let code = "    fn main() {\n        println!(\"hello\");\n    }";
-        assert_eq!(trim_empty_lines(code), code);
-
-        // List with indentation
-        let list = "- Item 1\n  - Sub item\n- Item 2";
-        assert_eq!(trim_empty_lines(list), list);
-
-        // Blockquote
-        let quote = "> This is a quote\n> with multiple lines";
-        assert_eq!(trim_empty_lines(quote), quote);
-    }
-
-    #[test]
-    fn trim_empty_lines_with_trailing_whitespace_lines() {
-        // Lines with only spaces should be treated as empty
-        assert_eq!(trim_empty_lines("   \n\ncontent\n   \n"), "content");
-    }
-
-    #[test]
-    fn parse_content_preserves_body_indentation() {
-        let content = "# REQ-001 Title\n\n    code block\n    more code";
-        let (hrid, title, body) = parse_content(content).unwrap();
-
-        assert_eq!(hrid.display(3).to_string(), "REQ-001");
-        assert_eq!(title, "Title");
-        assert_eq!(body, "    code block\n    more code");
-    }
-
-    #[test]
-    fn parse_content_trims_empty_lines_around_body() {
-        let content = "# REQ-001 Title\n\n\n\ncontent\n\n\n";
-        let (_hrid, _title, body) = parse_content(content).unwrap();
-
-        assert_eq!(body, "content");
     }
 
     #[test]

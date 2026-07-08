@@ -1,10 +1,18 @@
+//! The `req validate` command: repository health checks.
+//!
+//! The individual checks live in the `check` submodule, output formatting in
+//! `report`, and automatic repair in `fix`; this module holds the CLI surface
+//! and the result model.
+
 use std::path::PathBuf;
 
 use clap::Parser;
 use requiem_core::Directory;
 use tracing::instrument;
 
-use super::terminal::Colorize;
+mod check;
+mod fix;
+mod report;
 
 #[derive(Debug, Parser)]
 #[command(about = "Validate repository health across multiple dimensions")]
@@ -134,17 +142,17 @@ impl Validate {
         // Run checks and construct result immutably
         let result = ValidationResult {
             paths: if checks.contains(&CheckType::Paths) {
-                Self::check_paths(&directory)
+                check::paths(&directory)
             } else {
                 vec![]
             },
             links: if checks.contains(&CheckType::Links) {
-                Self::check_links(&directory)
+                check::links(&directory)
             } else {
                 vec![]
             },
             suspect: if checks.contains(&CheckType::Suspect) {
-                Self::check_suspect(&directory)
+                check::suspect(&directory)
             } else {
                 vec![]
             },
@@ -178,323 +186,5 @@ impl Validate {
         }
 
         Ok(())
-    }
-
-    fn check_paths(directory: &Directory) -> Vec<PathIssue> {
-        let digits = directory.config().digits();
-        directory
-            .check_path_drift()
-            .into_iter()
-            .map(|(hrid, current_path, expected_path)| PathIssue {
-                hrid: hrid.display(digits).to_string(),
-                current_path,
-                expected_path,
-            })
-            .collect()
-    }
-
-    fn check_links(directory: &Directory) -> Vec<LinkIssue> {
-        let digits = directory.config().digits();
-        let mut issues = Vec::new();
-
-        // Check for stale parent HRIDs
-        let stale_hrids = directory.check_hrid_drift();
-        for hrid in stale_hrids {
-            issues.push(LinkIssue::StaleHrid {
-                child: hrid.display(digits).to_string(),
-            });
-        }
-
-        // Check for circular dependencies
-        let cycles = directory.detect_cycles();
-        for cycle in cycles {
-            let cycle_path: Vec<String> = cycle
-                .iter()
-                .map(|hrid| hrid.display(digits).to_string())
-                .collect();
-            issues.push(LinkIssue::CircularDependency { cycle: cycle_path });
-        }
-
-        // Check for broken references (parent UUIDs that don't exist)
-        for req in directory.requirements() {
-            for (parent_uuid, _parent_info) in &req.parents {
-                if directory.find_by_uuid(*parent_uuid).is_none() {
-                    issues.push(LinkIssue::BrokenReference {
-                        child: req.hrid.display(digits).to_string(),
-                        parent_uuid: parent_uuid.to_string(),
-                    });
-                }
-            }
-        }
-
-        issues
-    }
-
-    fn check_suspect(directory: &Directory) -> Vec<SuspectIssue> {
-        let suspect_links = directory.suspect_links();
-        let digits = directory.config().digits();
-        let mut issues = Vec::new();
-
-        for link in suspect_links {
-            issues.push(SuspectIssue {
-                child: link.child_hrid.display(digits).to_string(),
-                parent: link.parent_hrid.display(digits).to_string(),
-            });
-        }
-
-        issues
-    }
-
-    fn output_table(&self, result: &ValidationResult, directory: &Directory) {
-        if self.quiet {
-            return;
-        }
-
-        println!("Validating repository...\n");
-
-        // Structure (always valid if we got here)
-        let req_count = directory.requirements().count();
-        println!("✓ Structure:  {req_count} requirements, all valid");
-
-        // Paths
-        if result.paths.is_empty() {
-            println!("✓ Paths:      All files at canonical locations");
-        } else {
-            println!(
-                "{}",
-                format!(
-                    "✗ Paths:      {} files not at canonical locations",
-                    result.paths.len()
-                )
-                .warning()
-            );
-        }
-
-        // Links
-        let (cycles, broken, stale) = Self::categorize_link_issues(&result.links);
-        if result.links.is_empty() {
-            println!("✓ Links:      No broken references, cycles, or stale HRIDs");
-        } else {
-            let mut issues_desc = Vec::new();
-            if !cycles.is_empty() {
-                issues_desc.push(format!("{} cycle(s)", cycles.len()));
-            }
-            if !broken.is_empty() {
-                issues_desc.push(format!("{} broken ref(s)", broken.len()));
-            }
-            if !stale.is_empty() {
-                issues_desc.push(format!("{} stale HRID(s)", stale.len()));
-            }
-            println!(
-                "{}",
-                format!(
-                    "✗ Links:      {} ({})",
-                    result.links.len(),
-                    issues_desc.join(", ")
-                )
-                .warning()
-            );
-        }
-
-        // Suspect
-        if result.suspect.is_empty() {
-            println!("✓ Suspect:    No suspect links");
-        } else {
-            println!(
-                "{}",
-                format!("✗ Suspect:    {} suspect links found", result.suspect.len()).warning()
-            );
-        }
-
-        // Summary
-        let total_issues = result.count_total_issues();
-        if total_issues == 0 {
-            println!("\n{}", "Repository is healthy (0 issues)".success());
-        } else {
-            println!(
-                "\n{}",
-                format!("Summary: {total_issues} issues found").warning()
-            );
-
-            // Show hints for fixing
-            if !result.paths.is_empty() || !result.links.is_empty() {
-                println!(
-                    "\n{}",
-                    "Run 'req validate --fix' to automatically repair fixable issues".dim()
-                );
-            }
-            if !result.suspect.is_empty() {
-                println!(
-                    "{}",
-                    "Run 'req review --accept --all' to accept all suspect links".dim()
-                );
-            }
-        }
-    }
-
-    fn output_json(result: &ValidationResult) -> anyhow::Result<()> {
-        use serde_json::json;
-
-        let path_issues: Vec<_> = result
-            .paths
-            .iter()
-            .map(|issue| {
-                json!({
-                    "type": "path",
-                    "hrid": issue.hrid,
-                    "current_path": issue.current_path,
-                    "expected_path": issue.expected_path,
-                    "fixable": true
-                })
-            })
-            .collect();
-
-        let link_issues: Vec<_> = result
-            .links
-            .iter()
-            .map(|issue| match issue {
-                LinkIssue::CircularDependency { cycle } => json!({
-                    "type": "circular_dependency",
-                    "cycle": cycle,
-                    "fixable": false
-                }),
-                LinkIssue::BrokenReference { child, parent_uuid } => json!({
-                    "type": "broken_reference",
-                    "child": child,
-                    "parent_uuid": parent_uuid,
-                    "fixable": false
-                }),
-                LinkIssue::StaleHrid { child } => json!({
-                    "type": "stale_hrid",
-                    "child": child,
-                    "fixable": true
-                }),
-            })
-            .collect();
-
-        let suspect_issues: Vec<_> = result
-            .suspect
-            .iter()
-            .map(|issue| {
-                json!({
-                    "type": "suspect",
-                    "child": issue.child,
-                    "parent": issue.parent,
-                    "fixable": false
-                })
-            })
-            .collect();
-
-        let total_issues = result.count_total_issues();
-        let fixable_issues = result.count_fixable_issues();
-
-        let output = json!({
-            "status": if total_issues == 0 { "healthy" } else { "issues_found" },
-            "issues": {
-                "structure": [],
-                "paths": path_issues,
-                "links": link_issues,
-                "suspect": suspect_issues
-            },
-            "summary": {
-                "total_issues": total_issues,
-                "fixable_issues": fixable_issues,
-                "manual_issues": total_issues - fixable_issues
-            }
-        });
-
-        println!("{}", serde_json::to_string_pretty(&output)?);
-        Ok(())
-    }
-
-    fn output_summary(result: &ValidationResult) {
-        let total = result.count_total_issues();
-        println!("issues={total}");
-    }
-
-    fn categorize_link_issues(
-        links: &[LinkIssue],
-    ) -> (Vec<&LinkIssue>, Vec<&LinkIssue>, Vec<&LinkIssue>) {
-        let mut cycles = Vec::new();
-        let mut broken = Vec::new();
-        let mut stale = Vec::new();
-
-        for link in links {
-            match link {
-                LinkIssue::CircularDependency { .. } => cycles.push(link),
-                LinkIssue::BrokenReference { .. } => broken.push(link),
-                LinkIssue::StaleHrid { .. } => stale.push(link),
-            }
-        }
-
-        (cycles, broken, stale)
-    }
-
-    fn apply_fixes(
-        &self,
-        result: &ValidationResult,
-        mut directory: Directory,
-    ) -> anyhow::Result<()> {
-        if self.dry_run {
-            if !self.quiet {
-                println!("\nDry run: showing what would be fixed...\n");
-                Self::preview_fixes(result);
-            }
-            return Ok(());
-        }
-
-        // Confirm before fixing
-        if !self.yes && !self.quiet {
-            let fixable = result.count_fixable_issues();
-            println!("\nWill fix {fixable} issues:");
-            Self::preview_fixes(result);
-
-            super::prompt_to_proceed()?;
-        }
-
-        // Fix paths
-        if !result.paths.is_empty() {
-            let moved = directory.sync_paths()?;
-            if !self.quiet {
-                println!("✓ Moved {} files to canonical locations", moved.len());
-            }
-        }
-
-        // Fix stale HRIDs
-        let stale_count = result.count_stale_hrids();
-        if stale_count > 0 {
-            let updated = directory.update_hrids();
-            if !updated.is_empty() {
-                directory.flush()?;
-                if !self.quiet {
-                    println!("✓ Updated {} parent HRIDs", updated.len());
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn preview_fixes(result: &ValidationResult) {
-        if !result.paths.is_empty() {
-            println!("Paths ({} files):", result.paths.len());
-            for issue in &result.paths {
-                println!(
-                    "  • {} → {}",
-                    issue.current_path.display(),
-                    issue.expected_path.display()
-                );
-            }
-        }
-
-        let stale_count = result.count_stale_hrids();
-        if stale_count > 0 {
-            println!("\nLinks ({stale_count} stale HRIDs):");
-            for issue in &result.links {
-                if let LinkIssue::StaleHrid { child } = issue {
-                    println!("  • {child}");
-                }
-            }
-        }
     }
 }

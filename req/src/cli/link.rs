@@ -1,3 +1,5 @@
+//! The `req link` command: create a parent-child link between requirements.
+
 use std::path::PathBuf;
 
 use requiem_core::{Directory, Hrid};
