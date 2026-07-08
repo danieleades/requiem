@@ -3,9 +3,8 @@
 
 use requiem_core::Hrid;
 use rmcp::{
-    handler::server::router::tool::ToolRouter,
-    model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
-    tool_handler, ErrorData as McpError, ServerHandler,
+    model::{CallToolResult, ContentBlock},
+    ErrorData as McpError,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -17,18 +16,13 @@ use crate::state::ServerState;
 pub struct ReqMcpServer {
     /// Shared directory and configuration state.
     pub(crate) state: ServerState,
-    /// Generated router containing all exposed tools.
-    pub(crate) tool_router: ToolRouter<Self>,
 }
 
 impl ReqMcpServer {
     /// Create a new server with the provided state.
     #[must_use]
-    pub fn new(state: ServerState) -> Self {
-        Self {
-            state,
-            tool_router: Self::build_tool_router(),
-        }
+    pub const fn new(state: ServerState) -> Self {
+        Self { state }
     }
 
     pub(crate) fn format_hrid(hrid: &Hrid, digits: usize) -> String {
@@ -45,25 +39,21 @@ impl ReqMcpServer {
     }
 
     pub(crate) fn success(summary: impl Into<String>, data: Value) -> CallToolResult {
-        CallToolResult {
-            content: vec![Content::text(summary.into())],
-            structured_content: Some(data),
-            is_error: Some(false),
-            meta: None,
-        }
+        let mut result = CallToolResult::success(vec![ContentBlock::text(summary.into())]);
+        result.structured_content = Some(data);
+        result
     }
 
     pub(crate) fn stub(tool: &str, params: Option<Value>) -> CallToolResult {
-        CallToolResult {
-            content: vec![Content::text(format!("{tool} is not implemented yet"))],
-            structured_content: Some(json!({
-                "status": "not_implemented",
-                "tool": tool,
-                "params": params.unwrap_or(Value::Null),
-            })),
-            is_error: Some(true),
-            meta: None,
-        }
+        let message = format!("{tool} is not implemented yet");
+        let mut result = CallToolResult::success(vec![ContentBlock::text(message)]);
+        result.is_error = Some(true);
+        result.structured_content = Some(json!({
+            "status": "not_implemented",
+            "tool": tool,
+            "params": params.unwrap_or(Value::Null),
+        }));
+        result
     }
 
     pub(crate) fn serialize<T: Serialize>(value: T, context: &str) -> Result<Value, McpError> {
@@ -73,27 +63,5 @@ impl ReqMcpServer {
                 Some(json!({ "context": context, "reason": error.to_string() })),
             )
         })
-    }
-}
-
-#[tool_handler]
-impl ServerHandler for ReqMcpServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            instructions: Some(
-                "Requirements graph MCP server (requires REQ_ROOT pointing at your requirements \
-                 repo). Start with list_requirement_kinds, then list_requirements(kind) to get \
-                 HRIDs. Fetch details with get_requirement(hrid) and traverse with \
-                 get_children(hrid), get_parents(hrid), get_ancestors(hrid), or \
-                 get_descendants(hrid). Create new kinds/requirements with \
-                 create_requirement_kind and create_requirement. For link drift, call review to \
-                 list suspect child→parent links (fingerprint mismatches), then \
-                 review_requirement to accept if the child still satisfies the parent. \
-                 Search/update tools remain placeholders for now."
-                    .to_owned(),
-            ),
-            ..ServerInfo::default()
-        }
     }
 }
