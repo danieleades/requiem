@@ -22,11 +22,10 @@ use crate::{
 mod content;
 mod frontmatter;
 
-pub use frontmatter::{hrid_as_string, hrid_from_string, Parent};
-
 use content::parse_content;
 pub(crate) use content::trim_empty_lines;
 use frontmatter::FrontMatter;
+pub use frontmatter::{hrid_as_string, hrid_from_string, Parent};
 
 /// A requirement serialized in markdown format with YAML frontmatter.
 #[derive(Debug, Clone)]
