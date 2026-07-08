@@ -277,7 +277,7 @@ fingerprint: c4020419ead000e9b5f9cfd4ebf6192e
 1. Collect parent's content (markdown body) and tags
 2. Serialize with Borsh encoding
 3. Hash with xxHash3 128-bit
-4. Encode as hexadecimal string (64 characters)
+4. Encode as hexadecimal string (32 characters)
 ```
 
 ##### `hrid`
@@ -510,7 +510,7 @@ Requirement text here.
 - UUID format valid
 - Timestamp format valid
 - HRID format valid (in parent references)
-- Fingerprint format valid (64-char hex)
+- Fingerprint format valid (32-char hex)
 
 ### Referential Integrity
 

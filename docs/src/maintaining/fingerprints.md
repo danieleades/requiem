@@ -377,13 +377,14 @@ parents:
 
 **xxHash3 128-bit**:
 - Industry standard
-- Strong collision resistance
+- 128-bit output gives negligible accidental-collision risk for realistic
+  requirement repositories
 - Fast to compute
 
 **Benefits**:
 - Consistent fingerprints across systems
 - Detects even small changes
-- Impossible to forge (cryptographically secure)
+- Compact 32-character hexadecimal representation
 
 ## Practical Examples
 
