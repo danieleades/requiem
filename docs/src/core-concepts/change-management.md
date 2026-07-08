@@ -26,12 +26,12 @@ Effective change management aims to:
 
 ### Content Fingerprinting
 
-Every requirement has a **fingerprint** - a SHA256 hash of its content:
+Every requirement has a **fingerprint** - an xxHash3 128-bit hash of its content:
 
 ```yaml
 parents:
 - uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
-  fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
+  fingerprint: e533784ff58c16cbf08e436cb06f09e0
   hrid: USR-001
 ```
 
@@ -60,7 +60,7 @@ When a parent requirement is edited, its fingerprint becomes stale in child requ
 # But child still references old fingerprint:
 parents:
 - uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
-  fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda  # Old!
+  fingerprint: e533784ff58c16cbf08e436cb06f09e0  # Old!
   hrid: USR-001
 ```
 

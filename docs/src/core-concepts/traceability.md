@@ -78,7 +78,7 @@ uuid: ccdbddbe-d5d2-4656-b4fe-85e61c02cf63
 created: 2025-07-22T13:15:27.996136510Z
 parents:
 - uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
-  fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
+  fingerprint: e533784ff58c16cbf08e436cb06f09e0
   hrid: USR-001
 ---
 

@@ -6,8 +6,8 @@ use std::{
 
 use borsh::BorshSerialize;
 use chrono::{DateTime, Utc};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
+use xxhash_rust::xxh3::xxh3_128;
 
 pub use crate::storage::markdown::LoadError;
 use crate::{domain::Hrid, storage::markdown::MarkdownRequirement};
@@ -73,9 +73,10 @@ pub struct ContentRef<'a> {
 impl ContentRef<'_> {
     /// Calculate the fingerprint of this content.
     ///
-    /// The fingerprint is a SHA256 hash of the Borsh-serialized body and tags.
-    /// The title and HRID are excluded so that renaming requirements or
-    /// updating titles doesn't invalidate child requirement links.
+    /// The fingerprint is an xxHash3 128-bit hash of the Borsh-serialized body
+    /// and tags. The title and HRID are excluded so that renaming
+    /// requirements or updating titles doesn't invalidate child requirement
+    /// links.
     ///
     /// # Panics
     ///
@@ -97,11 +98,14 @@ impl ContentRef<'_> {
         // encode using [borsh](https://borsh.io/)
         let encoded = borsh::to_vec(&data).expect("this should never fail");
 
-        // generate a SHA256 hash
-        let hash = Sha256::digest(encoded);
+        // Generate an xxHash3 128-bit fingerprint. This is deterministic and
+        // intentionally non-cryptographic: fingerprints are used for change
+        // detection, not adversarial integrity checks.
+        let hash = xxh3_128(&encoded);
 
-        // Convert to hex string
-        format!("{hash:x}")
+        // Encode the full 128-bit value as a fixed-width (32-character)
+        // lowercase hex string.
+        format!("{hash:032x}")
     }
 }
 
@@ -304,6 +308,18 @@ mod tests {
             tags: ["tag1".to_string(), "tag2".to_string()].into(),
         };
         content.fingerprint();
+    }
+
+    #[test]
+    fn fingerprint_is_128_bit_hex() {
+        let content = Content {
+            title: "Title".to_string(),
+            body: "Some string".to_string(),
+            tags: ["tag1".to_string(), "tag2".to_string()].into(),
+        };
+        let fingerprint = content.fingerprint();
+        assert_eq!(fingerprint.len(), 32);
+        assert!(fingerprint.chars().all(|c| c.is_ascii_hexdigit()));
     }
 
     #[test]
