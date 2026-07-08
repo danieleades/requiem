@@ -1,3 +1,5 @@
+//! The `req create` command: create a new requirement.
+
 use std::path::PathBuf;
 
 use requiem_core::{Directory, Hrid};

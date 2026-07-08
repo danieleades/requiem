@@ -1,3 +1,5 @@
+//! Human-readable identifiers (HRIDs): parsing, validation, and display.
+
 use std::{fmt, num::NonZeroUsize, ops::Deref, str::FromStr};
 
 use non_empty_string::NonEmptyString;

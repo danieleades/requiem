@@ -1,3 +1,6 @@
+//! The [`Requirement`] domain model: content, metadata, parent links, and
+//! content fingerprinting.
+
 use std::{
     collections::{BTreeSet, HashMap},
     io,

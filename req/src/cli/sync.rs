@@ -1,3 +1,5 @@
+//! The `req sync` command: synchronize parent HRIDs and file paths.
+
 use std::path::PathBuf;
 
 use requiem_core::Directory;

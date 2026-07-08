@@ -1,3 +1,5 @@
+//! Lineage tools: query children, parents, ancestors, and descendants.
+
 use rmcp::{handler::server::wrapper::Parameters, model::CallToolResult, ErrorData as McpError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;

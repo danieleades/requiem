@@ -1,5 +1,7 @@
+//! Filesystem storage: the directory store, markdown serialization, and
+//! HRID/path mapping.
+
 pub mod directory;
-/// Markdown serialization for requirements.
 pub mod markdown;
 mod path_parser;
 

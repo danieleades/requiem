@@ -1,3 +1,6 @@
+//! Repository configuration loaded from `.req/config.toml`: HRID
+//! formatting, allowed kinds, and per-kind metadata.
+
 use std::{collections::HashMap, path::Path};
 
 use serde::{Deserialize, Serialize};

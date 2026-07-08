@@ -1,3 +1,6 @@
+//! Command-line interface: argument parsing, logging setup, and dispatch
+//! to one submodule per subcommand.
+
 use std::{
     io::{self, BufRead},
     path::PathBuf,

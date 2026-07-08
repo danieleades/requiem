@@ -1,3 +1,5 @@
+//! The `req kind add` subcommand: add a kind to the allowed list.
+
 use std::path::Path;
 
 use tracing::instrument;

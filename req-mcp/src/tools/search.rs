@@ -1,3 +1,5 @@
+//! Search and suspect-link review tools.
+
 use rmcp::{handler::server::wrapper::Parameters, model::CallToolResult, ErrorData as McpError};
 use serde::{Deserialize, Serialize};
 

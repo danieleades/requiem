@@ -1,3 +1,5 @@
+//! The `req init` command: initialize a new requirements repository.
+
 use std::{fs, path::Path};
 
 use tracing::instrument;

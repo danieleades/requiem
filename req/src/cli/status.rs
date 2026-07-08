@@ -1,3 +1,5 @@
+//! The `req status` command: requirement counts and suspect-link totals.
+
 use std::{collections::BTreeMap, path::PathBuf, process};
 
 use clap::Parser;

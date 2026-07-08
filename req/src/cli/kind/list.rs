@@ -1,3 +1,5 @@
+//! The `req kind list` subcommand: list configured kinds.
+
 use crate::cli::terminal::Colorize;
 
 pub fn run(config_path: &std::path::Path) -> anyhow::Result<()> {

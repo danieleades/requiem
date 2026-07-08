@@ -1,3 +1,5 @@
+//! The `req diagnose` command: diagnose path-related issues.
+
 use std::path::Path;
 
 use requiem_core::Directory;

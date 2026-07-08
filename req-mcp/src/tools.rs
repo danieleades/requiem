@@ -1,3 +1,6 @@
+//! MCP tool definitions and the tool router, grouped into submodules by
+//! concern (discovery, editing, lineage, search).
+
 mod discovery;
 mod editing;
 mod lineage;

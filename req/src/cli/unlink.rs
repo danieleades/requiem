@@ -1,3 +1,5 @@
+//! The `req unlink` command: remove a link between requirements.
+
 use std::path::PathBuf;
 
 use requiem_core::{Directory, Hrid};
