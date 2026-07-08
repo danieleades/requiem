@@ -44,18 +44,6 @@ impl ReqMcpServer {
         result
     }
 
-    pub(crate) fn stub(tool: &str, params: Option<Value>) -> CallToolResult {
-        let message = format!("{tool} is not implemented yet");
-        let mut result = CallToolResult::success(vec![ContentBlock::text(message)]);
-        result.is_error = Some(true);
-        result.structured_content = Some(json!({
-            "status": "not_implemented",
-            "tool": tool,
-            "params": params.unwrap_or(Value::Null),
-        }));
-        result
-    }
-
     pub(crate) fn serialize<T: Serialize>(value: T, context: &str) -> Result<Value, McpError> {
         serde_json::to_value(value).map_err(|error| {
             McpError::internal_error(

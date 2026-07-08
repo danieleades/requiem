@@ -5,16 +5,6 @@ use crate::server::ReqMcpServer;
 
 #[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct SearchRequirementsParams {
-    /// Text or regex-like query for requirement content.
-    pub query: String,
-    /// Optional kind filter.
-    #[serde(default)]
-    pub kind: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
-#[serde(rename_all = "camelCase")]
 pub struct ReviewParams {
     /// Optional kind filter for review queries.
     #[serde(default)]
@@ -42,20 +32,6 @@ pub struct ReviewResponse {
     pub kind: Option<String>,
     /// Suspect links needing review.
     pub suspect_links: Vec<SuspectLinkView>,
-}
-
-#[allow(clippy::unused_async)]
-pub(super) async fn search_requirements(
-    _server: &ReqMcpServer,
-    params: Parameters<SearchRequirementsParams>,
-) -> Result<CallToolResult, McpError> {
-    Ok(ReqMcpServer::stub(
-        "search_requirements",
-        Some(ReqMcpServer::serialize(
-            &params.0,
-            "search_requirements params",
-        )?),
-    ))
 }
 
 #[allow(clippy::unused_async)]
