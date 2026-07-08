@@ -108,8 +108,8 @@ impl Directory {
     /// Returns an error if unrecognised files are found when
     /// `allow_unrecognised` is false in the configuration.
     pub fn new(root: PathBuf) -> Result<Self, DirectoryLoadError> {
-        let config = load_config(&root);
-        let md_paths = collect_markdown_paths(&root);
+        let config = load_config(&root)?;
+        let md_paths = collect_markdown_paths(&root)?;
 
         let (requirements, unrecognised_paths): (Vec<_>, Vec<_>) = md_paths
             .par_iter()
@@ -192,6 +192,17 @@ pub enum DirectoryLoadError {
         /// The list of allowed kinds
         allowed_kinds: Vec<String>,
     },
+
+    /// The `.req/config.toml` file exists but could not be read or parsed.
+    InvalidConfig {
+        /// The path of the config file.
+        path: PathBuf,
+        /// A description of the failure.
+        message: String,
+    },
+
+    /// The requirements directory could not be traversed.
+    Walk(#[from] walkdir::Error),
 }
 
 impl fmt::Display for DirectoryLoadError {
@@ -229,16 +240,29 @@ impl fmt::Display for DirectoryLoadError {
                 }
                 Ok(())
             }
+            Self::InvalidConfig { path, message } => {
+                write!(f, "Failed to load config {}: {}", path.display(), message)
+            }
+            Self::Walk(error) => {
+                write!(f, "Failed to traverse requirements directory: {error}")
+            }
         }
     }
 }
 
-fn load_config(root: &Path) -> Config {
+/// Load `.req/config.toml` from the root, if present.
+///
+/// A missing config file is the normal un-initialised case and yields the
+/// default configuration. A config file that exists but cannot be read or
+/// parsed is an error: silently falling back to defaults would flip settings
+/// such as `subfolders_are_namespaces` and reinterpret the whole store.
+fn load_config(root: &Path) -> Result<Config, DirectoryLoadError> {
     let path = root.join(".req/config.toml");
-    Config::load(&path).unwrap_or_else(|e| {
-        tracing::debug!("Failed to load config: {e}");
-        Config::default()
-    })
+    if path.exists() {
+        Config::load(&path).map_err(|message| DirectoryLoadError::InvalidConfig { path, message })
+    } else {
+        Ok(Config::default())
+    }
 }
 
 /// Load a template for the given HRID from the `.req/templates/` directory.
@@ -282,17 +306,27 @@ fn load_template(root: &Path, hrid: &Hrid) -> String {
     String::new()
 }
 
-fn collect_markdown_paths(root: &PathBuf) -> Vec<PathBuf> {
-    WalkDir::new(root)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            // Skip the .req directory (used for templates and other metadata)
-            !entry.path().components().any(|c| c.as_os_str() == ".req")
-        })
-        .filter(|entry| entry.path().extension() == Some(OsStr::new("md")))
-        .map(walkdir::DirEntry::into_path)
-        .collect()
+fn collect_markdown_paths(root: &PathBuf) -> Result<Vec<PathBuf>, DirectoryLoadError> {
+    // A root that doesn't exist yet is an empty store, not an error.
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut paths = Vec::new();
+    for entry in WalkDir::new(root) {
+        // Traversal errors (unreadable directories, dangling links) must
+        // surface: silently skipping them would make requirements vanish.
+        let entry = entry?;
+
+        // Skip the .req directory (used for templates and other metadata)
+        if entry.path().components().any(|c| c.as_os_str() == ".req") {
+            continue;
+        }
+        if entry.path().extension() == Some(OsStr::new("md")) {
+            paths.push(entry.into_path());
+        }
+    }
+    Ok(paths)
 }
 
 fn try_load_requirement(
@@ -1299,7 +1333,7 @@ mod tests {
             .unwrap();
         reloaded.flush().unwrap();
 
-        let config = load_config(&dir.root);
+        let config = load_config(&dir.root).unwrap();
         let updated =
             Requirement::load(&dir.root, child.hrid(), &config).expect("should load child");
 
@@ -1691,6 +1725,51 @@ created: 2025-01-01T00:00:00Z
 
         // Verify both can be flushed without error
         assert!(dir.flush().is_ok());
+    }
+
+    #[test]
+    fn new_fails_on_malformed_config() {
+        let tmp = TempDir::new().unwrap();
+        let req_dir = tmp.path().join(".req");
+        std::fs::create_dir_all(&req_dir).unwrap();
+        std::fs::write(req_dir.join("config.toml"), "not valid toml [[[").unwrap();
+
+        let result = Directory::new(tmp.path().to_path_buf());
+        assert!(matches!(
+            result,
+            Err(DirectoryLoadError::InvalidConfig { .. })
+        ));
+    }
+
+    #[test]
+    fn new_defaults_when_config_missing() {
+        let (_tmp, dir) = setup_temp_directory();
+        assert_eq!(dir.config, Config::default());
+    }
+
+    #[test]
+    fn new_on_nonexistent_root_is_empty_store() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path().join("does-not-exist");
+        let dir = Directory::new(root).unwrap();
+        assert_eq!(dir.requirements().count(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn new_reports_unreadable_subdirectory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = TempDir::new().unwrap();
+        let sub = tmp.path().join("locked");
+        std::fs::create_dir(&sub).unwrap();
+        let original_perms = std::fs::metadata(&sub).unwrap().permissions();
+        std::fs::set_permissions(&sub, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = Directory::new(tmp.path().to_path_buf());
+
+        std::fs::set_permissions(&sub, original_perms).unwrap();
+        assert!(matches!(result, Err(DirectoryLoadError::Walk(_))));
     }
 
     #[test]
