@@ -31,7 +31,7 @@ uuid: 81e63bac-4035-47b5-b273-ac13e47a2ff6
 created: 2025-07-22T13:14:40.510075462Z
 parents:
 - uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
-  fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
+  fingerprint: e533784ff58c16cbf08e436cb06f09e0
   hrid: USR-001
 ---
 
@@ -113,10 +113,10 @@ The stable, unique identifier of the parent. This is the canonical reference tha
 ### Fingerprint (Required)
 
 ```yaml
-fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
+fingerprint: e533784ff58c16cbf08e436cb06f09e0
 ```
 
-A SHA256 hash of the parent's content at the time of linking. This enables change detection:
+An xxHash3 128-bit hash of the parent's content at the time of linking. This enables change detection:
 
 - Parent content changes → fingerprint changes
 - Child still has old fingerprint → signals that parent has changed
@@ -285,16 +285,16 @@ Currently, there's no `req unlink` command. To remove a parent link, manually ed
 # Before
 parents:
 - uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
-  fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
+  fingerprint: e533784ff58c16cbf08e436cb06f09e0
   hrid: USR-001
 - uuid: 7a8f9e2b-1c3d-4e5f-6a7b-8c9d0e1f2a3b
-  fingerprint: a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+  fingerprint: a1b2c3d4e5f678901234567890123456
   hrid: USR-002
 
 # After (removed USR-002)
 parents:
 - uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
-  fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
+  fingerprint: e533784ff58c16cbf08e436cb06f09e0
   hrid: USR-001
 ```
 

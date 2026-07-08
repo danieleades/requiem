@@ -9,7 +9,7 @@ Requirements reference their parents using HRIDs for human readability:
 ```yaml
 parents:
 - uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
-  fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
+  fingerprint: e533784ff58c16cbf08e436cb06f09e0
   hrid: USR-001  # Human-readable reference
 ```
 

@@ -19,7 +19,7 @@ uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a
 created: 2025-07-22T12:19:56.950194157Z
 parents:
 - uuid: 3fc6800c-5acc-457e-baf9-a29b42b663fd
-  fingerprint: c4020419ead000e9b5f9cfd4ebf6192e73f905c27e6897548d8f6e12fd7f1356
+  fingerprint: c4020419ead000e9b5f9cfd4ebf6192e
   hrid: USR-001
 ---
 # SYS-001 Email Validation
@@ -96,10 +96,10 @@ created: 2025-07-22T12:19:56.950194157Z
 ```yaml
 parents:
 - uuid: 3fc6800c-5acc-457e-baf9-a29b42b663fd
-  fingerprint: c4020419ead000e9b5f9cfd4ebf6192e73f905c27e6897548d8f6e12fd7f1356
+  fingerprint: c4020419ead000e9b5f9cfd4ebf6192e
   hrid: USR-001
 - uuid: 7a8f9e2b-1c3d-4e5f-6a7b-8c9d0e1f2a3b
-  fingerprint: a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+  fingerprint: a1b2c3d4e5f678901234567890123456
   hrid: USR-003
 ```
 
@@ -107,7 +107,7 @@ parents:
 
 **Value**: List of parent objects, each containing:
 - `uuid` - Parent's stable identifier
-- `fingerprint` - SHA256 hash of parent's content
+- `fingerprint` - xxHash3 128-bit hash of parent's content
 - `hrid` - Parent's human-readable ID (for convenience)
 
 **Why it matters**: Establishes traceability. Multiple parents are supported.

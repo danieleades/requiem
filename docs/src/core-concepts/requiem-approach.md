@@ -82,7 +82,7 @@ Parent relationships use UUIDs but store HRIDs for convenience:
 ```yaml
 parents:
 - uuid: 4bfeb7d5-d168-44a7-b0f1-e292c1c89b9a  # For machine processing
-  fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
+  fingerprint: e533784ff58c16cbf08e436cb06f09e0
   hrid: USR-001  # For human readers
 ```
 
@@ -93,12 +93,12 @@ The `req clean` command corrects HRIDs if requirements are renumbered, maintaini
 Every requirement's content is hashed to create a fingerprint:
 
 ```yaml
-fingerprint: e533784ff58c16cbf08e436cb06f09e0076880fd707baaf55aa0f45dc4a6ccda
+fingerprint: e533784ff58c16cbf08e436cb06f09e0
 ```
 
 ### How It Works
 
-The fingerprint is a SHA256 hash of:
+The fingerprint is an xxHash3 128-bit hash of:
 - The requirement text (markdown body)
 - Any tags
 

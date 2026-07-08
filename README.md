@@ -49,7 +49,7 @@ tags:
 - auth
 parents:
 - uuid: parent-uuid-here
-  fingerprint: sha256-hash-of-parent-content
+  fingerprint: xxh3-128-hash-of-parent-content
   hrid: USR-001
 ---
 # SYS-001 Authentication Service
@@ -62,7 +62,7 @@ The system shall provide an authentication service...
 Key features:
 - **HRID in title**: First token of the first heading (e.g., `# USR-001 Title`)
 - **UUID**: Immutable identifier for internal linking
-- **Fingerprinting**: SHA256 hashes detect when parent requirements change
+- **Fingerprinting**: xxHash3 128-bit hashes detect when parent requirements change
 - **Multiple parents**: Requirements can trace to multiple parent requirements
 
 ## Documentation
