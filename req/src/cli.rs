@@ -28,7 +28,7 @@ use show::Show;
 use validate::Validate;
 
 /// Parse an HRID from a CLI argument, normalizing the KIND segment to
-/// uppercase for user convenience. For example: `auth-sys-001` → `auth-SYS-001`
+/// uppercase for user convenience: `auth-sys-001` → `auth-SYS-001`.
 fn parse_hrid(s: &str) -> Result<Hrid, String> {
     Hrid::parse_lenient(s).map_err(|e| e.to_string())
 }

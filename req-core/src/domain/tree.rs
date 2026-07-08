@@ -1091,8 +1091,7 @@ impl Tree {
             return false;
         }
         a.is_empty()
-            || (0..b.len())
-                .any(|offset| (0..a.len()).all(|i| a[i] == b[(offset + i) % b.len()]))
+            || (0..b.len()).any(|offset| (0..a.len()).all(|i| a[i] == b[(offset + i) % b.len()]))
     }
 
     /// Check if adding a link from child to parent would create a cycle.
