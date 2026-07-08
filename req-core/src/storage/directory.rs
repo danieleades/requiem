@@ -578,7 +578,7 @@ impl Directory {
 
         // BFS to find all descendants that would be orphaned
         while let Some(current_uuid) = queue.pop_front() {
-            let Some(current_view) = self.tree.find_by_uuid(current_uuid) else {
+            let Some(current_view) = self.tree.requirement(current_uuid) else {
                 continue;
             };
 
@@ -589,7 +589,7 @@ impl Directory {
                 }
 
                 // Count how many parents this child has that we're NOT deleting
-                let Some(child_view) = self.tree.find_by_uuid(child_uuid) else {
+                let Some(child_view) = self.tree.requirement(child_uuid) else {
                     continue;
                 };
 
@@ -987,7 +987,7 @@ impl Directory {
     /// Find a requirement by its UUID.
     #[must_use]
     pub fn find_by_uuid(&self, uuid: uuid::Uuid) -> Option<RequirementView<'_>> {
-        self.tree.find_by_uuid(uuid)
+        self.tree.requirement(uuid)
     }
 
     /// Accept a specific suspect link by updating its fingerprint.

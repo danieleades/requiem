@@ -255,14 +255,18 @@ impl From<Versions> for super::Config {
                 allow_invalid: _, // Ignored for backward compatibility
                 subfolders_are_namespaces,
             } => Self {
+                // Normalize kinds to uppercase on load: HRID kinds are always
+                // uppercase and is_kind_allowed compares exactly, so a
+                // lowercase entry in config.toml would silently reject every
+                // requirement of that kind.
                 allowed_kinds: allowed_kinds
                     .iter()
-                    .map(AllowedKindEntry::kind)
-                    .map(ToString::to_string)
+                    .map(|entry| entry.kind().to_uppercase())
                     .collect(),
                 kind_metadata: allowed_kinds
                     .into_iter()
                     .filter_map(AllowedKindEntry::into_metadata)
+                    .map(|(kind, meta)| (kind.to_uppercase(), meta))
                     .collect(),
                 digits,
                 allow_unrecognised,
@@ -377,6 +381,29 @@ mod tests {
 
         let error = Config::load(file.path()).unwrap_err();
         assert!(error.starts_with("Failed to parse config file:"));
+    }
+
+    #[test]
+    fn load_normalizes_kind_case() {
+        let config: Config = toml::from_str(
+            r#"_version = "1"
+allowed_kinds = ["usr", { kind = "sys", description = "System" }]
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.allowed_kinds(),
+            &["USR".to_string(), "SYS".to_string()]
+        );
+        assert!(config.is_kind_allowed("USR"));
+        assert_eq!(
+            config
+                .kind_metadata()
+                .get("SYS")
+                .and_then(|meta| meta.description.as_deref()),
+            Some("System")
+        );
     }
 
     #[test]
