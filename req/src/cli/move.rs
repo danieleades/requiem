@@ -51,8 +51,6 @@ impl Command {
 
         // Show confirmation if --yes not specified
         if !self.yes {
-            use std::io::{self, BufRead};
-
             println!(
                 "Moving {} from {} to {}",
                 self.hrid.display(digits),
@@ -78,14 +76,7 @@ impl Command {
                 }
             }
 
-            eprint!("\nProceed? (y/N) ");
-            let stdin = io::stdin();
-            let mut line = String::new();
-            stdin.lock().read_line(&mut line)?;
-            if !line.trim().eq_ignore_ascii_case("y") {
-                println!("Cancelled");
-                std::process::exit(130);
-            }
+            super::prompt_to_proceed()?;
         }
 
         // Perform move

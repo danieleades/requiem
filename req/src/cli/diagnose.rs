@@ -26,30 +26,19 @@ impl Command {
                 let digits = directory.config().digits();
                 let mut issues: Vec<String> = Vec::new();
 
-                for req in directory.requirements() {
-                    // Get the actual path where this requirement was loaded from
-                    let Some(actual_path) = directory.path_for(req.hrid) else {
-                        continue; // Skip if path not found (shouldn't happen)
-                    };
-
-                    // Get the expected canonical path based on config
-                    let expected_path = directory.canonical_path_for(req.hrid);
-
-                    if actual_path != expected_path {
-                        let hrid = req.hrid;
-                        let expected_display = expected_path
-                            .strip_prefix(root)
-                            .unwrap_or(&expected_path)
-                            .display();
-                        let actual_display = actual_path
-                            .strip_prefix(root)
-                            .unwrap_or(actual_path)
-                            .display();
-                        issues.push(format!(
-                            "{}: Expected '{expected_display}', found '{actual_display}'",
-                            hrid.display(digits)
-                        ));
-                    }
+                for (hrid, actual_path, expected_path) in directory.check_path_drift() {
+                    let expected_display = expected_path
+                        .strip_prefix(root)
+                        .unwrap_or(&expected_path)
+                        .display();
+                    let actual_display = actual_path
+                        .strip_prefix(root)
+                        .unwrap_or(&actual_path)
+                        .display();
+                    issues.push(format!(
+                        "{}: Expected '{expected_display}', found '{actual_display}'",
+                        hrid.display(digits)
+                    ));
                 }
 
                 if issues.is_empty() {

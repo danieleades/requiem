@@ -1,4 +1,4 @@
-use std::{io::BufRead, path::PathBuf};
+use std::path::PathBuf;
 
 use requiem_core::{Directory, Hrid};
 use tracing::instrument;
@@ -54,14 +54,7 @@ impl Command {
                 }
             }
 
-            eprint!("\nProceed? (y/N) ");
-            let stdin = std::io::stdin();
-            let mut line = String::new();
-            stdin.lock().read_line(&mut line)?;
-            if !line.trim().eq_ignore_ascii_case("y") {
-                println!("Cancelled");
-                std::process::exit(130);
-            }
+            super::prompt_to_proceed()?;
         }
 
         // Perform rename

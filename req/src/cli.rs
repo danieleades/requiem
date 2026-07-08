@@ -166,8 +166,10 @@ impl Command {
     }
 }
 
-fn prompt_to_proceed() -> io::Result<()> {
-    eprint!("\nProceed? (y/N) ");
+/// Ask a yes/no question on stderr; anything but "y" cancels by exiting with
+/// status 130.
+fn confirm(question: &str) -> io::Result<()> {
+    eprint!("\n{question} (y/N) ");
     let stdin = std::io::stdin();
     let mut line = String::new();
     stdin.lock().read_line(&mut line)?;
@@ -176,6 +178,10 @@ fn prompt_to_proceed() -> io::Result<()> {
         std::process::exit(130);
     }
     Ok(())
+}
+
+fn prompt_to_proceed() -> io::Result<()> {
+    confirm("Proceed?")
 }
 
 #[cfg(test)]

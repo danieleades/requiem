@@ -43,8 +43,7 @@ impl Show {
 
         // Find the requirement
         let Some(req) = directory.find_by_hrid(&self.hrid) else {
-            eprintln!("Requirement {} not found", self.hrid.display(digits));
-            std::process::exit(1);
+            anyhow::bail!("Requirement {} not found", self.hrid.display(digits));
         };
 
         // Handle --edit flag
@@ -119,8 +118,7 @@ impl Show {
         if !req.children.is_empty() {
             println!("\n{}", "Children".dim());
             for child_uuid in &req.children {
-                // Find child by UUID
-                if let Some(child) = directory.requirements().find(|r| r.uuid == child_uuid) {
+                if let Some(child) = directory.find_by_uuid(*child_uuid) {
                     println!("  • {} ({})", child.hrid.display(digits), child_uuid);
                 }
             }
@@ -157,13 +155,10 @@ impl Show {
             .children
             .iter()
             .map(|uuid| {
-                let hrid = directory
-                    .requirements()
-                    .find(|r| r.uuid == uuid)
-                    .map_or_else(
-                        || "unknown".to_string(),
-                        |r| r.hrid.display(digits).to_string(),
-                    );
+                let hrid = directory.find_by_uuid(*uuid).map_or_else(
+                    || "unknown".to_string(),
+                    |r| r.hrid.display(digits).to_string(),
+                );
                 json!({
                     "uuid": uuid.to_string(),
                     "hrid": hrid
@@ -230,7 +225,7 @@ impl Show {
         if !req.children.is_empty() {
             println!("\n## Children\n");
             for child_uuid in &req.children {
-                if let Some(child) = directory.requirements().find(|r| r.uuid == child_uuid) {
+                if let Some(child) = directory.find_by_uuid(*child_uuid) {
                     let hrid_display = child.hrid.display(directory.config().digits());
                     println!("- [{hrid_display}]({hrid_display}.md)");
                 }
