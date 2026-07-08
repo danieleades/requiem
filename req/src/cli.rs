@@ -1,4 +1,7 @@
-use std::{io::BufRead, path::PathBuf};
+use std::{
+    io::{self, BufRead},
+    path::PathBuf,
+};
 
 mod config;
 mod create;
@@ -18,41 +21,16 @@ mod terminal;
 mod unlink;
 mod validate;
 
-use borsh::io;
 use clap::ArgAction;
 use list::List;
 use requiem_core::Hrid;
 use show::Show;
 use validate::Validate;
 
-/// Parse an HRID from a string, normalizing only the KIND segment to uppercase.
-///
-/// This is a CLI boundary function that accepts lowercase namespaces
-/// but normalizes the kind (category) to uppercase for user convenience.
-/// For example: `auth-sys-001` → `auth-SYS-001`
+/// Parse an HRID from a CLI argument, normalizing the KIND segment to
+/// uppercase for user convenience: `auth-sys-001` → `auth-SYS-001`.
 fn parse_hrid(s: &str) -> Result<Hrid, String> {
-    // Split on '-' to normalize only the KIND segment (second-to-last position)
-    let parts: Vec<&str> = s.split('-').collect();
-    if parts.len() < 2 {
-        return Err("Invalid HRID format".to_string());
-    }
-
-    // Uppercase the kind segment (second-to-last position)
-    let kind_idx = parts.len() - 2;
-    let normalized = parts
-        .iter()
-        .enumerate()
-        .map(|(i, part)| {
-            if i == kind_idx {
-                part.to_uppercase()
-            } else {
-                (*part).to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("-");
-
-    normalized.parse().map_err(|e| format!("{e}"))
+    Hrid::parse_lenient(s).map_err(|e| e.to_string())
 }
 
 #[derive(Debug, clap::Parser)]
@@ -188,8 +166,10 @@ impl Command {
     }
 }
 
-fn prompt_to_proceed() -> io::Result<()> {
-    eprint!("\nProceed? (y/N) ");
+/// Ask a yes/no question on stderr; anything but "y" cancels by exiting with
+/// status 130.
+fn confirm(question: &str) -> io::Result<()> {
+    eprint!("\n{question} (y/N) ");
     let stdin = std::io::stdin();
     let mut line = String::new();
     stdin.lock().read_line(&mut line)?;
@@ -200,79 +180,19 @@ fn prompt_to_proceed() -> io::Result<()> {
     Ok(())
 }
 
+fn prompt_to_proceed() -> io::Result<()> {
+    confirm("Proceed?")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn parse_hrid_uppercase_kind() {
-        let result = parse_hrid("SYSTEM-AUTH-REQ-001").unwrap();
-        assert_eq!(result.display(3).to_string(), "SYSTEM-AUTH-REQ-001");
-    }
-
-    #[test]
-    fn parse_hrid_lowercase_kind_normalization() {
+    fn parse_hrid_normalizes_kind_and_reports_errors_as_strings() {
         let result = parse_hrid("auth-sys-001").unwrap();
         assert_eq!(result.display(3).to_string(), "auth-SYS-001");
-    }
 
-    #[test]
-    fn parse_hrid_mixed_case_kind_normalization() {
-        let result = parse_hrid("auth-SyS-001").unwrap();
-        assert_eq!(result.display(3).to_string(), "auth-SYS-001");
-    }
-
-    #[test]
-    fn parse_hrid_lowercase_namespace_preserved() {
-        let result = parse_hrid("auth-api-SYS-001").unwrap();
-        assert_eq!(result.display(3).to_string(), "auth-api-SYS-001");
-    }
-
-    #[test]
-    fn parse_hrid_mixed_case_namespace_preserved() {
-        let result = parse_hrid("Auth-Api-SYS-001").unwrap();
-        assert_eq!(result.display(3).to_string(), "Auth-Api-SYS-001");
-    }
-
-    #[test]
-    fn parse_hrid_no_namespace() {
-        let result = parse_hrid("req-001").unwrap();
-        assert_eq!(result.display(3).to_string(), "REQ-001");
-    }
-
-    #[test]
-    fn parse_hrid_lowercase_no_namespace() {
-        let result = parse_hrid("req-001").unwrap();
-        assert_eq!(result.display(3).to_string(), "REQ-001");
-    }
-
-    #[test]
-    fn parse_hrid_too_few_segments() {
-        let result = parse_hrid("invalid");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn parse_hrid_invalid_id() {
-        let result = parse_hrid("auth-SYS-invalid");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn parse_hrid_zero_id() {
-        let result = parse_hrid("auth-SYS-000");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn parse_hrid_long_namespace() {
-        let result = parse_hrid("a-b-c-d-SYS-001").unwrap();
-        assert_eq!(result.display(3).to_string(), "a-b-c-d-SYS-001");
-    }
-
-    #[test]
-    fn parse_hrid_large_id() {
-        let result = parse_hrid("auth-SYS-99999").unwrap();
-        assert_eq!(result.display(5).to_string(), "auth-SYS-99999");
+        assert!(parse_hrid("invalid").is_err());
     }
 }

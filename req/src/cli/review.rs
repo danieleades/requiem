@@ -1,4 +1,4 @@
-use std::{io::BufRead, path::PathBuf};
+use std::path::PathBuf;
 
 use requiem_core::{Directory, Hrid};
 use tracing::instrument;
@@ -200,7 +200,8 @@ impl Command {
 
         if parent_counts.len() > 1 {
             let mut parent_list: Vec<_> = parent_counts.iter().collect();
-            parent_list.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+            // Sort by HRID as a tiebreaker so equal counts print stably.
+            parent_list.sort_by_key(|(hrid, count)| (std::cmp::Reverse(*count), (*hrid).clone()));
 
             println!("Most affected parents:");
             for (hrid, count) in parent_list.iter().take(3) {
@@ -440,12 +441,13 @@ impl Command {
         directory: &Directory,
         digits: usize,
     ) {
-        use std::collections::HashMap;
+        use std::collections::BTreeMap;
 
         match self.group_by {
             Some(GroupBy::Parent) => {
-                let mut by_parent: HashMap<String, Vec<&requiem_core::SuspectLink>> =
-                    HashMap::new();
+                // BTreeMap keeps group output stable across runs.
+                let mut by_parent: BTreeMap<String, Vec<&requiem_core::SuspectLink>> =
+                    BTreeMap::new();
                 for link in suspect_links {
                     by_parent
                         .entry(link.parent_hrid.display(digits).to_string())
@@ -488,7 +490,8 @@ impl Command {
                 }
             }
             Some(GroupBy::Child) => {
-                let mut by_child: HashMap<String, Vec<&requiem_core::SuspectLink>> = HashMap::new();
+                let mut by_child: BTreeMap<String, Vec<&requiem_core::SuspectLink>> =
+                    BTreeMap::new();
                 for link in suspect_links {
                     by_child
                         .entry(link.child_hrid.display(digits).to_string())
@@ -572,8 +575,6 @@ impl Command {
 
             // Show preview and confirm
             if !self.yes {
-                use std::io::{self, BufRead};
-
                 println!("Will accept {count} suspect links across {file_count} files:");
                 for link in &suspect_links {
                     println!(
@@ -583,14 +584,7 @@ impl Command {
                     );
                 }
 
-                eprint!("\nProceed? (y/N) ");
-                let stdin = io::stdin();
-                let mut line = String::new();
-                stdin.lock().read_line(&mut line)?;
-                if !line.trim().eq_ignore_ascii_case("y") {
-                    println!("Cancelled");
-                    std::process::exit(130);
-                }
+                super::prompt_to_proceed()?;
             }
 
             // Accept all
@@ -625,14 +619,7 @@ impl Command {
                     println!("Stored:    {}", link.stored_fingerprint);
                     println!("Current:   {}", link.current_fingerprint);
 
-                    eprint!("\nAccept this link? (y/N) ");
-                    let stdin = std::io::stdin();
-                    let mut input = String::new();
-                    stdin.lock().read_line(&mut input)?;
-                    if !input.trim().eq_ignore_ascii_case("y") {
-                        println!("Cancelled");
-                        std::process::exit(130);
-                    }
+                    super::confirm("Accept this link?")?;
                 }
             }
 

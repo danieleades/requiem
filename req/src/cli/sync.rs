@@ -174,8 +174,6 @@ impl Command {
 
         // Confirm before moving files
         if !self.yes {
-            use std::io::{self, BufRead};
-
             println!(
                 "Will move {} files to canonical locations:",
                 misplaced.len()
@@ -189,14 +187,7 @@ impl Command {
                 );
             }
 
-            eprint!("\nProceed? (y/N) ");
-            let stdin = io::stdin();
-            let mut line = String::new();
-            stdin.lock().read_line(&mut line)?;
-            if !line.trim().eq_ignore_ascii_case("y") {
-                println!("Cancelled");
-                std::process::exit(130);
-            }
+            super::prompt_to_proceed()?;
         }
 
         let moved = directory.sync_paths()?;
@@ -312,8 +303,6 @@ impl Command {
         hrid_drift: &[requiem_core::Hrid],
         path_drift: &[(requiem_core::Hrid, std::path::PathBuf, std::path::PathBuf)],
     ) -> anyhow::Result<()> {
-        use std::io::{self, BufRead};
-
         println!("Will synchronize:");
         if !hrid_drift.is_empty() {
             println!("  • Update {} parent HRIDs", hrid_drift.len());
@@ -322,14 +311,7 @@ impl Command {
             println!("  • Move {} files", path_drift.len());
         }
 
-        eprint!("\nProceed? (y/N) ");
-        let stdin = io::stdin();
-        let mut line = String::new();
-        stdin.lock().read_line(&mut line)?;
-        if !line.trim().eq_ignore_ascii_case("y") {
-            println!("Cancelled");
-            std::process::exit(130);
-        }
+        super::prompt_to_proceed()?;
         Ok(())
     }
 }

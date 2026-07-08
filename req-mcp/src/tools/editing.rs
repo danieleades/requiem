@@ -51,25 +51,6 @@ pub struct CreateRequirementParams {
 
 #[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct UpdateRequirementParams {
-    /// HRID of the requirement to update.
-    pub hrid: String,
-    /// Updated title (optional).
-    #[serde(default)]
-    pub title: Option<String>,
-    /// Updated body (optional).
-    #[serde(default)]
-    pub body: Option<String>,
-    /// Replace parent HRIDs (optional).
-    #[serde(default)]
-    pub parents: Option<Vec<String>>,
-    /// Replace tags (optional).
-    #[serde(default)]
-    pub tags: Option<Vec<String>>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
-#[serde(rename_all = "camelCase")]
 pub struct ReviewRequirementParams {
     /// Child HRID whose link is being reviewed.
     pub child: String,
@@ -328,20 +309,6 @@ pub(super) async fn create_requirement(
     Ok(ReqMcpServer::success(
         summary,
         ReqMcpServer::serialize(response, "create_requirement response")?,
-    ))
-}
-
-#[allow(clippy::unused_async)]
-pub(super) async fn update_requirement(
-    _server: &ReqMcpServer,
-    params: Parameters<UpdateRequirementParams>,
-) -> Result<CallToolResult, McpError> {
-    Ok(ReqMcpServer::stub(
-        "update_requirement",
-        Some(ReqMcpServer::serialize(
-            &params.0,
-            "update_requirement params",
-        )?),
     ))
 }
 

@@ -14,17 +14,17 @@ The server listens on stdin/stdout for JSON-RPC messages (MCP protocol).
 
 ## Tools
 
-### Implemented
 - **`list_requirement_kinds`**: List all requirement kinds
 - **`list_requirements`**: List requirements by kind with optional substring filtering
 - **`get_requirement`**: Fetch a requirement by HRID with title, body, parents, and children
 - **`get_children`**: Get direct child requirements
+- **`get_parents`** / **`get_ancestors`** / **`get_descendants`**: Traverse the requirement graph
+- **`review`**: List suspect parent-child links with fingerprint drift
 - **`create_requirement_kind`**: Create a new requirement kind
 - **`create_requirement`**: Create a new requirement with optional parent links
 - **`review_requirement`**: Mark a suspect parent-child link as reviewed
 
-### Not Yet Implemented
-- `search_requirements`, `review`, `get_parents`, `get_ancestors`, `get_descendants`, `update_requirement`
+Planned but not yet available: text search and in-place requirement updates.
 
 ## Local Setup
 

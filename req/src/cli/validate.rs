@@ -182,22 +182,15 @@ impl Validate {
 
     fn check_paths(directory: &Directory) -> Vec<PathIssue> {
         let digits = directory.config().digits();
-        let mut issues = Vec::new();
-
-        for req in directory.requirements() {
-            if let Some(actual_path) = directory.path_for(req.hrid) {
-                let canonical_path = directory.canonical_path_for(req.hrid);
-                if actual_path != canonical_path {
-                    issues.push(PathIssue {
-                        hrid: req.hrid.display(digits).to_string(),
-                        current_path: actual_path.to_path_buf(),
-                        expected_path: canonical_path,
-                    });
-                }
-            }
-        }
-
-        issues
+        directory
+            .check_path_drift()
+            .into_iter()
+            .map(|(hrid, current_path, expected_path)| PathIssue {
+                hrid: hrid.display(digits).to_string(),
+                current_path,
+                expected_path,
+            })
+            .collect()
     }
 
     fn check_links(directory: &Directory) -> Vec<LinkIssue> {
@@ -452,20 +445,11 @@ impl Validate {
 
         // Confirm before fixing
         if !self.yes && !self.quiet {
-            use std::io::{self, BufRead};
-
             let fixable = result.count_fixable_issues();
             println!("\nWill fix {fixable} issues:");
             Self::preview_fixes(result);
 
-            eprint!("\nProceed? (y/N) ");
-            let stdin = io::stdin();
-            let mut line = String::new();
-            stdin.lock().read_line(&mut line)?;
-            if !line.trim().eq_ignore_ascii_case("y") {
-                println!("Cancelled");
-                std::process::exit(130);
-            }
+            super::prompt_to_proceed()?;
         }
 
         // Fix paths

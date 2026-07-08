@@ -107,8 +107,8 @@ impl Directory {
     /// Returns an error if unrecognised files are found when
     /// `allow_unrecognised` is false in the configuration.
     pub fn new(root: PathBuf) -> Result<Self, DirectoryLoadError> {
-        let config = load_config(&root);
-        let md_paths = collect_markdown_paths(&root);
+        let config = load_config(&root)?;
+        let md_paths = collect_markdown_paths(&root)?;
 
         let (requirements, unrecognised_paths): (Vec<_>, Vec<_>) = md_paths
             .par_iter()
@@ -191,6 +191,17 @@ pub enum DirectoryLoadError {
         /// The list of allowed kinds
         allowed_kinds: Vec<String>,
     },
+
+    /// The `.req/config.toml` file exists but could not be read or parsed.
+    InvalidConfig {
+        /// The path of the config file.
+        path: PathBuf,
+        /// A description of the failure.
+        message: String,
+    },
+
+    /// The requirements directory could not be traversed.
+    Walk(#[from] walkdir::Error),
 }
 
 impl fmt::Display for DirectoryLoadError {
@@ -228,16 +239,29 @@ impl fmt::Display for DirectoryLoadError {
                 }
                 Ok(())
             }
+            Self::InvalidConfig { path, message } => {
+                write!(f, "Failed to load config {}: {}", path.display(), message)
+            }
+            Self::Walk(error) => {
+                write!(f, "Failed to traverse requirements directory: {error}")
+            }
         }
     }
 }
 
-fn load_config(root: &Path) -> Config {
+/// Load `.req/config.toml` from the root, if present.
+///
+/// A missing config file is the normal un-initialised case and yields the
+/// default configuration. A config file that exists but cannot be read or
+/// parsed is an error: silently falling back to defaults would flip settings
+/// such as `subfolders_are_namespaces` and reinterpret the whole store.
+fn load_config(root: &Path) -> Result<Config, DirectoryLoadError> {
     let path = root.join(".req/config.toml");
-    Config::load(&path).unwrap_or_else(|e| {
-        tracing::debug!("Failed to load config: {e}");
-        Config::default()
-    })
+    if path.exists() {
+        Config::load(&path).map_err(|message| DirectoryLoadError::InvalidConfig { path, message })
+    } else {
+        Ok(Config::default())
+    }
 }
 
 /// Load a template for the given HRID from the `.req/templates/` directory.
@@ -281,17 +305,27 @@ fn load_template(root: &Path, hrid: &Hrid) -> String {
     String::new()
 }
 
-fn collect_markdown_paths(root: &PathBuf) -> Vec<PathBuf> {
-    WalkDir::new(root)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            // Skip the .req directory (used for templates and other metadata)
-            !entry.path().components().any(|c| c.as_os_str() == ".req")
-        })
-        .filter(|entry| entry.path().extension() == Some(OsStr::new("md")))
-        .map(walkdir::DirEntry::into_path)
-        .collect()
+fn collect_markdown_paths(root: &PathBuf) -> Result<Vec<PathBuf>, DirectoryLoadError> {
+    // A root that doesn't exist yet is an empty store, not an error.
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut paths = Vec::new();
+    for entry in WalkDir::new(root) {
+        // Traversal errors (unreadable directories, dangling links) must
+        // surface: silently skipping them would make requirements vanish.
+        let entry = entry?;
+
+        // Skip the .req directory (used for templates and other metadata)
+        if entry.path().components().any(|c| c.as_os_str() == ".req") {
+            continue;
+        }
+        if entry.path().extension() == Some(OsStr::new("md")) {
+            paths.push(entry.into_path());
+        }
+    }
+    Ok(paths)
 }
 
 fn try_load_requirement(
@@ -543,7 +577,7 @@ impl Directory {
 
         // BFS to find all descendants that would be orphaned
         while let Some(current_uuid) = queue.pop_front() {
-            let Some(current_view) = self.tree.find_by_uuid(current_uuid) else {
+            let Some(current_view) = self.tree.requirement(current_uuid) else {
                 continue;
             };
 
@@ -554,7 +588,7 @@ impl Directory {
                 }
 
                 // Count how many parents this child has that we're NOT deleting
-                let Some(child_view) = self.tree.find_by_uuid(child_uuid) else {
+                let Some(child_view) = self.tree.requirement(child_uuid) else {
                     continue;
                 };
 
@@ -609,15 +643,14 @@ impl Directory {
         // Perform rename in tree (this updates all parent references)
         let (uuid, children_uuids) = self.tree.rename_requirement(old_hrid, new_hrid)?;
 
-        // Update file path mapping
+        // Update file path mapping. The new path is registered even when no
+        // old path was recorded (e.g. a requirement added and renamed before
+        // ever being flushed) so the old file is always reconciled on flush.
         if let Some(old_path) = self.paths.remove(&uuid) {
-            // Mark old file for deletion
             self.deletions.insert(old_path);
-
-            // Calculate new path
-            let new_path = self.canonical_path_for(new_hrid);
-            self.paths.insert(uuid, new_path);
         }
+        let new_path = self.canonical_path_for(new_hrid);
+        self.paths.insert(uuid, new_path);
 
         // Mark the renamed requirement as dirty
         self.dirty.insert(uuid);
@@ -815,6 +848,8 @@ impl Directory {
         let requirement = Requirement::new(hrid, title, body);
 
         tree.insert(requirement.clone())?;
+        let canonical = self.canonical_path_for(requirement.hrid());
+        self.paths.insert(requirement.uuid(), canonical);
         self.mark_dirty(requirement.uuid());
 
         tracing::info!(
@@ -951,7 +986,7 @@ impl Directory {
     /// Find a requirement by its UUID.
     #[must_use]
     pub fn find_by_uuid(&self, uuid: uuid::Uuid) -> Option<RequirementView<'_>> {
-        self.tree.find_by_uuid(uuid)
+        self.tree.requirement(uuid)
     }
 
     /// Accept a specific suspect link by updating its fingerprint.
@@ -1062,59 +1097,77 @@ impl Directory {
     /// Returns an error containing the paths that failed to flush alongside the
     /// underlying IO error.
     pub fn flush(&mut self) -> Result<Vec<Hrid>, FlushError> {
-        use crate::storage::path_parser::construct_path_from_hrid;
-
-        let dirty: Vec<_> = self.dirty.iter().copied().collect();
+        let digits = self.config.digits();
+        let mut failures: Vec<(PathBuf, io::Error)> = Vec::new();
         let mut flushed = Vec::new();
-        let mut failures = Vec::new();
 
+        // Phase 1: resolve write targets. Computed fallback paths are recorded
+        // in `self.paths` so a later rename can find (and queue for deletion)
+        // the file this flush is about to create.
+        let dirty: Vec<_> = self.dirty.iter().copied().collect();
+        let mut writes: Vec<(Uuid, Requirement, PathBuf)> = Vec::new();
         for uuid in dirty {
             let Some(requirement) = self.tree.get_requirement(uuid) else {
-                // Requirement may have been removed; drop from dirty set.
+                // Requirement was removed since being marked dirty.
                 self.dirty.remove(&uuid);
                 continue;
             };
+            let canonical = self.canonical_path_for(requirement.hrid());
+            let path = self.paths.entry(uuid).or_insert(canonical).clone();
+            writes.push((uuid, requirement, path));
+        }
+        // Deterministic write order (and hence deterministic flushed output).
+        writes.sort_by(|a, b| a.2.cmp(&b.2));
 
-            let hrid = requirement.hrid().clone();
-
-            // Use the stored path if available, otherwise calculate a canonical path
-            let path = self.paths.get(&uuid).map_or_else(
-                || {
-                    construct_path_from_hrid(
-                        &self.root,
-                        &hrid,
-                        self.config.subfolders_are_namespaces,
-                        self.config.digits(),
-                    )
-                },
-                PathBuf::clone,
-            );
-
-            match requirement.save_to_path(&path, self.config.digits()) {
+        // Phase 2: perform all writes (each atomic). A failure must not abort
+        // the flush: skipping the reconciliation phase after a rename would
+        // leave two files with the same UUID and wedge the next load.
+        for (uuid, requirement, path) in &writes {
+            match requirement.save_to_path(path, digits) {
                 Ok(()) => {
-                    self.dirty.remove(&uuid);
-                    flushed.push(hrid);
+                    self.dirty.remove(uuid);
+                    flushed.push(requirement.hrid().clone());
                 }
                 Err(err) => {
-                    failures.push((path, err));
+                    failures.push((path.clone(), err));
                 }
             }
+        }
+
+        // Phase 3: reconcile and process deletions. A queued deletion is
+        // dropped (not executed) when its path is now the live location of
+        // some requirement (e.g. another requirement was renamed onto the
+        // deleted HRID, or a move landed back on the same path).
+        let live_paths: HashSet<&PathBuf> = self.paths.values().collect();
+        if failures.is_empty() {
+            let mut deferred: HashSet<PathBuf> = HashSet::new();
+            for path in self.deletions.drain() {
+                if live_paths.contains(&path) {
+                    continue;
+                }
+                match std::fs::remove_file(&path) {
+                    Ok(()) => {}
+                    // Already gone: the deletion's goal is achieved.
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                    Err(e) => {
+                        failures.push((path.clone(), e));
+                        deferred.insert(path);
+                    }
+                }
+            }
+            self.deletions = deferred;
+        } else {
+            // Never remove files while the store is partially written: e.g.
+            // deleting an orphaned parent's file while a child's rewrite
+            // failed would strand on-disk references to a missing
+            // requirement. Stale deletions are dropped; the rest stay queued
+            // so a retried flush converges.
+            self.deletions.retain(|path| !live_paths.contains(path));
         }
 
         if let Some(failures) = NonEmpty::from_vec(failures) {
             return Err(FlushError { failures });
         }
-
-        // Process deletions
-        for path in &self.deletions {
-            if path.exists() {
-                if let Err(e) = std::fs::remove_file(path) {
-                    eprintln!("Warning: Failed to delete {}: {}", path.display(), e);
-                }
-            }
-        }
-        self.deletions.clear();
-
         Ok(flushed)
     }
 }
@@ -1158,7 +1211,7 @@ impl fmt::Display for FlushError {
             .failures
             .iter()
             .take(MAX_DISPLAY)
-            .map(|(p, _e)| p.display().to_string())
+            .map(|(p, e)| format!("{} ({e})", p.display()))
             .collect();
 
         let msg = displayed_paths.join(", ");
@@ -1280,7 +1333,7 @@ mod tests {
             .unwrap();
         reloaded.flush().unwrap();
 
-        let config = load_config(&dir.root);
+        let config = load_config(&dir.root).unwrap();
         let updated =
             Requirement::load(&dir.root, child.hrid(), &config).expect("should load child");
 
@@ -1672,5 +1725,186 @@ created: 2025-01-01T00:00:00Z
 
         // Verify both can be flushed without error
         assert!(dir.flush().is_ok());
+    }
+
+    #[test]
+    fn new_fails_on_malformed_config() {
+        let tmp = TempDir::new().unwrap();
+        let req_dir = tmp.path().join(".req");
+        std::fs::create_dir_all(&req_dir).unwrap();
+        std::fs::write(req_dir.join("config.toml"), "not valid toml [[[").unwrap();
+
+        let result = Directory::new(tmp.path().to_path_buf());
+        assert!(matches!(
+            result,
+            Err(DirectoryLoadError::InvalidConfig { .. })
+        ));
+    }
+
+    #[test]
+    fn new_defaults_when_config_missing() {
+        let (_tmp, dir) = setup_temp_directory();
+        assert_eq!(dir.config, Config::default());
+    }
+
+    #[test]
+    fn new_on_nonexistent_root_is_empty_store() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path().join("does-not-exist");
+        let dir = Directory::new(root).unwrap();
+        assert_eq!(dir.requirements().count(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn new_reports_unreadable_subdirectory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = TempDir::new().unwrap();
+        let sub = tmp.path().join("locked");
+        std::fs::create_dir(&sub).unwrap();
+        let original_perms = std::fs::metadata(&sub).unwrap().permissions();
+        std::fs::set_permissions(&sub, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = Directory::new(tmp.path().to_path_buf());
+
+        std::fs::set_permissions(&sub, original_perms).unwrap();
+        assert!(matches!(result, Err(DirectoryLoadError::Walk(_))));
+    }
+
+    #[test]
+    fn add_requirement_records_path() {
+        let (_tmp, mut dir) = setup_temp_directory();
+        let req = dir.add_requirement("REQ", String::new()).unwrap();
+
+        let expected = dir.canonical_path_for(req.hrid());
+        assert_eq!(dir.path_for(req.hrid()), Some(expected.as_path()));
+    }
+
+    #[test]
+    fn rename_after_flush_removes_old_file() {
+        let (_tmp, mut dir) = setup_temp_directory();
+        let req = dir.add_requirement("REQ", String::new()).unwrap();
+        dir.flush().unwrap();
+
+        let old_path = dir.root.join("REQ-001.md");
+        assert!(old_path.exists());
+
+        let new_hrid = Hrid::from_str("SYS-001").unwrap();
+        dir.rename_requirement(req.hrid(), &new_hrid).unwrap();
+        dir.flush().unwrap();
+
+        assert!(!old_path.exists(), "stale file must be deleted on flush");
+        assert!(dir.root.join("SYS-001.md").exists());
+
+        // The store must reload cleanly (no duplicate UUIDs on disk).
+        let reloaded = Directory::new(dir.root.clone()).unwrap();
+        assert!(reloaded.find_by_hrid(&new_hrid).is_some());
+    }
+
+    #[test]
+    fn rename_before_first_flush_leaves_single_file() {
+        let (_tmp, mut dir) = setup_temp_directory();
+        let req = dir.add_requirement("REQ", String::new()).unwrap();
+
+        // Rename before the original file was ever written.
+        let new_hrid = Hrid::from_str("SYS-001").unwrap();
+        dir.rename_requirement(req.hrid(), &new_hrid).unwrap();
+        dir.flush().unwrap();
+
+        assert!(!dir.root.join("REQ-001.md").exists());
+        assert!(dir.root.join("SYS-001.md").exists());
+        assert!(Directory::new(dir.root.clone()).is_ok());
+    }
+
+    #[test]
+    fn rename_onto_deleted_hrid_keeps_new_file() {
+        let (_tmp, mut dir) = setup_temp_directory();
+        let doomed = dir.add_requirement("REQ", String::new()).unwrap();
+        let survivor = dir.add_requirement("REQ", String::new()).unwrap();
+        dir.flush().unwrap();
+
+        // Delete REQ-001, then rename REQ-002 onto the freed HRID, so the
+        // deleted requirement's path is also the survivor's write target.
+        dir.delete_requirement(doomed.hrid()).unwrap();
+        dir.rename_requirement(survivor.hrid(), doomed.hrid())
+            .unwrap();
+        dir.flush().unwrap();
+
+        assert!(dir.root.join("REQ-001.md").exists());
+        assert!(!dir.root.join("REQ-002.md").exists());
+
+        let reloaded = Directory::new(dir.root.clone()).unwrap();
+        let view = reloaded.find_by_hrid(doomed.hrid()).unwrap();
+        assert_eq!(*view.uuid, survivor.uuid());
+    }
+
+    #[test]
+    fn move_to_same_path_does_not_delete_file() {
+        let (_tmp, mut dir) = setup_temp_directory();
+        let req = dir.add_requirement("REQ", String::new()).unwrap();
+        dir.flush().unwrap();
+
+        let path = dir.path_for(req.hrid()).unwrap().to_path_buf();
+        dir.move_requirement(req.hrid(), path.clone()).unwrap();
+        dir.flush().unwrap();
+
+        assert!(path.exists(), "moving onto itself must not delete the file");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_write_defers_deletion_and_retries() {
+        let (_tmp, mut dir) = setup_temp_directory();
+        let req = dir.add_requirement("REQ", String::new()).unwrap();
+        dir.flush().unwrap();
+
+        // Block the rename target with a directory so the write fails.
+        let target = dir.root.join("SYS-001.md");
+        std::fs::create_dir(&target).unwrap();
+
+        let new_hrid = Hrid::from_str("SYS-001").unwrap();
+        dir.rename_requirement(req.hrid(), &new_hrid).unwrap();
+        assert!(dir.flush().is_err());
+        assert!(
+            dir.root.join("REQ-001.md").exists(),
+            "the only good copy must not be deleted when its replacement failed to write"
+        );
+
+        // Unblock and retry: the flush heals itself.
+        std::fs::remove_dir(&target).unwrap();
+        dir.flush().unwrap();
+        assert!(!dir.root.join("REQ-001.md").exists());
+        assert!(target.exists());
+        assert!(Directory::new(dir.root.clone()).is_ok());
+    }
+
+    #[test]
+    fn orphan_delete_defers_file_removal_when_child_write_fails() {
+        let (_tmp, mut dir) = setup_temp_directory();
+        let parent = dir.add_requirement("SYS", String::new()).unwrap();
+        let child = dir.add_requirement("REQ", String::new()).unwrap();
+        dir.link_requirement(child.hrid(), parent.hrid()).unwrap();
+        dir.flush().unwrap();
+
+        // Make the child's rewrite fail by replacing its file with a
+        // directory.
+        let child_path = dir.root.join("REQ-001.md");
+        std::fs::remove_file(&child_path).unwrap();
+        std::fs::create_dir(&child_path).unwrap();
+
+        dir.delete_and_orphan(parent.hrid()).unwrap();
+        assert!(dir.flush().is_err());
+        assert!(
+            dir.root.join("SYS-001.md").exists(),
+            "the parent file must not be removed while an orphaned child could not be rewritten"
+        );
+
+        // Unblock and retry: the flush converges.
+        std::fs::remove_dir(&child_path).unwrap();
+        dir.flush().unwrap();
+        assert!(!dir.root.join("SYS-001.md").exists());
+        assert!(child_path.exists());
+        assert!(Directory::new(dir.root.clone()).is_ok());
     }
 }

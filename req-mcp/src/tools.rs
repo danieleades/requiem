@@ -75,22 +75,6 @@ impl ReqMcpServer {
     }
 
     #[tool(
-        description = "Search requirements by text or regex (not implemented yet)",
-        annotations(
-            title = "Search Requirements",
-            read_only_hint = true,
-            idempotent_hint = true,
-            open_world_hint = false
-        )
-    )]
-    async fn search_requirements(
-        &self,
-        params: Parameters<search::SearchRequirementsParams>,
-    ) -> Result<CallToolResult, McpError> {
-        search::search_requirements(self, params).await
-    }
-
-    #[tool(
         description = "List suspect parent-child links where stored fingerprints drifted; start \
                        here before marking reviewed",
         annotations(
@@ -190,23 +174,6 @@ impl ReqMcpServer {
     }
 
     #[tool(
-        description = "Update a requirement's title, body, parents, or tags (not implemented yet)",
-        annotations(
-            title = "Update Requirement",
-            read_only_hint = false,
-            destructive_hint = true,
-            idempotent_hint = false,
-            open_world_hint = false
-        )
-    )]
-    async fn update_requirement(
-        &self,
-        params: Parameters<editing::UpdateRequirementParams>,
-    ) -> Result<CallToolResult, McpError> {
-        editing::update_requirement(self, params).await
-    }
-
-    #[tool(
         description = "Mark a suspect link as reviewed by refreshing the stored parent \
                        fingerprint on the child",
         annotations(
@@ -243,8 +210,7 @@ impl ServerHandler for ReqMcpServer {
              get_parents(hrid), get_ancestors(hrid), or get_descendants(hrid). Create new \
              kinds/requirements with create_requirement_kind and create_requirement. For link \
              drift, call review to list suspect child→parent links (fingerprint mismatches), then \
-             review_requirement to accept if the child still satisfies the parent. Search/update \
-             tools remain placeholders for now."
+             review_requirement to accept if the child still satisfies the parent."
                 .to_owned(),
         );
         info

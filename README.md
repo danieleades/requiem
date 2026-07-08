@@ -17,7 +17,7 @@ Workspace layout:
 
 - `req-core`: domain and storage library (HRIDs, Directory, fingerprinting)
 - `req`: CLI binary (`req`)
-- `req-mcp`: Model Context Protocol server (read-only MVP; editing tools stubbed)
+- `req-mcp`: Model Context Protocol server (discovery, lineage, and editing tools)
 - `docs/`: mdBook docs and the project's own requirements (`docs/src/requirements/`)
 
 Naming note:

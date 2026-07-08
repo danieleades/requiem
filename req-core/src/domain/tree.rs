@@ -305,25 +305,10 @@ impl Tree {
     /// intermediate view.
     #[must_use]
     pub fn get_requirement(&self, uuid: Uuid) -> Option<Requirement> {
-        use std::collections::HashMap;
-
         let data = self.requirements.get(&uuid)?;
         let hrid = self.hrids.get(&uuid)?;
 
-        // Reconstruct parents from graph edges
-        let parents: HashMap<Uuid, Parent> = self
-            .graph
-            .edges(uuid)
-            .map(|(_, parent_uuid, edge_data)| {
-                (
-                    parent_uuid,
-                    Parent {
-                        hrid: edge_data.parent_hrid.clone(),
-                        fingerprint: edge_data.fingerprint.clone(),
-                    },
-                )
-            })
-            .collect();
+        let parents = self.parent_links(uuid).into_iter().collect();
 
         Some(Requirement {
             content: crate::domain::requirement::Content {
@@ -350,28 +335,8 @@ impl Tree {
         let data = self.requirements.get(&uuid)?;
         let hrid = self.hrids.get(&uuid)?;
 
-        // Reconstruct parent data from graph edges
-        // Since RequirementView owns the parent data, we can collect directly into Vec
-        let parents: Vec<(Uuid, Parent)> = self
-            .graph
-            .edges(uuid)
-            .map(|(_, parent_uuid, edge_data)| {
-                (
-                    parent_uuid,
-                    Parent {
-                        hrid: edge_data.parent_hrid.clone(),
-                        fingerprint: edge_data.fingerprint.clone(),
-                    },
-                )
-            })
-            .collect();
-
-        // Reconstruct children by finding incoming edges (edges point child→parent)
-        let children: Vec<Uuid> = self
-            .graph
-            .edges_directed(uuid, petgraph::Direction::Incoming)
-            .map(|(child_uuid, _, _)| child_uuid)
-            .collect();
+        let parents = self.parent_links(uuid);
+        let children = self.child_uuids(uuid);
 
         // Get a reference to the UUID from the requirements HashMap key
         // This is safe because we know it exists (we just got data from it)
@@ -398,8 +363,7 @@ impl Tree {
     ///
     /// # Panics
     ///
-    /// Panics if the provided kind is invalid (empty or contains non-alphabetic
-    /// characters).
+    /// Panics if the next requirement ID would overflow `usize`.
     #[must_use]
     pub fn next_index(&self, namespace: &[NamespaceSegment], kind: &KindString) -> NonZeroUsize {
         // Construct range bounds for this namespace+kind combination
@@ -430,26 +394,6 @@ impl Tree {
         self.requirements.iter().filter_map(move |(uuid, data)| {
             let hrid = self.hrids.get(uuid)?;
 
-            let parents: Vec<(Uuid, Parent)> = self
-                .graph
-                .edges(*uuid)
-                .map(|(_, parent_uuid, edge_data)| {
-                    (
-                        parent_uuid,
-                        Parent {
-                            hrid: edge_data.parent_hrid.clone(),
-                            fingerprint: edge_data.fingerprint.clone(),
-                        },
-                    )
-                })
-                .collect();
-
-            let children: Vec<Uuid> = self
-                .graph
-                .edges_directed(*uuid, petgraph::Direction::Incoming)
-                .map(|(child_uuid, _, _)| child_uuid)
-                .collect();
-
             Some(RequirementView {
                 uuid,
                 hrid,
@@ -457,10 +401,34 @@ impl Tree {
                 title: &data.title,
                 body: &data.body,
                 tags: &data.tags,
-                parents,
-                children,
+                parents: self.parent_links(*uuid),
+                children: self.child_uuids(*uuid),
             })
         })
+    }
+
+    /// Collect the parent links of a node from its outgoing graph edges.
+    fn parent_links(&self, uuid: Uuid) -> Vec<(Uuid, Parent)> {
+        self.graph
+            .edges(uuid)
+            .map(|(_, parent_uuid, edge_data)| {
+                (
+                    parent_uuid,
+                    Parent {
+                        hrid: edge_data.parent_hrid.clone(),
+                        fingerprint: edge_data.fingerprint.clone(),
+                    },
+                )
+            })
+            .collect()
+    }
+
+    /// Collect the children of a node from its incoming graph edges.
+    fn child_uuids(&self, uuid: Uuid) -> Vec<Uuid> {
+        self.graph
+            .edges_directed(uuid, petgraph::Direction::Incoming)
+            .map(|(child_uuid, _, _)| child_uuid)
+            .collect()
     }
 
     /// Finds a requirement by its human-readable identifier.
@@ -468,12 +436,6 @@ impl Tree {
     pub fn find_by_hrid(&self, hrid: &Hrid) -> Option<RequirementView<'_>> {
         let uuid = self.hrid_to_uuid.get(hrid)?;
         self.requirement(*uuid)
-    }
-
-    /// Finds a requirement by its UUID.
-    #[must_use]
-    pub fn find_by_uuid(&self, uuid: Uuid) -> Option<RequirementView<'_>> {
-        self.requirement(uuid)
     }
 
     /// Remove a requirement from the tree.
@@ -540,10 +502,7 @@ impl Tree {
         self.check_would_create_cycle(child_uuid, parent_uuid)
             .map_err(|e| LinkRequirementError::WouldCreateCycle(e.to_string()))?;
 
-        let already_linked = self
-            .parents(child_uuid)
-            .into_iter()
-            .any(|(uuid, _)| uuid == parent_uuid);
+        let already_linked = self.graph.contains_edge(child_uuid, parent_uuid);
 
         self.upsert_parent_link(child_uuid, parent_uuid, parent_fingerprint)
             .map_err(|error| match error {
@@ -761,10 +720,8 @@ impl Tree {
     ///
     /// Returns an iterator of child UUIDs that were updated.
     ///
-    /// # Panics
-    ///
-    /// Panics if a requirement references a parent UUID that doesn't exist in
-    /// the tree, or if a requirement is its own parent.
+    /// Edges whose parent is missing from the tree (e.g. failed to load) are
+    /// skipped with a warning.
     #[instrument(skip(self))]
     pub fn update_hrids(&mut self) -> impl Iterator<Item = Uuid> + '_ {
         use std::collections::HashSet;
@@ -880,9 +837,8 @@ impl Tree {
     /// A link is suspect when the fingerprint stored in the edge data
     /// does not match the current fingerprint of the parent requirement.
     ///
-    /// # Panics
-    ///
-    /// Panics if a child UUID in the graph doesn't have a corresponding HRID.
+    /// Graph nodes without a corresponding HRID (e.g. failed to load) are
+    /// skipped.
     #[must_use]
     pub fn suspect_links(&self) -> Vec<SuspectLink> {
         use crate::domain::requirement::ContentRef;
@@ -942,21 +898,28 @@ impl Tree {
         child_uuid: Uuid,
         parent_uuid: Uuid,
     ) -> Result<bool, AcceptLinkError> {
+        use crate::domain::requirement::ContentRef;
+
         // Check if child exists in graph
         if !self.graph.contains_node(child_uuid) {
             return Err(AcceptLinkError::ChildNotFound(child_uuid));
         }
 
-        // Check if parent exists and get its fingerprint
-        let parent = self
-            .requirement(parent_uuid)
+        // Compute the parent's current fingerprint directly from its stored
+        // data; building a full RequirementView here would clone every parent
+        // and child link just to hash the content.
+        let current_fingerprint = self
+            .requirements
+            .get(&parent_uuid)
+            .map(|data| {
+                ContentRef {
+                    title: &data.title,
+                    body: &data.body,
+                    tags: &data.tags,
+                }
+                .fingerprint()
+            })
             .ok_or(AcceptLinkError::ParentNotFound(parent_uuid))?;
-        let current_fingerprint = parent.fingerprint();
-
-        // Check if parent exists in graph
-        if !self.graph.contains_node(parent_uuid) {
-            return Err(AcceptLinkError::ParentNotFound(parent_uuid));
-        }
 
         // Find and update the edge
         if let Some(edge_data) = self.graph.edge_weight_mut(child_uuid, parent_uuid) {
@@ -1035,32 +998,50 @@ impl Tree {
         // Start DFS from each unvisited node to ensure we find all cycles
         for start_node in self.graph.nodes() {
             if !colors.contains_key(&start_node) {
-                self.dfs_detect_cycles(start_node, &mut colors, &mut Vec::new(), &mut cycles);
+                self.dfs_detect_cycles(start_node, &mut colors, &mut cycles);
             }
         }
 
         cycles
     }
 
-    /// Recursive helper for three-color DFS cycle detection.
+    /// Iterative helper for three-color DFS cycle detection.
     ///
-    /// Maintains the recursion path to extract full cycle information when back
-    /// edges (edges to Gray nodes) are encountered.
+    /// Each stack frame holds a node, its outgoing neighbours, and the index
+    /// of the next neighbour to visit, so deep parent chains cannot overflow
+    /// the call stack. The current DFS path is maintained to extract full
+    /// cycle information when back edges (edges to Gray nodes) are found.
     fn dfs_detect_cycles(
         &self,
-        node: Uuid,
+        start: Uuid,
         colors: &mut std::collections::HashMap<Uuid, DfsColorForDetection>,
-        path: &mut Vec<Uuid>,
         cycles: &mut Vec<Vec<Hrid>>,
     ) {
         use self::DfsColorForDetection::{Black, Gray};
 
-        // Mark node Gray (entering DFS)
-        colors.insert(node, Gray);
-        path.push(node);
+        let neighbours_of =
+            |node: Uuid| -> Vec<Uuid> { self.graph.edges(node).map(|(_, p, _)| p).collect() };
 
-        // Visit all outgoing edges (children in the parent relation)
-        for (_, parent_uuid, _) in self.graph.edges(node) {
+        let mut path: Vec<Uuid> = Vec::new();
+        let mut stack: Vec<(Uuid, Vec<Uuid>, usize)> = Vec::new();
+
+        colors.insert(start, Gray);
+        path.push(start);
+        stack.push((start, neighbours_of(start), 0));
+
+        while let Some(frame) = stack.last_mut() {
+            let node = frame.0;
+            let next = frame.1.get(frame.2).copied();
+            frame.2 += 1;
+
+            let Some(parent_uuid) = next else {
+                // All outgoing edges visited: mark Black and leave the node.
+                colors.insert(node, Black);
+                path.pop();
+                stack.pop();
+                continue;
+            };
+
             match colors.get(&parent_uuid) {
                 Some(Gray) => {
                     // Back edge found! This node is an ancestor in the current path.
@@ -1071,11 +1052,10 @@ impl Tree {
                             .chain(std::iter::once(&parent_uuid))
                             .filter_map(|&uuid| self.hrids.get(&uuid).cloned())
                             .collect();
-                        if !cycle_path.is_empty() {
-                            // Avoid duplicate cycles by checking if we've already found this one
-                            if !cycles.iter().any(|c| Self::cycles_equal(c, &cycle_path)) {
-                                cycles.push(cycle_path);
-                            }
+                        if !cycle_path.is_empty()
+                            && !cycles.iter().any(|c| Self::cycles_equal(c, &cycle_path))
+                        {
+                            cycles.push(cycle_path);
                         }
                     }
                 }
@@ -1083,37 +1063,35 @@ impl Tree {
                     // Already processed this subtree, skip (cross edge)
                 }
                 None => {
-                    // Unvisited node, recurse
-                    self.dfs_detect_cycles(parent_uuid, colors, path, cycles);
+                    // Unvisited node, descend
+                    colors.insert(parent_uuid, Gray);
+                    path.push(parent_uuid);
+                    stack.push((parent_uuid, neighbours_of(parent_uuid), 0));
                 }
             }
         }
-
-        // Mark node Black (leaving DFS, all descendants processed)
-        colors.insert(node, Black);
-        path.pop();
     }
 
     /// Check if two cycles are equivalent (same HRIDs, possibly rotated).
+    ///
+    /// Cycle paths are closed walks (`[A, B, C, A]`): the comparison drops the
+    /// closing element that repeats the start, then tests whether one sequence
+    /// is a rotation of the other.
     fn cycles_equal(a: &[Hrid], b: &[Hrid]) -> bool {
+        fn open(cycle: &[Hrid]) -> &[Hrid] {
+            match cycle {
+                [rest @ .., last] if rest.first() == Some(last) => rest,
+                _ => cycle,
+            }
+        }
+
+        let a = open(a);
+        let b = open(b);
         if a.len() != b.len() {
             return false;
         }
-        if a.is_empty() {
-            return true;
-        }
-        // Check if b is a rotation of a
-        let b_str = b
-            .iter()
-            .map(|h| h.display(3).to_string())
-            .collect::<Vec<_>>();
-        let doubled = format!("{}{}", b_str.join(","), b_str.join(","));
-        let a_str = a
-            .iter()
-            .map(|h| h.display(3).to_string())
-            .collect::<Vec<_>>()
-            .join(",");
-        doubled.contains(&a_str)
+        a.is_empty()
+            || (0..b.len()).any(|offset| (0..a.len()).all(|i| a[i] == b[(offset + i) % b.len()]))
     }
 
     /// Check if adding a link from child to parent would create a cycle.
@@ -1486,5 +1464,59 @@ mod tests {
             result.is_err(),
             "Should detect that D→A would create cycle (A→B→C→D→A)"
         );
+    }
+
+    #[test]
+    fn cycles_equal_detects_wrapped_rotations() {
+        fn cycle(ids: &[&str]) -> Vec<Hrid> {
+            ids.iter().map(|s| s.parse().unwrap()).collect()
+        }
+
+        // The same cycle recorded from different entry points: rotations that
+        // wrap around the start must compare equal.
+        let from_a = cycle(&["USR-001", "USR-002", "USR-003", "USR-001"]);
+        let from_b = cycle(&["USR-002", "USR-003", "USR-001", "USR-002"]);
+        let from_c = cycle(&["USR-003", "USR-001", "USR-002", "USR-003"]);
+        assert!(Tree::cycles_equal(&from_a, &from_b));
+        assert!(Tree::cycles_equal(&from_a, &from_c));
+
+        // Same length and membership but opposite direction: not equal.
+        let reversed = cycle(&["USR-001", "USR-003", "USR-002", "USR-001"]);
+        assert!(!Tree::cycles_equal(&from_a, &reversed));
+
+        // Self-loops.
+        assert!(Tree::cycles_equal(
+            &cycle(&["USR-001", "USR-001"]),
+            &cycle(&["USR-001", "USR-001"])
+        ));
+        assert!(!Tree::cycles_equal(
+            &cycle(&["USR-001", "USR-001"]),
+            &cycle(&["USR-002", "USR-002"])
+        ));
+    }
+
+    #[test]
+    fn detect_cycles_survives_deep_chains() {
+        // A linear parent chain deep enough to overflow the call stack if
+        // cycle detection were recursive.
+        const DEPTH: usize = 20_000;
+
+        let mut tree = Tree::default();
+        let mut uuids = Vec::with_capacity(DEPTH);
+        for i in 1..=DEPTH {
+            let req = Requirement::new(
+                format!("USR-{i}").parse().unwrap(),
+                String::new(),
+                String::new(),
+            );
+            uuids.push(req.uuid());
+            tree.insert(req).unwrap();
+        }
+        for pair in uuids.windows(2) {
+            tree.upsert_parent_link(pair[0], pair[1], "fp".to_string())
+                .unwrap();
+        }
+
+        assert!(tree.detect_cycles().is_empty());
     }
 }

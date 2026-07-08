@@ -14,6 +14,8 @@ use serde::Serialize;
 use tracing::instrument;
 use uuid::Uuid;
 
+use super::parse_hrid;
+
 const DEFAULT_LIMIT: usize = 200;
 
 /// Command arguments for `req list`.
@@ -294,12 +296,8 @@ impl List {
         };
 
         let total_rows = rows.len();
-        let truncated = total_rows > effective_limit.unwrap_or(usize::MAX);
-        let truncated_count = if truncated {
-            total_rows.saturating_sub(effective_limit.unwrap_or(0))
-        } else {
-            0
-        };
+        let truncated_count = truncation_count(total_rows, self.offset, effective_limit);
+        let truncated = truncated_count > 0;
 
         rows = apply_offset_limit(rows, self.offset, effective_limit);
 
@@ -343,9 +341,11 @@ impl List {
                 "none".to_string()
             };
 
-            let limit_str = self
-                .limit
-                .map_or_else(|| DEFAULT_LIMIT.to_string(), |l| l.to_string());
+            let limit_str = match self.limit {
+                None => DEFAULT_LIMIT.to_string(),
+                Some(0) => "unlimited".to_string(),
+                Some(limit) => limit.to_string(),
+            };
 
             println!(
                 "{}",
@@ -831,18 +831,6 @@ where
     results
 }
 
-#[allow(dead_code)]
-fn append_unique_rows(rows: &mut Vec<Row>, new_rows: Vec<Row>) {
-    let mut existing: HashSet<(usize, Direction)> =
-        rows.iter().map(|row| (row.index, row.direction)).collect();
-
-    for row in new_rows {
-        if existing.insert((row.index, row.direction)) {
-            rows.push(row);
-        }
-    }
-}
-
 fn apply_sort(
     mut rows: Vec<Row>,
     entries: &[Entry],
@@ -902,6 +890,13 @@ fn compare_rows(
     } else {
         primary
     }
+}
+
+/// Number of rows cut off by the limit, not counting rows skipped by
+/// `--offset`.
+fn truncation_count(total_rows: usize, offset: Option<usize>, limit: Option<usize>) -> usize {
+    let remaining = total_rows.saturating_sub(offset.unwrap_or(0));
+    limit.map_or(0, |limit| remaining.saturating_sub(limit))
 }
 
 fn apply_offset_limit(mut rows: Vec<Row>, offset: Option<usize>, limit: Option<usize>) -> Vec<Row> {
@@ -1125,10 +1120,10 @@ fn render_table(
         .enumerate()
         .map(|(idx, header)| {
             data.iter()
-                .map(|row| strip_ansi(&row[idx]).len())
+                .map(|row| display_width(&row[idx]))
                 .max()
                 .unwrap_or(0)
-                .max(header.len())
+                .max(display_width(header))
         })
         .collect::<Vec<_>>();
 
@@ -1147,12 +1142,20 @@ fn render_table(
     for row in data {
         for (idx, value) in row.iter().enumerate() {
             let width = widths[idx];
-            let stripped_len = strip_ansi(value).len();
-            let padding = width.saturating_sub(stripped_len);
+            let padding = width.saturating_sub(display_width(value));
             print!("{value}{:padding$}  ", "");
         }
         println!();
     }
+}
+
+/// Terminal display width of a value, ignoring ANSI escape sequences.
+///
+/// Byte length would over-count any non-ASCII text (such as the `↑`/`↓`
+/// relationship markers, which are three bytes but one column wide) and
+/// misalign every subsequent column.
+fn display_width(text: &str) -> usize {
+    unicode_width::UnicodeWidthStr::width(strip_ansi(text).as_str())
 }
 
 fn highlight_match(text: &str, search: &str) -> String {
@@ -1411,10 +1414,6 @@ impl ListColumn {
             Self::Created => entry.created.to_rfc3339(),
         }
     }
-}
-
-fn parse_hrid(value: &str) -> Result<Hrid, String> {
-    Hrid::try_from(value).map_err(|err| err.to_string())
 }
 
 impl fmt::Display for OutputFormat {
@@ -1709,15 +1708,24 @@ mod tests {
     }
 
     #[test]
-    fn append_unique_rows_avoids_duplicates() {
-        let mut rows = vec![row(0, Direction::None, 0)];
+    fn truncation_count_accounts_for_offset() {
+        // 10 rows, no offset, limit 4: 6 cut off.
+        assert_eq!(truncation_count(10, None, Some(4)), 6);
+        // 10 rows, skip 3, limit 4: rows 4-7 shown, 3 cut off.
+        assert_eq!(truncation_count(10, Some(3), Some(4)), 3);
+        // Offset past the end: nothing left to cut off.
+        assert_eq!(truncation_count(10, Some(20), Some(4)), 0);
+        // Unlimited: never truncated.
+        assert_eq!(truncation_count(10, Some(3), None), 0);
+    }
 
-        append_unique_rows(
-            &mut rows,
-            vec![row(0, Direction::None, 1), row(1, Direction::Down, 1)],
-        );
-
-        assert_eq!(rows.len(), 2);
+    #[test]
+    fn display_width_ignores_ansi_and_counts_columns() {
+        // ANSI escapes take no columns.
+        assert_eq!(display_width("\x1b[4mabc\x1b[24m"), 3);
+        // The relationship markers are multi-byte but single-column.
+        assert_eq!(display_width("\u{2191} SYS-001"), 9);
+        assert_eq!("\u{2191} SYS-001".len(), 11);
     }
 
     #[test]
@@ -1905,12 +1913,6 @@ mod tests {
         assert_eq!(csv_escape("simple"), "simple");
         assert_eq!(csv_escape("needs,comma"), "\"needs,comma\"");
         assert_eq!(csv_escape("quote\"here"), "\"quote\"\"here\"");
-    }
-
-    #[test]
-    fn parse_hrid_accepts_valid_values() {
-        let hrid = parse_hrid("SYS-001").unwrap();
-        assert_eq!(hrid.display(3).to_string(), "SYS-001");
     }
 
     #[test]

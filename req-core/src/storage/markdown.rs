@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeSet,
     fs::File,
-    io::{self, BufRead, BufReader, BufWriter, Write},
+    io::{self, BufRead, BufReader, Write},
     path::Path,
 };
 
@@ -28,7 +28,8 @@ pub struct MarkdownRequirement {
 
 impl MarkdownRequirement {
     fn write<W: Write>(&self, writer: &mut W, digits: usize) -> io::Result<()> {
-        let frontmatter = serde_yaml::to_string(&self.frontmatter).expect("this must never fail");
+        let frontmatter = serde_yaml::to_string(&self.frontmatter)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
         // Construct the heading with HRID and title
         let heading = format!("# {} {}", self.hrid.display(digits), self.title);
@@ -120,14 +121,36 @@ impl MarkdownRequirement {
     ///
     /// Returns an error if the file cannot be created or written to.
     pub fn save_to_path(&self, file_path: &Path, digits: usize) -> io::Result<()> {
-        // Create parent directories if needed
-        if let Some(parent) = file_path.parent() {
-            std::fs::create_dir_all(parent)?;
+        let dir = file_path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        std::fs::create_dir_all(dir)?;
+
+        // Write to a temporary file in the same directory, then rename it over
+        // the destination. The rename is atomic on both Unix and Windows, so a
+        // crash mid-write can never leave a truncated requirement behind. We
+        // deliberately skip fsync: the threat model is crash-truncation, not
+        // power loss, and these are plain-text files typically tracked in git.
+        let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
+        self.write(&mut tmp, digits)?;
+
+        // The temp file is created owner-only on Unix and persist replaces
+        // the destination inode, so carry over the destination's existing
+        // permissions (or the conventional 0o644 for new files) to avoid
+        // silently making shared-readable requirement files private.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let permissions = std::fs::metadata(file_path).map_or_else(
+                |_| std::fs::Permissions::from_mode(0o644),
+                |metadata| metadata.permissions(),
+            );
+            tmp.as_file().set_permissions(permissions)?;
         }
 
-        let file = File::create(file_path)?;
-        let mut writer = BufWriter::new(file);
-        self.write(&mut writer, digits)
+        tmp.persist(file_path).map_err(|e| e.error)?;
+        Ok(())
     }
 
     /// Reads a requirement using the given configuration.
@@ -672,6 +695,90 @@ created: not-a-date
         assert_eq!(loaded_requirement.title, title);
         assert_eq!(loaded_requirement.body, body);
         assert_eq!(loaded_requirement.frontmatter, frontmatter);
+    }
+
+    #[test]
+    fn save_to_path_overwrite_leaves_single_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("REQ-001.md");
+
+        let mut requirement = MarkdownRequirement {
+            frontmatter: create_test_frontmatter(),
+            hrid: req_hrid(),
+            title: "First".to_string(),
+            body: "first body".to_string(),
+        };
+        requirement.save_to_path(&path, 3).unwrap();
+
+        requirement.body = "second body".to_string();
+        requirement.save_to_path(&path, 3).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("second body"));
+
+        // The atomic write must not leave temporary files behind.
+        let entries: Vec<_> = std::fs::read_dir(temp_dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("REQ-001.md")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_to_path_preserves_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("REQ-001.md");
+        let requirement = MarkdownRequirement {
+            frontmatter: create_test_frontmatter(),
+            hrid: req_hrid(),
+            title: "Title".to_string(),
+            body: String::new(),
+        };
+
+        // New files get the conventional world-readable mode, not the
+        // temp file's owner-only mode.
+        requirement.save_to_path(&path, 3).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o644);
+
+        // Overwriting keeps the destination's existing mode.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o664)).unwrap();
+        requirement.save_to_path(&path, 3).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o664);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_save_preserves_existing_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("REQ-001.md");
+
+        let mut requirement = MarkdownRequirement {
+            frontmatter: create_test_frontmatter(),
+            hrid: req_hrid(),
+            title: "First".to_string(),
+            body: "original body".to_string(),
+        };
+        requirement.save_to_path(&path, 3).unwrap();
+
+        // Make the directory read-only so the temp file cannot be created.
+        let original_perms = std::fs::metadata(temp_dir.path()).unwrap().permissions();
+        std::fs::set_permissions(temp_dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+
+        requirement.body = "replacement body".to_string();
+        let result = requirement.save_to_path(&path, 3);
+
+        std::fs::set_permissions(temp_dir.path(), original_perms).unwrap();
+
+        assert!(result.is_err());
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("original body"));
     }
 
     #[test]

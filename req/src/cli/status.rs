@@ -41,15 +41,7 @@ impl Command {
         let suspect_count = directory.suspect_links().len();
 
         // Check for path issues (files not at canonical locations)
-        let mut path_issues = 0;
-        for req in directory.requirements() {
-            if let Some(actual_path) = directory.path_for(req.hrid) {
-                let canonical_path = directory.canonical_path_for(req.hrid);
-                if actual_path != canonical_path {
-                    path_issues += 1;
-                }
-            }
-        }
+        let path_issues = directory.check_path_drift().len();
 
         // Check if we have an empty repository
         if total == 0 {

@@ -80,9 +80,39 @@ impl Config {
     /// Returns an error if the configuration cannot be serialized to TOML or if
     /// the file cannot be written.
     pub fn save(&self, path: &Path) -> Result<(), String> {
+        use std::io::Write as _;
+
         let content =
             toml::to_string_pretty(self).map_err(|e| format!("Failed to serialize config: {e}"))?;
-        std::fs::write(path, content).map_err(|e| format!("Failed to write config file: {e}"))
+
+        // Write to a temporary file in the same directory, then rename it over
+        // the destination so a crash mid-write cannot truncate the config.
+        let dir = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let write_err = |e: &dyn std::fmt::Display| format!("Failed to write config file: {e}");
+        let mut tmp = tempfile::NamedTempFile::new_in(dir).map_err(|e| write_err(&e))?;
+        tmp.write_all(content.as_bytes())
+            .map_err(|e| write_err(&e))?;
+
+        // The temp file is created owner-only on Unix and persist replaces
+        // the destination inode; carry over the destination's existing
+        // permissions (or the conventional 0o644 for new files).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let permissions = std::fs::metadata(path).map_or_else(
+                |_| std::fs::Permissions::from_mode(0o644),
+                |metadata| metadata.permissions(),
+            );
+            tmp.as_file()
+                .set_permissions(permissions)
+                .map_err(|e| write_err(&e))?;
+        }
+
+        tmp.persist(path).map_err(|e| write_err(&e))?;
+        Ok(())
     }
 
     /// Returns the number of digits for padding HRID IDs.
@@ -241,14 +271,18 @@ impl From<Versions> for super::Config {
                 allow_invalid: _, // Ignored for backward compatibility
                 subfolders_are_namespaces,
             } => Self {
+                // Normalize kinds to uppercase on load: HRID kinds are always
+                // uppercase and is_kind_allowed compares exactly, so a
+                // lowercase entry in config.toml would silently reject every
+                // requirement of that kind.
                 allowed_kinds: allowed_kinds
                     .iter()
-                    .map(AllowedKindEntry::kind)
-                    .map(ToString::to_string)
+                    .map(|entry| entry.kind().to_uppercase())
                     .collect(),
                 kind_metadata: allowed_kinds
                     .into_iter()
                     .filter_map(AllowedKindEntry::into_metadata)
+                    .map(|(kind, meta)| (kind.to_uppercase(), meta))
                     .collect(),
                 digits,
                 allow_unrecognised,
@@ -363,6 +397,50 @@ mod tests {
 
         let error = Config::load(file.path()).unwrap_err();
         assert!(error.starts_with("Failed to parse config file:"));
+    }
+
+    #[test]
+    fn load_normalizes_kind_case() {
+        let config: Config = toml::from_str(
+            r#"_version = "1"
+allowed_kinds = ["usr", { kind = "sys", description = "System" }]
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.allowed_kinds(),
+            &["USR".to_string(), "SYS".to_string()]
+        );
+        assert!(config.is_kind_allowed("USR"));
+        assert_eq!(
+            config
+                .kind_metadata()
+                .get("SYS")
+                .and_then(|meta| meta.description.as_deref()),
+            Some("System")
+        );
+    }
+
+    #[test]
+    fn save_load_round_trip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+
+        let mut config = Config::default();
+        config.add_kind("USR");
+        config.subfolders_are_namespaces = true;
+        config.save(&path).unwrap();
+
+        let loaded = Config::load(&path).unwrap();
+        assert_eq!(loaded, config);
+
+        // The atomic write must not leave temporary files behind.
+        let entries: Vec<_> = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("config.toml")]);
     }
 
     #[test]

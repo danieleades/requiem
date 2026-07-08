@@ -30,7 +30,7 @@ impl ReqMcpServer {
     }
 
     pub(crate) fn parse_hrid(raw: &str) -> Result<Hrid, McpError> {
-        Hrid::try_from(raw).map_err(|error| {
+        Hrid::parse_lenient(raw).map_err(|error| {
             McpError::invalid_params(
                 "invalid HRID provided",
                 Some(json!({ "hrid": raw, "reason": error.to_string() })),
@@ -41,18 +41,6 @@ impl ReqMcpServer {
     pub(crate) fn success(summary: impl Into<String>, data: Value) -> CallToolResult {
         let mut result = CallToolResult::success(vec![ContentBlock::text(summary.into())]);
         result.structured_content = Some(data);
-        result
-    }
-
-    pub(crate) fn stub(tool: &str, params: Option<Value>) -> CallToolResult {
-        let message = format!("{tool} is not implemented yet");
-        let mut result = CallToolResult::success(vec![ContentBlock::text(message)]);
-        result.is_error = Some(true);
-        result.structured_content = Some(json!({
-            "status": "not_implemented",
-            "tool": tool,
-            "params": params.unwrap_or(Value::Null),
-        }));
         result
     }
 
