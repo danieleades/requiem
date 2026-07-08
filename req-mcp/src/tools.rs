@@ -194,7 +194,7 @@ impl ReqMcpServer {
 
 // The `#[tool_handler]` macro expands to `ServerHandler` methods that are async
 // (as required by the trait) but contain no `.await`; allow the resulting lint.
-#[allow(clippy::unused_async_trait_impl)]
+#[allow(clippy::unused_async)]
 #[tool_handler]
 impl ServerHandler for ReqMcpServer {
     fn get_info(&self) -> ServerInfo {
