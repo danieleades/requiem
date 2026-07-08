@@ -134,6 +134,21 @@ impl MarkdownRequirement {
         // power loss, and these are plain-text files typically tracked in git.
         let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
         self.write(&mut tmp, digits)?;
+
+        // The temp file is created owner-only on Unix and persist replaces
+        // the destination inode, so carry over the destination's existing
+        // permissions (or the conventional 0o644 for new files) to avoid
+        // silently making shared-readable requirement files private.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let permissions = std::fs::metadata(file_path).map_or_else(
+                |_| std::fs::Permissions::from_mode(0o644),
+                |metadata| metadata.permissions(),
+            );
+            tmp.as_file().set_permissions(permissions)?;
+        }
+
         tmp.persist(file_path).map_err(|e| e.error)?;
         Ok(())
     }
@@ -707,6 +722,33 @@ created: not-a-date
             .map(|e| e.unwrap().file_name())
             .collect();
         assert_eq!(entries, vec![std::ffi::OsString::from("REQ-001.md")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_to_path_preserves_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("REQ-001.md");
+        let requirement = MarkdownRequirement {
+            frontmatter: create_test_frontmatter(),
+            hrid: req_hrid(),
+            title: "Title".to_string(),
+            body: String::new(),
+        };
+
+        // New files get the conventional world-readable mode, not the
+        // temp file's owner-only mode.
+        requirement.save_to_path(&path, 3).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o644);
+
+        // Overwriting keeps the destination's existing mode.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o664)).unwrap();
+        requirement.save_to_path(&path, 3).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o664);
     }
 
     #[cfg(unix)]

@@ -36,9 +36,8 @@ pub struct Directory {
     /// Source paths for requirements that were loaded from disk.
     /// Used to save requirements back to their original location.
     paths: HashMap<Uuid, PathBuf>,
-    /// Paths to delete on flush, keyed by the UUID of the requirement whose
-    /// deletion, rename, or move queued them.
-    deletions: HashMap<PathBuf, Uuid>,
+    /// Paths to delete on flush.
+    deletions: HashSet<PathBuf>,
 }
 
 impl Directory {
@@ -165,7 +164,7 @@ impl Directory {
             config,
             dirty: HashSet::new(),
             paths,
-            deletions: HashMap::new(),
+            deletions: HashSet::new(),
         })
     }
 }
@@ -511,7 +510,7 @@ impl Directory {
 
         // Mark file for deletion
         if let Some(path) = self.paths.remove(&uuid) {
-            self.deletions.insert(path, uuid);
+            self.deletions.insert(path);
         }
 
         Ok(())
@@ -550,7 +549,7 @@ impl Directory {
 
         // Mark file for deletion
         if let Some(path) = self.paths.remove(&uuid) {
-            self.deletions.insert(path, uuid);
+            self.deletions.insert(path);
         }
 
         Ok(())
@@ -648,7 +647,7 @@ impl Directory {
         // old path was recorded (e.g. a requirement added and renamed before
         // ever being flushed) so the old file is always reconciled on flush.
         if let Some(old_path) = self.paths.remove(&uuid) {
-            self.deletions.insert(old_path, uuid);
+            self.deletions.insert(old_path);
         }
         let new_path = self.canonical_path_for(new_hrid);
         self.paths.insert(uuid, new_path);
@@ -728,7 +727,7 @@ impl Directory {
         // Update file path mapping
         if let Some(old_path) = self.paths.remove(&uuid) {
             // Mark old file for deletion
-            self.deletions.insert(old_path, uuid);
+            self.deletions.insert(old_path);
         }
 
         // Set new path
@@ -1121,9 +1120,8 @@ impl Directory {
         writes.sort_by(|a, b| a.2.cmp(&b.2));
 
         // Phase 2: perform all writes (each atomic). A failure must not abort
-        // the flush: skipping the deletion phase after a rename would leave
-        // two files with the same UUID and wedge the next load.
-        let mut failed_writes: HashSet<Uuid> = HashSet::new();
+        // the flush: skipping the reconciliation phase after a rename would
+        // leave two files with the same UUID and wedge the next load.
         for (uuid, requirement, path) in &writes {
             match requirement.save_to_path(path, digits) {
                 Ok(()) => {
@@ -1131,39 +1129,41 @@ impl Directory {
                     flushed.push(requirement.hrid().clone());
                 }
                 Err(err) => {
-                    failed_writes.insert(*uuid);
                     failures.push((path.clone(), err));
                 }
             }
         }
 
-        // Phase 3: reconcile and process deletions.
+        // Phase 3: reconcile and process deletions. A queued deletion is
+        // dropped (not executed) when its path is now the live location of
+        // some requirement (e.g. another requirement was renamed onto the
+        // deleted HRID, or a move landed back on the same path).
         let live_paths: HashSet<&PathBuf> = self.paths.values().collect();
-        let mut deferred: HashMap<PathBuf, Uuid> = HashMap::new();
-        for (path, owner) in self.deletions.drain() {
-            // The path was re-claimed as the live location of some requirement
-            // (e.g. another requirement was renamed onto the deleted HRID, or
-            // a move landed back on the same path): the deletion is stale.
-            if live_paths.contains(&path) {
-                continue;
-            }
-            // The write that replaces this file failed, so this file is the
-            // only good copy; retry the deletion on the next flush.
-            if failed_writes.contains(&owner) {
-                deferred.insert(path, owner);
-                continue;
-            }
-            match std::fs::remove_file(&path) {
-                Ok(()) => {}
-                // Already gone: the deletion's goal is achieved.
-                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-                Err(e) => {
-                    failures.push((path.clone(), e));
-                    deferred.insert(path, owner);
+        if failures.is_empty() {
+            let mut deferred: HashSet<PathBuf> = HashSet::new();
+            for path in self.deletions.drain() {
+                if live_paths.contains(&path) {
+                    continue;
+                }
+                match std::fs::remove_file(&path) {
+                    Ok(()) => {}
+                    // Already gone: the deletion's goal is achieved.
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                    Err(e) => {
+                        failures.push((path.clone(), e));
+                        deferred.insert(path);
+                    }
                 }
             }
+            self.deletions = deferred;
+        } else {
+            // Never remove files while the store is partially written: e.g.
+            // deleting an orphaned parent's file while a child's rewrite
+            // failed would strand on-disk references to a missing
+            // requirement. Stale deletions are dropped; the rest stay queued
+            // so a retried flush converges.
+            self.deletions.retain(|path| !live_paths.contains(path));
         }
-        self.deletions = deferred;
 
         if let Some(failures) = NonEmpty::from_vec(failures) {
             return Err(FlushError { failures });
@@ -1876,6 +1876,35 @@ created: 2025-01-01T00:00:00Z
         dir.flush().unwrap();
         assert!(!dir.root.join("REQ-001.md").exists());
         assert!(target.exists());
+        assert!(Directory::new(dir.root.clone()).is_ok());
+    }
+
+    #[test]
+    fn orphan_delete_defers_file_removal_when_child_write_fails() {
+        let (_tmp, mut dir) = setup_temp_directory();
+        let parent = dir.add_requirement("SYS", String::new()).unwrap();
+        let child = dir.add_requirement("REQ", String::new()).unwrap();
+        dir.link_requirement(child.hrid(), parent.hrid()).unwrap();
+        dir.flush().unwrap();
+
+        // Make the child's rewrite fail by replacing its file with a
+        // directory.
+        let child_path = dir.root.join("REQ-001.md");
+        std::fs::remove_file(&child_path).unwrap();
+        std::fs::create_dir(&child_path).unwrap();
+
+        dir.delete_and_orphan(parent.hrid()).unwrap();
+        assert!(dir.flush().is_err());
+        assert!(
+            dir.root.join("SYS-001.md").exists(),
+            "the parent file must not be removed while an orphaned child could not be rewritten"
+        );
+
+        // Unblock and retry: the flush converges.
+        std::fs::remove_dir(&child_path).unwrap();
+        dir.flush().unwrap();
+        assert!(!dir.root.join("SYS-001.md").exists());
+        assert!(child_path.exists());
         assert!(Directory::new(dir.root.clone()).is_ok());
     }
 }

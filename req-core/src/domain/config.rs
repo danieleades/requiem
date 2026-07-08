@@ -95,6 +95,22 @@ impl Config {
         let mut tmp = tempfile::NamedTempFile::new_in(dir).map_err(|e| write_err(&e))?;
         tmp.write_all(content.as_bytes())
             .map_err(|e| write_err(&e))?;
+
+        // The temp file is created owner-only on Unix and persist replaces
+        // the destination inode; carry over the destination's existing
+        // permissions (or the conventional 0o644 for new files).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let permissions = std::fs::metadata(path).map_or_else(
+                |_| std::fs::Permissions::from_mode(0o644),
+                |metadata| metadata.permissions(),
+            );
+            tmp.as_file()
+                .set_permissions(permissions)
+                .map_err(|e| write_err(&e))?;
+        }
+
         tmp.persist(path).map_err(|e| write_err(&e))?;
         Ok(())
     }
