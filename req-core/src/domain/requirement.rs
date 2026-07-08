@@ -102,7 +102,8 @@ impl ContentRef<'_> {
         // detection, not adversarial integrity checks.
         let hash = xxh3_128(&encoded);
 
-        // Convert to a fixed-width lowercase hex string.
+        // Encode the full 128-bit value as a fixed-width lowercase hex string.
+        // This is 32 hex characters (16 bytes), with no digest truncation.
         format!("{hash:032x}")
     }
 }
