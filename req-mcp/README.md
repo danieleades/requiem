@@ -22,9 +22,12 @@ The server listens on stdin/stdout for JSON-RPC messages (MCP protocol).
 - **`review`**: List suspect parent-child links with fingerprint drift
 - **`create_requirement_kind`**: Create a new requirement kind
 - **`create_requirement`**: Create a new requirement with optional parent links
+- **`update_requirement`**: Update the title, body, and/or tags of an existing requirement in place
+- **`link_requirement`** / **`unlink_requirement`**: Manage parent-child traceability links between existing requirements
+- **`delete_requirement`**: Delete a requirement, with `refuse`/`orphan`/`cascade` handling for children and a dry-run preview
 - **`review_requirement`**: Mark a suspect parent-child link as reviewed
 
-Planned but not yet available: text search and in-place requirement updates.
+Planned but not yet available: cross-kind text search.
 
 ## Local Setup
 
