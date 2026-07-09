@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `req export summary` generates mdBook `SUMMARY.md` navigation from the requirements graph, writing only between `<!-- requiem:summary:start/end -->` markers so hand-written chapters are preserved; `--check` mode fails CI when navigation has drifted ([#90](https://github.com/danieleades/requiem/issues/90))
+
 ## [0.1.1](https://github.com/danieleades/requiem/compare/v0.1.0...v0.1.1) - 2025-11-14
 
 ### Added

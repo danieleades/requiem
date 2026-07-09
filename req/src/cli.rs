@@ -10,6 +10,7 @@ mod config;
 mod create;
 mod delete;
 mod diagnose;
+mod export;
 mod init;
 mod kind;
 mod link;
@@ -137,6 +138,10 @@ pub enum Command {
 
     /// Diagnose path-related issues
     Diagnose(diagnose::Command),
+
+    /// Export documentation artifacts generated from the requirements graph
+    #[command(subcommand)]
+    Export(export::Command),
 }
 
 impl Default for Command {
@@ -164,6 +169,7 @@ impl Command {
             Self::Rename(command) => command.run(root)?,
             Self::Move(command) => command.run(&root)?,
             Self::Diagnose(command) => command.run(&root)?,
+            Self::Export(command) => command.run(root)?,
         }
         Ok(())
     }

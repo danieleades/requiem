@@ -159,7 +159,7 @@ When using Requiem with MdBook or Sphinx, you can embed requirements directly in
 ```markdown
 ## Plain Text Storage
 
-{{#include ../requirements/USR-001.md}}
+\{{#include ../requirements/USR-001.md}}
 
 Requirements are stored as simple markdown files.
 ```

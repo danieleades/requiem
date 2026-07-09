@@ -253,7 +253,7 @@ Use with **MdBook** or **Sphinx** to embed requirements in user documentation:
 ```markdown
 # User Guide - Data Export
 
-{{#include ../requirements/USR-001.md}}
+\{{#include ../requirements/USR-001.md}}
 
 To export data, click the Export button...
 ```

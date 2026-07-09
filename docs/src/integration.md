@@ -48,7 +48,7 @@ MdBook and Sphinx can include requirement files in generated documentation:
 
 ## Requirements
 
-{{#include ./requirements/USR-001.md}}
+\{{#include ./requirements/USR-001.md}}
 ```
 
 Requirements stay synchronized with documentation automatically.

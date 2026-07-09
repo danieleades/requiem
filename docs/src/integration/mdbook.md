@@ -1,15 +1,16 @@
 # Using with MdBook
 
-[MdBook](https://github.com/rust-lang/mdBook) is a popular tool for creating documentation from Markdown files. Requiem integrates seamlessly with MdBook, allowing requirements to live alongside documentation.
+[MdBook](https://github.com/rust-lang/mdBook) is a popular tool for creating documentation from Markdown files. Requiem integrates with MdBook so that requirements live alongside documentation and publish as part of the same book — with navigation that is generated from the requirements themselves, not maintained by hand.
 
 ## Overview
 
-Requiem requirements are Markdown files, making them naturally compatible with MdBook. You can:
+Requiem requirements are Markdown files, making them naturally compatible with MdBook. The integration has three parts:
 
-- Include requirements in your MdBook table of contents
-- Embed requirements in documentation chapters
-- Mix requirements with narrative documentation
-- Generate complete documentation sites with embedded requirements
+1. **Generated navigation**: `req export summary` keeps a marked section of `SUMMARY.md` in sync with the requirements on disk
+2. **Frontmatter stripping**: the `mdbook-yml-header` preprocessor removes YAML frontmatter from rendered pages
+3. **Embedding**: MdBook's `\{{#include}}` can transclude requirements into narrative chapters
+
+This book is itself the working example: the [Example Project](../requirements.md) section's navigation is generated, and every requirement page you can browse here is a real requirement file.
 
 ## Basic Setup
 
@@ -17,20 +18,21 @@ Requiem requirements are Markdown files, making them naturally compatible with M
 
 ```
 my-book/
-├── book.toml          ← MdBook configuration
+├── book.toml              ← MdBook configuration
 └── src/
-    ├── SUMMARY.md     ← Table of contents
-    ├── config.toml    ← Requiem configuration
-    ├── chapter1.md    ← Documentation
-    ├── USR-001.md     ← Requirement
-    └── USR-002.md     ← Requirement
+    ├── SUMMARY.md         ← Table of contents (with generated section)
+    ├── .req/
+    │   └── config.toml    ← Requiem configuration
+    ├── chapter1.md        ← Documentation
+    ├── USR-001.md         ← Requirement
+    └── USR-002.md         ← Requirement
 ```
 
 ### Requiem Configuration
 
 Since the `src/` directory contains both requirements and documentation, configure Requiem to allow non-requirement files:
 
-**src/config.toml**:
+**src/.req/config.toml**:
 ```toml
 _version = "1"
 allow_unrecognised = true  # Important: allows chapter1.md, SUMMARY.md, etc.
@@ -46,15 +48,21 @@ authors = ["Your Name"]
 language = "en"
 src = "src"
 
-[build]
-build-dir = "book"
+# Strips YAML frontmatter from rendered pages
+[preprocessor.yml-header]
 ```
 
-No special MdBook configuration needed for Requiem requirements!
+Install the preprocessor alongside MdBook:
 
-## Including Requirements in Table of Contents
+```sh
+cargo install mdbook mdbook-yml-header@0.1.4
+```
 
-Requirements can be listed in `SUMMARY.md` like any other chapter:
+## Generated Navigation
+
+MdBook only renders chapters listed in `SUMMARY.md`. Maintaining that list by hand is brittle: every requirement you add, rename, or move needs a matching edit, and the navigation silently rots when you forget.
+
+Instead, mark a region of `SUMMARY.md` as owned by Requiem:
 
 **src/SUMMARY.md**:
 ```markdown
@@ -62,28 +70,73 @@ Requirements can be listed in `SUMMARY.md` like any other chapter:
 
 [Introduction](./introduction.md)
 
-# Requirements
-
-- [User Requirements](./user-requirements.md)
-  - [USR-001: User Authentication](./USR-001.md)
-  - [USR-002: Data Export](./USR-002.md)
-  - [USR-003: Email Validation](./USR-003.md)
-
-- [System Requirements](./system-requirements.md)
-  - [SYS-001: Authentication Service](./SYS-001.md)
-  - [SYS-002: Export API](./SYS-002.md)
-
 # User Guide
 
 - [Getting Started](./getting-started.md)
-- [Features](./features.md)
+
+# Requirements
+
+<!-- requiem:summary:start -->
+<!-- requiem:summary:end -->
 ```
 
-Requirements appear as chapters in the generated book. The HRID in the first heading (e.g., `# USR-001 User Authentication`) becomes the page title automatically.
+Then generate the navigation:
+
+```sh
+req --root src export summary
+```
+
+Requiem fills the marked region with an entry for every requirement, grouped by namespace and kind:
+
+```markdown
+<!-- requiem:summary:start -->
+- [CORE]()
+  - [USR]()
+    - [CORE-USR-001: Plain Text Storage](./requirements/CORE/USR/001.md)
+    - [CORE-USR-002: Unique and Stable Identifiers](./requirements/CORE/USR/002.md)
+  - [SYS]()
+    - [CORE-SYS-001: Markdown File Format](./requirements/CORE/SYS/001.md)
+<!-- requiem:summary:end -->
+```
+
+Everything **outside** the markers is never touched — Requiem does not own your book, only the requirements section of it. Hand-written chapters, part titles, and ordering are preserved exactly. If the markers are missing, the command tells you what to add rather than guessing where the section belongs.
+
+The group headers (`[CORE]()`, `[USR]()`) are MdBook [draft chapters](https://rust-lang.github.io/mdBook/format/summary.html): they appear in the navigation as unclickable section labels.
+
+Re-run the command whenever requirements change, or let a file-watcher run it for you. The command is idempotent — if nothing changed, the file is left alone.
+
+### Keeping Navigation Honest in CI
+
+Use `--check` to fail the build when the generated section has drifted (exits with code 2):
+
+```yaml
+- name: Check mdBook navigation is up to date
+  run: req --root src export summary --check
+```
+
+If the file lives somewhere other than `<root>/SUMMARY.md`, point at it explicitly:
+
+```sh
+req --root docs/src/requirements export summary --file docs/src/SUMMARY.md --check
+```
+
+(This is how this repository's own CI is configured.)
+
+## Frontmatter
+
+MdBook does not parse YAML frontmatter, so without help the metadata block renders as visible text at the top of every requirement page. The [`mdbook-yml-header`](https://crates.io/crates/mdbook-yml-header) preprocessor strips it at build time:
+
+```toml
+[preprocessor.yml-header]
+```
+
+With the preprocessor enabled, requirement pages render from their first heading (`# USR-001 Title`), which MdBook uses as the page title — the HRID stays visible and linkable.
+
+> **Note**: pin `mdbook-yml-header@0.1.4`; version 0.1.5 is incompatible with current MdBook releases.
 
 ## Embedding Requirements
 
-Use MdBook's include feature to embed requirements in documentation chapters:
+Use MdBook's include feature to embed a requirement in a narrative chapter:
 
 **src/user-guide.md**:
 ```markdown
@@ -93,422 +146,114 @@ Use MdBook's include feature to embed requirements in documentation chapters:
 
 Our authentication system satisfies the following requirement:
 
-\{{#include USR-001.md}}
+\{{#include ./requirements/USR-001.md}}
 
 To log in, navigate to...
 ```
 
-When MdBook builds, `USR-001.md` content is embedded directly.
+The `yml-header` preprocessor does not process include expansions, so prefer anchors or line ranges that skip the frontmatter when embedding, e.g. `\{{#include ./requirements/USR-001.md:6:}}`. Be aware that line offsets are fragile: adding a parent link or tag to a requirement grows its frontmatter and shifts the line numbers. Where possible, link to the requirement's page instead of transcluding it.
 
-### Selective Inclusion
+## Linking to Requirements
 
-Include only the requirement body (skip frontmatter but keep the heading):
+Link between requirements and documentation using standard Markdown links:
 
 ```markdown
-\{{#include USR-001.md:6:}}
+This behaviour is specified by [CORE-SYS-001](./requirements/CORE/SYS/001.md).
 ```
 
-This skips the YAML frontmatter and includes the heading and body.
-
-**Line counting**:
-```markdown
----                    ← Line 1
-_version: '1'
-uuid: ...
-created: ...
----                    ← Line 5
-# USR-001 Title        ← Line 6 (keep this!)
-
-Requirement text...    ← Line 7 onwards
-```
-
-Adjust the line number based on your frontmatter length. The heading with the HRID should typically be kept as it provides context.
-
-## Formatting Requirements
-
-### Display Frontmatter
-
-To show frontmatter in documentation:
-
-**src/requirements-format.md**:
-```markdown
-# Requirement Format
-
-Requirements include metadata in YAML frontmatter:
-
-\{{#include USR-001.md}}
-```
-
-MdBook renders the entire file, including frontmatter as a code block.
-
-### Hide Frontmatter
-
-To show only the requirement text:
-
-**Option 1: Use line ranges**
-```markdown
-\{{#include USR-001.md:7:}}
-```
-
-**Option 2: Create requirement summary files**
-
-**src/usr-001-summary.md**:
-```markdown
-<!-- Manually maintained summary without frontmatter -->
-The system shall validate user email addresses according to RFC 5322.
-```
-
-Then include the summary file in documentation.
-
-### Custom Formatting with Preprocessors
-
-For advanced formatting (e.g., extracting specific fields), use MdBook preprocessors:
-
-- [mdbook-linkcheck](https://github.com/Michael-F-Bryan/mdbook-linkcheck) - Validate links
-- [mdbook-toc](https://github.com/badboy/mdbook-toc) - Generate table of contents
-- Custom preprocessor - Extract HRID, UUID, parent links from frontmatter
+With namespace folders enabled (`subfolders_are_namespaces = true`), a requirement's path is derived from its HRID: `CORE-SYS-001` lives at `CORE/SYS/001.md`. `req sync` keeps files at their canonical paths, and the generated navigation always reflects the current layout.
 
 ## Working Example
 
 See the complete example in the Requiem repository:
 
 ```bash
-git clone https://github.com/danieleades/requirements-manager
-cd requirements-manager/examples/mdbook
+git clone https://github.com/danieleades/requiem
+cd requiem/examples/mdbook
 ```
 
-### Example Structure
+Build it:
 
-```
-examples/mdbook/
-├── book.toml
-├── src/
-│   ├── SUMMARY.md
-│   ├── chapter_1.md
-│   ├── USR-001.md
-│   └── USR-002.md
-└── README.md
-```
-
-### Build the Example
-
-1. Install MdBook:
 ```bash
-cargo install mdbook
-```
-
-2. Build the book:
-```bash
+cargo install mdbook mdbook-yml-header@0.1.4
 mdbook build
 ```
 
-3. View output:
+To regenerate its navigation after changing requirements:
+
 ```bash
-mdbook serve --open
+req --root src export summary
 ```
 
-Your browser opens showing the documentation with requirements included.
+## CI Pipeline
 
-## Best Practices
-
-### 1. Organize by Type
-
-Group requirements in `SUMMARY.md`:
-
-```markdown
-# Summary
-
-# User Requirements
-- [USR-001](./USR-001.md)
-- [USR-002](./USR-002.md)
-
-# System Requirements
-- [SYS-001](./SYS-001.md)
-- [SYS-002](./SYS-002.md)
-```
-
-### 2. Use Subdirectories
-
-For large projects, organize requirements in subdirectories:
-
-```
-src/
-├── SUMMARY.md
-├── requirements/
-│   ├── user/
-│   │   ├── USR-001.md
-│   │   └── USR-002.md
-│   └── system/
-│       ├── SYS-001.md
-│       └── SYS-002.md
-└── guides/
-    └── user-guide.md
-```
-
-**SUMMARY.md**:
-```markdown
-# Summary
-
-# Requirements
-- [User Requirements](./requirements/user/USR-001.md)
-- [System Requirements](./requirements/system/SYS-001.md)
-```
-
-### 3. Link Requirements
-
-Link between requirements using standard Markdown links:
-
-**USR-001.md**:
-```markdown
-This requirement is implemented by [SYS-001](./SYS-001.md).
-```
-
-MdBook generates clickable links in the output.
-
-### 4. Embed in Context
-
-Embed requirements in relevant documentation sections:
-
-**user-guide.md**:
-```markdown
-# User Guide
-
-## Email Validation
-
-\{{#include requirements/USR-003.md:7:}}
-
-To validate emails, the system checks...
-```
-
-Keeps requirements and documentation synchronized.
-
-### 5. Separate Config
-
-Use separate `config.toml` for Requiem:
-
-```
-src/
-├── config.toml      ← Requiem config (allow_unrecognised = true)
-├── book.toml        ← Don't confuse with MdBook config
-└── ...
-```
-
-Note: MdBook's config is `book.toml` in the root, not in `src/`.
-
-## Limitations
-
-### Frontmatter Rendering
-
-MdBook doesn't parse YAML frontmatter specially. It renders as:
-
-```
----
-_version: '1'
-uuid: 4bfeb7d5-...
-created: 2025-07-22T12:19:56.950194157Z
----
-
-Requirement text...
-```
-
-The frontmatter appears as a code block (triple-dash markers).
-
-**Workaround**: Use line ranges to skip frontmatter (see [Formatting Requirements](#formatting-requirements)).
-
-### No Dynamic Traceability
-
-MdBook doesn't generate traceability matrices or parent-child diagrams automatically.
-
-**Workaround**: Generate diagrams with external tools and include as images:
-
-```markdown
-# Traceability
-
-![Requirement Hierarchy](./diagrams/traceability.svg)
-```
-
-### No HRID Validation
-
-MdBook doesn't validate requirement references.
-
-**Workaround**: Use CI to validate:
+A typical CI job validates the requirements and the navigation before building:
 
 ```yaml
-# .github/workflows/docs.yml
 - name: Validate requirements
-  run: req clean
-  working-directory: ./src
+  run: req --root src validate
+
+- name: Check navigation is up to date
+  run: req --root src export summary --check
 
 - name: Build documentation
   run: mdbook build
 ```
 
-## Advanced Techniques
-
-### Generating Traceability Pages
-
-Use scripts to generate traceability documentation:
-
-**generate-traceability.sh**:
-```bash
-#!/bin/bash
-# Generate a markdown page showing parent-child relationships
-
-echo "# Requirement Traceability" > traceability.md
-echo "" >> traceability.md
-
-for req in USR-*.md; do
-    hrid=$(basename "$req" .md)
-    echo "## $hrid" >> traceability.md
-    # Extract and format parent links
-    # ...
-done
-```
-
-Run before MdBook build:
-
-```bash
-./generate-traceability.sh
-mdbook build
-```
-
-### Custom MdBook Preprocessor
-
-Create a preprocessor to enhance requirement rendering:
-
-**Rust preprocessor example**:
-```rust
-// Extract HRID and UUID from frontmatter
-// Add custom formatting
-// Generate cross-reference links
-```
-
-See [MdBook documentation](https://rust-lang.github.io/mdBook/format/configuration/preprocessors.html) for details.
-
-### GitHub Pages Deployment
-
-Host your requirements documentation:
-
-```yaml
-# .github/workflows/deploy.yml
-name: Deploy Documentation
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Install MdBook
-        run: cargo install mdbook
-      - name: Build book
-        run: mdbook build
-        working-directory: ./docs
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs/book
-```
-
-## Example Documentation Structure
-
-Comprehensive documentation with requirements:
-
-```
-docs/
-├── book.toml
-└── src/
-    ├── SUMMARY.md
-    ├── config.toml             ← Requiem config
-    │
-    ├── introduction.md          ← Narrative docs
-    ├── architecture.md
-    ├── getting-started.md
-    │
-    ├── requirements/            ← Requirements
-    │   ├── user/
-    │   │   ├── USR-001.md
-    │   │   └── USR-002.md
-    │   ├── system/
-    │   │   ├── SYS-001.md
-    │   │   └── SYS-002.md
-    │   └── traceability.md      ← Generated
-    │
-    └── user-guide/              ← User guides
-        ├── authentication.md    ← Embeds USR-001, SYS-001
-        └── export.md            ← Embeds USR-002, SYS-002
-```
-
 ## Troubleshooting
 
-### Requirements Not Appearing in Book
+### "no '<!-- requiem:summary:start -->' marker found"
 
-**Problem**: Requirements listed in `SUMMARY.md` don't appear.
+**Problem**: `req export summary` refuses to run.
 
-**Diagnosis**:
-1. Check file paths in `SUMMARY.md` are correct
-2. Ensure files exist at specified paths
-3. Run `mdbook build -v` for verbose output
+**Explanation**: Requiem only writes into an explicitly marked region, because `SUMMARY.md` usually contains hand-written content it must not overwrite.
 
-**Solution**: Verify paths match file structure exactly.
+**Solution**: Add the marker pair to `SUMMARY.md` where the generated entries should go:
 
-### Frontmatter Renders as Code Block
+```markdown
+<!-- requiem:summary:start -->
+<!-- requiem:summary:end -->
+```
 
-**Problem**: YAML frontmatter shows as markdown code block.
+### Frontmatter Renders as Text
 
-**Explanation**: Expected behavior. MdBook doesn't parse YAML frontmatter.
+**Problem**: YAML frontmatter shows at the top of requirement pages.
 
-**Solution**: Use line ranges to skip frontmatter (see [Selective Inclusion](#selective-inclusion)).
+**Solution**: Enable the `yml-header` preprocessor in `book.toml` and install `mdbook-yml-header@0.1.4`.
 
 ### Requiem Validation Fails
 
-**Problem**: `req clean` reports errors about non-requirement files.
+**Problem**: `req validate` reports errors about non-requirement files.
 
-**Solution**: Set `allow_unrecognised = true` in `config.toml`:
+**Solution**: Set `allow_unrecognised = true` in `src/.req/config.toml`:
 
 ```toml
 _version = "1"
 allow_unrecognised = true
 ```
 
-### Includes Don't Work
+### Requirements Not Appearing in Book
 
-**Problem**: `\{{#include USR-001.md}}` doesn't embed content.
+**Problem**: Requirement files exist but don't appear in the built book.
 
-**Diagnosis**:
-1. Check file path is correct relative to including file
-2. Check MdBook version (includes supported in 0.3.0+)
+**Explanation**: MdBook only renders chapters listed in `SUMMARY.md`.
 
-**Solution**: Use correct relative paths:
-```markdown
-\{{#include ./USR-001.md}}  # If in same directory
-\{{#include ../requirements/USR-001.md}}  # If in subdirectory
-```
+**Solution**: Run `req export summary` so every requirement is listed in the generated section.
 
 ## Summary
 
 **Key Points**:
 
-- Requiem requirements are compatible with MdBook out of the box
-- Set `allow_unrecognised = true` in Requiem config when mixing with docs
-- Include requirements in `SUMMARY.md` or embed with `\{{#include}}`
-- Use line ranges to skip frontmatter if desired
-- Combine requirements with narrative documentation for comprehensive docs
-
-**Benefits**:
-- Single source of truth
-- Requirements stay synchronized with docs
-- Easy navigation and search
-- Professional-looking documentation
+- Add `<!-- requiem:summary:start/end -->` markers to `SUMMARY.md` and run `req export summary` — never hand-maintain requirement navigation
+- Content outside the markers is yours; Requiem never touches it
+- Use `req export summary --check` in CI to catch drift
+- Use the `mdbook-yml-header` preprocessor (pinned to 0.1.4) to strip frontmatter
+- Set `allow_unrecognised = true` in `.req/config.toml` when mixing requirements with docs
 
 **Limitations**:
-- Frontmatter renders as code block
-- No automatic traceability diagrams
-- No HRID validation (use external tools)
+
+- Rendered pages don't yet show parent/child traceability links (planned: an `mdbook-requiem` preprocessor rendering traceability footers)
+- Embedding via `\{{#include}}` still requires care with frontmatter line offsets
 
 ## Next Steps
 

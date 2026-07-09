@@ -366,8 +366,8 @@ The `_version` field allows future format changes:
 
 Want to see actual requirement files following this format? Browse the [Example Project](../requirements.md) which contains 21 real requirements used by Requiem itself:
 
-- [USR-001: Plain Text Storage](../requirements/USR-001.md) - Simple user requirement
-- [SYS-001: Markdown File Format with YAML Frontmatter](../requirements/SYS-001.md) - System requirement with parent link
+- [USR-001: Plain Text Storage](../requirements/CORE/USR/001.md) - Simple user requirement
+- [SYS-001: Markdown File Format with YAML Frontmatter](../requirements/CORE/SYS/001.md) - System requirement with parent link
 
 These demonstrate the file format in practice with proper frontmatter, parent links, and well-structured content.
 

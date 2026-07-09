@@ -1,6 +1,6 @@
 # Design Assessment: Sphinx and mdBook Integration
 
-Status: draft for discussion
+Status: Phases 0–1 implemented on this branch (`req export summary`, dogfooded on the project book, `--check` wired into CI); Phase 2 (`mdbook-requiem` preprocessor) not started — `mdbook-yml-header` covers frontmatter stripping in the interim
 Related: CORE-USR-005, CORE-SYS-006, CORE-SYS-007, CORE-SYS-035, CORE-DFT-016 ([#90](https://github.com/danieleades/requiem/issues/90))
 
 ## 1. Summary
