@@ -139,11 +139,16 @@ impl Directory {
     /// changes the requirement's fingerprint, so links from its children
     /// become suspect and need review.
     ///
+    /// Values are normalized to what the markdown format round-trips: the
+    /// title is trimmed (it lives on the single heading line) and blank lines
+    /// surrounding the body are removed, matching what a reload would produce.
+    ///
     /// Returns `true` if any field actually changed.
     ///
     /// # Errors
     ///
-    /// Returns an error if the requirement does not exist.
+    /// Returns an error if the requirement does not exist or if the title
+    /// spans multiple lines (the heading cannot store it).
     pub fn update_requirement(
         &mut self,
         hrid: &Hrid,
@@ -151,6 +156,14 @@ impl Directory {
         body: Option<String>,
         tags: Option<BTreeSet<String>>,
     ) -> anyhow::Result<bool> {
+        let title = title.map(|title| title.trim().to_string());
+        if let Some(title) = &title {
+            if title.contains(['\n', '\r']) {
+                anyhow::bail!("Title must be a single line");
+            }
+        }
+        let body = body.map(|body| trim_empty_lines(&body));
+
         let Some(view) = self.tree.find_by_hrid(hrid) else {
             anyhow::bail!(
                 "Requirement {} not found",
@@ -785,6 +798,51 @@ mod tests {
         assert_eq!(suspects.len(), 1);
         assert_eq!(&suspects[0].child_hrid, child.hrid());
         assert_eq!(&suspects[0].parent_hrid, parent.hrid());
+    }
+
+    #[test]
+    fn update_requirement_rejects_multiline_title() {
+        let (_tmp, mut dir) = setup_temp_directory();
+        let req = dir
+            .add_requirement("REQ", "# Title\n\nBody".to_string())
+            .unwrap();
+
+        assert!(dir
+            .update_requirement(
+                req.hrid(),
+                Some("Line one\nLine two".to_string()),
+                None,
+                None
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn update_requirement_normalizes_to_round_trippable_content() {
+        let (_tmp, mut dir) = setup_temp_directory();
+        let req = dir
+            .add_requirement("REQ", "# Title\n\nBody".to_string())
+            .unwrap();
+        dir.flush().unwrap();
+
+        dir.update_requirement(
+            req.hrid(),
+            Some("  Padded title  ".to_string()),
+            Some("\n\nPadded body\n\n".to_string()),
+            None,
+        )
+        .unwrap();
+        dir.flush().unwrap();
+
+        // The stored values match what a reload from disk produces.
+        let view = dir.find_by_hrid(req.hrid()).unwrap();
+        let (in_memory_title, in_memory_body) = (view.title.to_string(), view.body.to_string());
+        let reloaded = Directory::new(dir.root.clone()).unwrap();
+        let reloaded_view = reloaded.find_by_hrid(req.hrid()).unwrap();
+        assert_eq!(reloaded_view.title, in_memory_title);
+        assert_eq!(reloaded_view.body, in_memory_body);
+        assert_eq!(in_memory_title, "Padded title");
+        assert_eq!(in_memory_body, "Padded body");
     }
 
     #[test]

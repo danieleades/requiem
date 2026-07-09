@@ -448,10 +448,24 @@ pub(super) async fn update_requirement(
         ));
     }
 
+    // The title lives on the requirement's single markdown heading line, so a
+    // multi-line value cannot round-trip through storage.
+    if let Some(title) = &params.title
+        && title.trim().contains(['\n', '\r'])
+    {
+        return Err(McpError::invalid_params(
+            "`title` must be a single line",
+            Some(json!({ "field": "title" })),
+        ));
+    }
+
     let hrid = ReqMcpServer::parse_hrid(&params.hrid)?;
-    let tags: Option<BTreeSet<String>> = params
-        .tags
-        .map(|tags| tags.into_iter().map(|tag| tag.trim().to_string()).collect());
+    let tags: Option<BTreeSet<String>> = params.tags.map(|tags| {
+        tags.into_iter()
+            .map(|tag| tag.trim().to_string())
+            .filter(|tag| !tag.is_empty())
+            .collect()
+    });
 
     let mut directory = server.state.directory.write().await;
     let digits = directory.config().digits();
@@ -856,6 +870,42 @@ mod tests {
         .await
         .expect("no-op update should succeed");
         assert_eq!(structured(&result)["changed"], Value::Bool(false));
+    }
+
+    #[tokio::test]
+    async fn update_requirement_normalizes_content() {
+        let (_tmp, server) = server_with_root();
+        let hrid = create(&server, "REQ", "Title", vec![]).await;
+
+        // A multi-line title cannot round-trip through the markdown heading.
+        let result = update_requirement(
+            &server,
+            Parameters(UpdateRequirementParams {
+                hrid: hrid.clone(),
+                title: Some("Line one\nLine two".to_string()),
+                body: None,
+                tags: None,
+            }),
+        )
+        .await;
+        assert!(result.is_err());
+
+        // Padding is normalized to what a reload would produce.
+        let result = update_requirement(
+            &server,
+            Parameters(UpdateRequirementParams {
+                hrid,
+                title: Some("  Padded title  ".to_string()),
+                body: Some("\n\nPadded body\n\n".to_string()),
+                tags: Some(vec!["  ".to_string(), "kept".to_string()]),
+            }),
+        )
+        .await
+        .expect("update should succeed");
+        let data = structured(&result);
+        assert_eq!(data["requirement"]["title"], "Padded title");
+        assert_eq!(data["requirement"]["body"], "Padded body");
+        assert_eq!(data["requirement"]["tags"], serde_json::json!(["kept"]));
     }
 
     #[tokio::test]
