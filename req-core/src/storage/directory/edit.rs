@@ -1,6 +1,9 @@
-//! Adding, linking, renaming, moving, and deleting requirements.
+//! Adding, updating, linking, renaming, moving, and deleting requirements.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
 
 use super::Directory;
 use crate::{
@@ -128,6 +131,62 @@ impl Directory {
         );
 
         Ok(requirement)
+    }
+
+    /// Update the title, body, and/or tags of an existing requirement.
+    ///
+    /// Fields passed as `None` are left unchanged. Changing the body or tags
+    /// changes the requirement's fingerprint, so links from its children
+    /// become suspect and need review.
+    ///
+    /// Values are normalized to what the markdown format round-trips: the
+    /// title is trimmed (it lives on the single heading line) and blank lines
+    /// surrounding the body are removed, matching what a reload would produce.
+    ///
+    /// Returns `true` if any field actually changed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the requirement does not exist or if the title
+    /// spans multiple lines (the heading cannot store it).
+    pub fn update_requirement(
+        &mut self,
+        hrid: &Hrid,
+        title: Option<String>,
+        body: Option<String>,
+        tags: Option<BTreeSet<String>>,
+    ) -> anyhow::Result<bool> {
+        let title = title.map(|title| title.trim().to_string());
+        if let Some(title) = &title {
+            if title.contains(['\n', '\r']) {
+                anyhow::bail!("Title must be a single line");
+            }
+        }
+        let body = body.map(|body| trim_empty_lines(&body));
+
+        let Some(view) = self.tree.find_by_hrid(hrid) else {
+            anyhow::bail!(
+                "Requirement {} not found",
+                hrid.display(self.config.digits())
+            );
+        };
+        let uuid = *view.uuid;
+
+        let Some(changed) = self
+            .tree
+            .update_requirement_content(uuid, title, body, tags)
+        else {
+            anyhow::bail!(
+                "Requirement {} not found",
+                hrid.display(self.config.digits())
+            );
+        };
+
+        if changed {
+            self.mark_dirty(uuid);
+        }
+
+        Ok(changed)
     }
 
     /// Link two requirements together with a parent-child relationship.
@@ -655,6 +714,144 @@ mod tests {
 
         // Verify both can be flushed without error
         assert!(dir.flush().is_ok());
+    }
+
+    #[test]
+    fn update_requirement_changes_content_and_persists() {
+        let (_tmp, mut dir) = setup_temp_directory();
+        let req = dir
+            .add_requirement("REQ", "# Old title\n\nOld body".to_string())
+            .unwrap();
+        dir.flush().unwrap();
+
+        let changed = dir
+            .update_requirement(
+                req.hrid(),
+                Some("New title".to_string()),
+                Some("New body".to_string()),
+                Some(["tag1".to_string()].into()),
+            )
+            .unwrap();
+        assert!(changed);
+        dir.flush().unwrap();
+
+        let config = load_config(&dir.root).unwrap();
+        let updated = Requirement::load(&dir.root, req.hrid(), &config).unwrap();
+        assert_eq!(updated.title(), "New title");
+        assert_eq!(updated.body(), "New body");
+        assert_eq!(updated.tags(), &BTreeSet::from(["tag1".to_string()]));
+        // Identity is preserved across content updates.
+        assert_eq!(updated.uuid(), req.uuid());
+    }
+
+    #[test]
+    fn update_requirement_leaves_omitted_fields_unchanged() {
+        let (_tmp, mut dir) = setup_temp_directory();
+        let req = dir
+            .add_requirement("REQ", "# Title\n\nBody".to_string())
+            .unwrap();
+        dir.flush().unwrap();
+
+        let changed = dir
+            .update_requirement(req.hrid(), Some("Renamed".to_string()), None, None)
+            .unwrap();
+        assert!(changed);
+        dir.flush().unwrap();
+
+        let config = load_config(&dir.root).unwrap();
+        let updated = Requirement::load(&dir.root, req.hrid(), &config).unwrap();
+        assert_eq!(updated.title(), "Renamed");
+        assert_eq!(updated.body(), "Body");
+    }
+
+    #[test]
+    fn update_requirement_reports_no_change() {
+        let (_tmp, mut dir) = setup_temp_directory();
+        let req = dir
+            .add_requirement("REQ", "# Title\n\nBody".to_string())
+            .unwrap();
+        dir.flush().unwrap();
+
+        let changed = dir
+            .update_requirement(req.hrid(), Some("Title".to_string()), None, None)
+            .unwrap();
+        assert!(!changed);
+    }
+
+    #[test]
+    fn update_requirement_body_marks_child_links_suspect() {
+        let (_tmp, mut dir) = setup_temp_directory();
+        let parent = dir
+            .add_requirement("SYS", "# Parent\n\nOriginal".to_string())
+            .unwrap();
+        let child = dir.add_requirement("USR", "# Child".to_string()).unwrap();
+        dir.link_requirement(child.hrid(), parent.hrid()).unwrap();
+        dir.flush().unwrap();
+
+        let mut dir = Directory::new(dir.root.clone()).unwrap();
+        assert!(dir.suspect_links().is_empty());
+
+        dir.update_requirement(parent.hrid(), None, Some("Changed".to_string()), None)
+            .unwrap();
+
+        let suspects = dir.suspect_links();
+        assert_eq!(suspects.len(), 1);
+        assert_eq!(&suspects[0].child_hrid, child.hrid());
+        assert_eq!(&suspects[0].parent_hrid, parent.hrid());
+    }
+
+    #[test]
+    fn update_requirement_rejects_multiline_title() {
+        let (_tmp, mut dir) = setup_temp_directory();
+        let req = dir
+            .add_requirement("REQ", "# Title\n\nBody".to_string())
+            .unwrap();
+
+        assert!(dir
+            .update_requirement(
+                req.hrid(),
+                Some("Line one\nLine two".to_string()),
+                None,
+                None
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn update_requirement_normalizes_to_round_trippable_content() {
+        let (_tmp, mut dir) = setup_temp_directory();
+        let req = dir
+            .add_requirement("REQ", "# Title\n\nBody".to_string())
+            .unwrap();
+        dir.flush().unwrap();
+
+        dir.update_requirement(
+            req.hrid(),
+            Some("  Padded title  ".to_string()),
+            Some("\n\nPadded body\n\n".to_string()),
+            None,
+        )
+        .unwrap();
+        dir.flush().unwrap();
+
+        // The stored values match what a reload from disk produces.
+        let view = dir.find_by_hrid(req.hrid()).unwrap();
+        let (in_memory_title, in_memory_body) = (view.title.to_string(), view.body.to_string());
+        let reloaded = Directory::new(dir.root.clone()).unwrap();
+        let reloaded_view = reloaded.find_by_hrid(req.hrid()).unwrap();
+        assert_eq!(reloaded_view.title, in_memory_title);
+        assert_eq!(reloaded_view.body, in_memory_body);
+        assert_eq!(in_memory_title, "Padded title");
+        assert_eq!(in_memory_body, "Padded body");
+    }
+
+    #[test]
+    fn update_requirement_unknown_hrid_errors() {
+        let (_tmp, mut dir) = setup_temp_directory();
+        let missing: Hrid = "REQ-999".parse().unwrap();
+        assert!(dir
+            .update_requirement(&missing, Some("Title".to_string()), None, None)
+            .is_err());
     }
 
     #[test]

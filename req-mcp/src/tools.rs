@@ -177,6 +177,77 @@ impl ReqMcpServer {
     }
 
     #[tool(
+        description = "Update the title, body, and/or tags of an existing requirement in place; \
+                       omitted fields are left unchanged",
+        annotations(
+            title = "Update Requirement",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn update_requirement(
+        &self,
+        params: Parameters<editing::UpdateRequirementParams>,
+    ) -> Result<CallToolResult, McpError> {
+        editing::update_requirement(self, params).await
+    }
+
+    #[tool(
+        description = "Link an existing requirement to a parent (child satisfies parent); \
+                       relinking an existing pair refreshes the stored fingerprint",
+        annotations(
+            title = "Link Requirement",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn link_requirement(
+        &self,
+        params: Parameters<editing::LinkRequirementParams>,
+    ) -> Result<CallToolResult, McpError> {
+        editing::link_requirement(self, params).await
+    }
+
+    #[tool(
+        description = "Remove the parent-child link between two requirements",
+        annotations(
+            title = "Unlink Requirement",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn unlink_requirement(
+        &self,
+        params: Parameters<editing::UnlinkRequirementParams>,
+    ) -> Result<CallToolResult, McpError> {
+        editing::unlink_requirement(self, params).await
+    }
+
+    #[tool(
+        description = "Delete a requirement; mode controls children handling \
+                       (refuse/orphan/cascade) and dryRun previews without changing anything",
+        annotations(
+            title = "Delete Requirement",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn delete_requirement(
+        &self,
+        params: Parameters<editing::DeleteRequirementParams>,
+    ) -> Result<CallToolResult, McpError> {
+        editing::delete_requirement(self, params).await
+    }
+
+    #[tool(
         description = "Mark a suspect link as reviewed by refreshing the stored parent \
                        fingerprint on the child",
         annotations(
@@ -214,8 +285,11 @@ impl ServerHandler for ReqMcpServer {
              repo). Start with list_requirement_kinds, then list_requirements(kind) to get HRIDs. \
              Fetch details with get_requirement(hrid) and traverse with get_children(hrid), \
              get_parents(hrid), get_ancestors(hrid), or get_descendants(hrid). Create new \
-             kinds/requirements with create_requirement_kind and create_requirement. For link \
-             drift, call review to list suspect child→parent links (fingerprint mismatches), then \
+             kinds/requirements with create_requirement_kind and create_requirement. Edit \
+             existing requirements with update_requirement (title/body/tags), manage traceability \
+             with link_requirement and unlink_requirement, and remove requirements with \
+             delete_requirement (mode: refuse/orphan/cascade; dryRun to preview). For link drift, \
+             call review to list suspect child→parent links (fingerprint mismatches), then \
              review_requirement to accept if the child still satisfies the parent."
                 .to_owned(),
         );
