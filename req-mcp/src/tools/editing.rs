@@ -630,8 +630,8 @@ pub(super) async fn delete_requirement(
 
     if params.mode == DeleteMode::Refuse && !children.is_empty() {
         return Err(McpError::invalid_params(
-            "requirement has children; use mode `orphan` to keep them or `cascade` to also \
-             delete orphaned descendants",
+            "requirement has children; use mode `orphan` to keep them or `cascade` to also delete \
+             orphaned descendants",
             Some(json!({
                 "hrid": ReqMcpServer::format_hrid(&hrid, digits),
                 "children": children

@@ -230,8 +230,8 @@ impl ReqMcpServer {
     }
 
     #[tool(
-        description = "Delete a requirement; mode controls children handling (refuse/orphan/\
-                       cascade) and dryRun previews without changing anything",
+        description = "Delete a requirement; mode controls children handling \
+                       (refuse/orphan/cascade) and dryRun previews without changing anything",
         annotations(
             title = "Delete Requirement",
             read_only_hint = false,
@@ -286,10 +286,10 @@ impl ServerHandler for ReqMcpServer {
              Fetch details with get_requirement(hrid) and traverse with get_children(hrid), \
              get_parents(hrid), get_ancestors(hrid), or get_descendants(hrid). Create new \
              kinds/requirements with create_requirement_kind and create_requirement. Edit \
-             existing requirements with update_requirement (title/body/tags), manage \
-             traceability with link_requirement and unlink_requirement, and remove requirements \
-             with delete_requirement (mode: refuse/orphan/cascade; dryRun to preview). For link \
-             drift, call review to list suspect child→parent links (fingerprint mismatches), then \
+             existing requirements with update_requirement (title/body/tags), manage traceability \
+             with link_requirement and unlink_requirement, and remove requirements with \
+             delete_requirement (mode: refuse/orphan/cascade; dryRun to preview). For link drift, \
+             call review to list suspect child→parent links (fingerprint mismatches), then \
              review_requirement to accept if the child still satisfies the parent."
                 .to_owned(),
         );
