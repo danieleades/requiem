@@ -104,8 +104,27 @@ impl Directory {
     /// Returns an error if unrecognised files are found when
     /// `allow_unrecognised` is false in the configuration.
     pub fn new(root: PathBuf) -> Result<Self, DirectoryLoadError> {
+        Self::new_ignoring(root, &[])
+    }
+
+    /// Opens a directory at the given path, treating the given files as if
+    /// they did not exist.
+    ///
+    /// This allows known non-requirement files kept inside the requirements
+    /// root (such as an mdBook `SUMMARY.md`) to be skipped even when
+    /// `allow_unrecognised` is false in the configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if unrecognised files (other than the ignored ones)
+    /// are found when `allow_unrecognised` is false in the configuration.
+    pub fn new_ignoring(root: PathBuf, ignored: &[PathBuf]) -> Result<Self, DirectoryLoadError> {
         let config = load_config(&root)?;
-        let md_paths = collect_markdown_paths(&root)?;
+        let ignored: HashSet<PathBuf> = ignored.iter().map(|path| lexical_absolute(path)).collect();
+        let md_paths: Vec<PathBuf> = collect_markdown_paths(&root)?
+            .into_iter()
+            .filter(|path| !ignored.contains(&lexical_absolute(path)))
+            .collect();
 
         let (requirements, unrecognised_paths): (Vec<_>, Vec<_>) = md_paths
             .par_iter()
@@ -179,6 +198,25 @@ pub(super) fn load_config(root: &Path) -> Result<Config, DirectoryLoadError> {
     } else {
         Ok(Config::default())
     }
+}
+
+/// Make a path absolute and lexically resolve `.`/`..` components, so paths
+/// arrived at via different routes (e.g. `root/../SUMMARY.md` vs
+/// `SUMMARY.md`) compare equal. Purely lexical: symlinks are not resolved and
+/// the path need not exist.
+fn lexical_absolute(path: &Path) -> PathBuf {
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut resolved = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                resolved.pop();
+            }
+            other => resolved.push(other),
+        }
+    }
+    resolved
 }
 
 fn collect_markdown_paths(root: &PathBuf) -> Result<Vec<PathBuf>, DirectoryLoadError> {
@@ -563,5 +601,45 @@ created: 2025-01-01T00:00:00Z
 
         std::fs::set_permissions(&sub, original_perms).unwrap();
         assert!(matches!(result, Err(DirectoryLoadError::Walk(_))));
+    }
+
+    #[test]
+    fn new_ignoring_skips_listed_files_under_strict_config() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let root = tmp.path();
+
+        // Strict config: unrecognised files are rejected.
+        std::fs::create_dir_all(root.join(".req")).unwrap();
+        std::fs::write(
+            root.join(".req/config.toml"),
+            "_version = \"1\"\nallow_unrecognised = false\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            root.join("USR-001.md"),
+            r"---
+_version: '1'
+uuid: 12345678-1234-1234-1234-123456789014
+created: 2025-01-01T00:00:00Z
+---
+# USR-001 Test requirement
+",
+        )
+        .unwrap();
+
+        // A non-requirement file, e.g. an mdBook summary.
+        std::fs::write(root.join("SUMMARY.md"), "# Summary\n").unwrap();
+
+        assert!(matches!(
+            Directory::new(root.to_path_buf()),
+            Err(DirectoryLoadError::UnrecognisedFiles(_))
+        ));
+
+        // Ignoring the summary makes the load succeed, including via an
+        // unnormalized path route.
+        let ignored = [root.join("subdir/../SUMMARY.md")];
+        let dir = Directory::new_ignoring(root.to_path_buf(), &ignored).unwrap();
+        assert_eq!(dir.requirements().count(), 1);
     }
 }

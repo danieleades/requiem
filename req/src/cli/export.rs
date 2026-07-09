@@ -61,7 +61,9 @@ pub struct Summary {
 impl Summary {
     pub fn run(self, root: PathBuf) -> anyhow::Result<()> {
         let file = self.file.unwrap_or_else(|| root.join("SUMMARY.md"));
-        let directory = Directory::new(root)?;
+        // The summary file may live inside the requirements root; it must not
+        // be rejected as an unrecognised requirement under strict configs.
+        let directory = Directory::new_ignoring(root, std::slice::from_ref(&file))?;
 
         let existing = fs::read_to_string(&file)
             .with_context(|| format!("failed to read {}", file.display()))?;
@@ -88,7 +90,8 @@ impl Summary {
                 println!(
                     "{}",
                     format!(
-                        "⚠️  The generated section of {} is out of date. Run 'req export summary' to update it.",
+                        "⚠️  The generated section of {} is out of date. Run 'req export summary' \
+                         to update it.",
                         file.display()
                     )
                     .warning()
@@ -368,11 +371,13 @@ mod tests {
 
     #[test]
     fn splice_replaces_only_the_marked_region() {
-        let existing = "# Summary\n\n- [Intro](./intro.md)\n\n<!-- requiem:summary:start -->\nstale\n<!-- requiem:summary:end -->\n\n# Reference\n";
+        let existing = "# Summary\n\n- [Intro](./intro.md)\n\n<!-- requiem:summary:start \
+                        -->\nstale\n<!-- requiem:summary:end -->\n\n# Reference\n";
         let result = splice(existing, "- [USR]()\n").unwrap();
         assert_eq!(
             result,
-            "# Summary\n\n- [Intro](./intro.md)\n\n<!-- requiem:summary:start -->\n- [USR]()\n<!-- requiem:summary:end -->\n\n# Reference\n"
+            "# Summary\n\n- [Intro](./intro.md)\n\n<!-- requiem:summary:start -->\n- \
+             [USR]()\n<!-- requiem:summary:end -->\n\n# Reference\n"
         );
     }
 
@@ -394,15 +399,49 @@ mod tests {
         )
         .is_err());
         assert!(splice(
-            "<!-- requiem:summary:start -->\n<!-- requiem:summary:start -->\n<!-- requiem:summary:end -->",
+            "<!-- requiem:summary:start -->\n<!-- requiem:summary:start -->\n<!-- \
+             requiem:summary:end -->",
             "x"
         )
         .is_err());
         assert!(splice(
-            "<!-- requiem:summary:start -->\n<!-- requiem:summary:end -->\n<!-- requiem:summary:end -->",
+            "<!-- requiem:summary:start -->\n<!-- requiem:summary:end -->\n<!-- \
+             requiem:summary:end -->",
             "x"
         )
         .is_err());
+    }
+
+    #[test]
+    fn run_updates_default_summary_under_strict_config() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+
+        // Default config from `req init`: allow_unrecognised = false. The
+        // summary file itself must still not be rejected as unrecognised.
+        std::fs::create_dir_all(root.join(".req")).unwrap();
+        std::fs::write(root.join(".req/config.toml"), "_version = \"1\"\n").unwrap();
+        std::fs::write(
+            root.join("USR-001.md"),
+            "---\n_version: '1'\nuuid: 12345678-1234-1234-1234-123456789012\ncreated: \
+             2025-01-01T00:00:00Z\n---\n# USR-001 Test requirement\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("SUMMARY.md"),
+            "# Summary\n\n<!-- requiem:summary:start -->\n<!-- requiem:summary:end -->\n",
+        )
+        .unwrap();
+
+        let command = Summary {
+            file: None,
+            check: false,
+            quiet: true,
+        };
+        command.run(root.to_path_buf()).unwrap();
+
+        let summary = std::fs::read_to_string(root.join("SUMMARY.md")).unwrap();
+        assert!(summary.contains("- [USR-001: Test requirement](./USR-001.md)"));
     }
 
     #[test]
