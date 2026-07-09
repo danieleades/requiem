@@ -196,6 +196,43 @@ impl Tree {
         })
     }
 
+    /// Updates the content of the requirement with the given UUID.
+    ///
+    /// Fields passed as `None` are left unchanged. Returns `None` when no
+    /// requirement with this UUID exists, otherwise whether any field actually
+    /// changed.
+    pub fn update_requirement_content(
+        &mut self,
+        uuid: Uuid,
+        title: Option<String>,
+        body: Option<String>,
+        tags: Option<BTreeSet<String>>,
+    ) -> Option<bool> {
+        let data = self.requirements.get_mut(&uuid)?;
+
+        let mut changed = false;
+        if let Some(title) = title {
+            if data.title != title {
+                data.title = title;
+                changed = true;
+            }
+        }
+        if let Some(body) = body {
+            if data.body != body {
+                data.body = body;
+                changed = true;
+            }
+        }
+        if let Some(tags) = tags {
+            if data.tags != tags {
+                data.tags = tags;
+                changed = true;
+            }
+        }
+
+        Some(changed)
+    }
+
     /// Retrieves a requirement by UUID as a borrowed view.
     ///
     /// Note: Since UUID is passed by value, we need to find a way to get a
