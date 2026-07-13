@@ -98,6 +98,10 @@ jobs:
         run: mdbook build
         working-directory: examples/mdbook
 
+      - name: Build documentation book
+        run: mdbook build
+        working-directory: docs
+
   example-sphinx:
     runs-on: ubuntu-latest
     steps:
@@ -114,6 +118,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Check requirements health (suspect links and paths)
         run: cargo run --bin req -- -r docs/src/requirements status
+      - name: Check mdBook navigation is up to date
+        run: cargo run --bin req -- -r docs/src/requirements export summary --file docs/src/SUMMARY.md --check
 
   dependabot:
     needs:

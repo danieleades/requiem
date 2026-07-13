@@ -40,7 +40,8 @@ docs/
 ├── conf.py             ← Sphinx configuration
 ├── index.md            ← Main documentation
 ├── requirements/       ← Requirements directory
-│   ├── config.toml     ← Requiem configuration
+│   ├── .req/
+│   │   └── config.toml ← Requiem configuration
 │   ├── USR-001.md
 │   ├── USR-002.md
 │   ├── SYS-001.md
@@ -67,7 +68,6 @@ exclude_patterns = [
     '_build',
     'Thumbs.db',
     '.DS_Store',
-    'requirements/config.toml',  # Exclude Requiem config
 ]
 
 html_theme = 'alabaster'  # Or your preferred theme
@@ -77,7 +77,7 @@ html_theme = 'alabaster'  # Or your preferred theme
 
 Since requirements live in a subdirectory with other Sphinx content, configure Requiem appropriately:
 
-**requirements/config.toml**:
+**requirements/.req/config.toml**:
 ```toml
 _version = "1"
 # Strict mode OK here since requirements are in dedicated directory
@@ -86,9 +86,9 @@ allow_unrecognised = false
 
 ## Including Requirements
 
-### Option 1: Direct Inclusion via Table of Contents
+### Option 1: Glob Toctree (Recommended)
 
-Create a toctree including requirement files:
+Use a glob pattern so new requirements are picked up automatically — no toctree maintenance as requirements are added, renamed, or removed:
 
 **index.md**:
 ```markdown
@@ -98,15 +98,14 @@ Create a toctree including requirement files:
 
 \```{toctree}
 :maxdepth: 2
+:glob: true
 
 guides/user-guide
-requirements/USR-001
-requirements/USR-002
-requirements/SYS-001
+requirements/*
 \```
 ```
 
-Requirements appear as pages in generated documentation with the HRID-containing heading as the page title.
+Requirements appear as pages in generated documentation with the HRID-containing heading as the page title. Requirements can also be listed explicitly (`requirements/USR-001`) when you want manual control over ordering, at the cost of maintaining the list by hand.
 
 ### Option 2: Include Directive
 
@@ -208,7 +207,7 @@ Keep requirements in a separate directory:
 docs/
 ├── conf.py
 ├── requirements/          ← Requirements
-│   ├── config.toml
+│   ├── .req/config.toml
 │   └── *.md
 └── guides/               ← Other docs
     └── *.md
@@ -221,7 +220,7 @@ docs/
 
 ### 2. Create Requirement Indexes
 
-Generate index pages for requirement types:
+Create index pages per requirement type with glob patterns, so they never drift:
 
 **requirements/user-requirements.md**:
 ```markdown
@@ -229,10 +228,9 @@ Generate index pages for requirement types:
 
 \```{toctree}
 :maxdepth: 1
+:glob: true
 
-USR-001
-USR-002
-USR-003
+USR-*
 \```
 ```
 

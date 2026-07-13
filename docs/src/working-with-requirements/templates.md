@@ -324,7 +324,7 @@ Example: For `AUTH-USR-001`, create `.req/templates/AUTH-USR.md`
 
 Want to see templates in action? Check out the templates used by the Requiem project itself:
 
-- [USR Template](../requirements/.req/templates/USR.md) - User requirements template with Statement, Rationale, and Acceptance Criteria sections
-- [SYS Template](../requirements/.req/templates/SYS.md) - System requirements template with Statement, Implementation Notes, and Verification sections
+- [USR Template](https://github.com/danieleades/requiem/blob/main/docs/src/requirements/.req/templates/USR.md) - User requirements template with Statement, Rationale, and Acceptance Criteria sections
+- [SYS Template](https://github.com/danieleades/requiem/blob/main/docs/src/requirements/.req/templates/SYS.md) - System requirements template with Statement, Implementation Notes, and Verification sections
 
 These templates are used to create all requirements in the [Example Project](../requirements.md), demonstrating professional structure and best practices.
