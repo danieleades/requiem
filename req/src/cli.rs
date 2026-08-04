@@ -6,6 +6,7 @@ use std::{
     path::PathBuf,
 };
 
+mod complete;
 mod config;
 mod create;
 mod delete;
@@ -142,6 +143,9 @@ pub enum Command {
     /// Export documentation artifacts generated from the requirements graph
     #[command(subcommand)]
     Export(export::Command),
+
+    /// Generate shell completion scripts
+    Complete(complete::Command),
 }
 
 impl Default for Command {
@@ -170,6 +174,7 @@ impl Command {
             Self::Move(command) => command.run(&root)?,
             Self::Diagnose(command) => command.run(&root)?,
             Self::Export(command) => command.run(root)?,
+            Self::Complete(command) => command.run(),
         }
         Ok(())
     }
